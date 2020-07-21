@@ -226,7 +226,7 @@ func skipToEnd(yylex interface{}) {
 %type <statement> analyze_statement show_statement use_statement other_statement
 %type <statement> begin_statement commit_statement rollback_statement savepoint_statement release_statement
 %type <bytes2> comment_opt comment_list
-%type <str> union_op insert_or_replace explain_format_opt wild_opt
+%type <str> union_op insert_or_replace explain_format_opt wild_opt alter_option alter_options
 %type <bytes> explain_synonyms
 %type <str> distinct_opt cache_opt match_option separator_opt
 %type <expr> like_escape_opt
@@ -1371,7 +1371,14 @@ table_opt_value:
     $$ = string($1)
   }
 
+alter_table:
+
 alter_statement:
+  ALTER TABLE table_name alter_options
+  {
+    $$ = &DDL{Action: AlterStr, Table: $3, AlterOptionsSpec: $4}
+  }
+|
   ALTER ignore_opt TABLE table_name non_add_drop_or_rename_operation skip_to_end
   {
     $$ = &DDL{Action: AlterStr, Table: $4}
@@ -1479,9 +1486,29 @@ alter_statement:
     }
   }
 
+alter_option:
+  ADD alter_object_type
+  {
+    $$ = "ADD" + " " + string($2)
+  }
+// | ADD COLUMN column_definition
+// | ADD column_definition
+// | CHANGE alter_object_type
+// | DROP alter_object_type 
+// | MODIFY alter_object_type
+
+alter_options:
+  alter_option
+  {
+    $$ = string($1)
+  }
+| alter_options ',' alter_option
+  {
+    $$ = $1 + ", " + $3
+  }
+
 alter_object_type:
   CHECK
-| COLUMN
 | CONSTRAINT
 | FOREIGN
 | FULLTEXT
@@ -3645,7 +3672,6 @@ non_reserved_keyword:
 | FLUSH
 | FOLLOWING
 | FOREIGN
-| FORMAT
 | FULLTEXT
 | GEOMCOLLECTION
 | GEOMETRY
@@ -3756,7 +3782,6 @@ non_reserved_keyword:
 | TINYINT
 | TINYTEXT
 | TRANSACTION
-| TREE
 | TRIGGER
 | TRUNCATE
 | UNBOUNDED
@@ -3771,7 +3796,6 @@ non_reserved_keyword:
 | VINDEX
 | VINDEXES
 | VISIBLE
-| VITESS
 | VITESS_METADATA
 | VSCHEMA
 | WARNINGS
