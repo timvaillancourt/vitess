@@ -1,11 +1,11 @@
 name: 'Upstream Sync'
 on:
   schedule:
-    - cron:  '*/5 * * * *'
+    - cron:  '*/15 * * * *'
   workflow_dispatch:
 jobs:
   sync_from_upstream:
-    name: Sync with github.com/vitessio/vitess
+    name: Sync from upstream
     runs-on: ubuntu-latest
     strategy:
       matrix:
