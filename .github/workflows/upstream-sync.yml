@@ -17,9 +17,6 @@ jobs:
     steps:
     - name: Checkout target
       uses: actions/checkout@v2
-      with:
-        ref: ${{ matrix.branch }}
-        persist-credentials: false
 
     - name: Sync from upstream
       id: sync
