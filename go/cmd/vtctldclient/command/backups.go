@@ -36,8 +36,6 @@ var GetBackups = &cobra.Command{
 }
 
 var getBackupsOptions = struct {
-	Limit      uint32
-	OutputJSON bool
 	Limit         uint32
 	Detailed      bool
 	DetailedLimit uint32
@@ -53,9 +51,6 @@ func commandGetBackups(cmd *cobra.Command, args []string) error {
 	cli.FinishedParsing(cmd)
 
 	resp, err := client.GetBackups(commandCtx, &vtctldatapb.GetBackupsRequest{
-		Keyspace: keyspace,
-		Shard:    shard,
-		Limit:    getBackupsOptions.Limit,
 		Keyspace:      keyspace,
 		Shard:         shard,
 		Limit:         getBackupsOptions.Limit,
@@ -66,7 +61,7 @@ func commandGetBackups(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if getBackupsOptions.OutputJSON || || getBackupsOptions.Detailed {
+	if getBackupsOptions.OutputJSON || getBackupsOptions.Detailed {
 		data, err := cli.MarshalJSON(resp)
 		if err != nil {
 			return err
