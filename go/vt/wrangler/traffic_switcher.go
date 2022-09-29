@@ -1610,6 +1610,14 @@ func (ts *trafficSwitcher) deleteRoutingRules(ctx context.Context) error {
 	return nil
 }
 
+func (wr *Wrangler) getRoutingRules(ctx context.Context) (map[string][]string, error) {
+	return topotools.GetRoutingRules(ctx, wr.ts)
+}
+
+func (wr *Wrangler) saveRoutingRules(ctx context.Context, rules map[string][]string) error {
+	return topotools.SaveRoutingRules(ctx, wr.ts, rules)
+}
+
 // addParticipatingTablesToKeyspace updates the vschema with the new tables that were created as part of the
 // Migrate flow. It is called when the Migrate flow is Completed
 func (ts *trafficSwitcher) addParticipatingTablesToKeyspace(ctx context.Context, keyspace, tableSpecs string) error {
