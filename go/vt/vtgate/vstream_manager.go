@@ -442,6 +442,7 @@ func (vs *vstream) getCells(ctx context.Context) []string {
 	// if fallback requested in VTGate startup and no override provided in gRPC request,
 	// perform cell alias fallback
 	if *vstreamCellAliasFallback && len(cells) == 0 {
+		log.Info("[VSTREAM MANAGER] no cells specified by client, falling back to alias...\n")
 		// append the alias this cell belongs to, otherwise appends the vtgate's cell
 		alias := []string{topo.GetAliasByCell(ctx, vs.ts, vs.vsm.cell)}
 		// an alias was actually found
@@ -456,6 +457,8 @@ func (vs *vstream) getCells(ctx context.Context) []string {
 		// use the vtgate's cell by default
 		cells = append(cells, vs.vsm.cell)
 	}
+
+	log.Infof("[VSTREAM MANAGER] cells to pick from %v\n", cells)
 	return cells
 }
 

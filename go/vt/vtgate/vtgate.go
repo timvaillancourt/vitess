@@ -202,6 +202,8 @@ func Init(ctx context.Context, serv srvtopo.Server, cell string, tabletTypesToWa
 	sc := NewScatterConn("VttabletCall", tc, gw)
 	srvResolver := srvtopo.NewResolver(serv, gw, cell)
 	resolver := NewResolver(srvResolver, serv, cell, sc)
+
+	log.Infof("[VTGATE START] vstream cell aliasa fallback: %s\n", &vstreamCellAliasFallback)
 	vsm := newVStreamManager(srvResolver, serv, cell)
 
 	var si SchemaInfo // default nil
