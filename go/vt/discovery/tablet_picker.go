@@ -173,6 +173,14 @@ func (tp *TabletPicker) PickForStreaming(ctx context.Context) (*topodatapb.Table
 			if tp.inOrder {
 				sameCellCandidates = tp.orderByTabletType(sameCellCandidates)
 				allOtherCandidates = tp.orderByTabletType(allOtherCandidates)
+			} else {
+				// Randomize candidates
+				rand.Shuffle(len(sameCellCandidates), func(i, j int) {
+					sameCellCandidates[i], sameCellCandidates[j] = sameCellCandidates[j], sameCellCandidates[i]
+				})
+				rand.Shuffle(len(allOtherCandidates), func(i, j int) {
+					allOtherCandidates[i], allOtherCandidates[j] = allOtherCandidates[j], allOtherCandidates[i]
+				})
 			}
 			candidates = append(sameCellCandidates, allOtherCandidates...)
 		} else if tp.inOrder {
