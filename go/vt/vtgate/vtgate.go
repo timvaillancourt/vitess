@@ -95,8 +95,6 @@ var (
 
 	enableSchemaChangeSignal = flag.Bool("schema_change_signal", false, "Enable the schema tracker; requires queryserver-config-schema-change-signal to be enabled on the underlying vttablets for this to work")
 	schemaChangeUser         = flag.String("schema_change_signal_user", "", "User to be used to send down query to vttablet to retrieve schema changes")
-
-	vstreamCellAliasFallback = flag.Bool("vstream_cell_alias_fallback", false, "By default, when no tablets can be found in the local cell for a VStream, also look for tablets in a cell alias which includes the local cell")
 )
 
 func getTxMode() vtgatepb.TransactionMode {
@@ -202,8 +200,6 @@ func Init(ctx context.Context, serv srvtopo.Server, cell string, tabletTypesToWa
 	sc := NewScatterConn("VttabletCall", tc, gw)
 	srvResolver := srvtopo.NewResolver(serv, gw, cell)
 	resolver := NewResolver(srvResolver, serv, cell, sc)
-
-	log.Infof("[VTGATE START] vstream cell aliasa fallback: %s\n", &vstreamCellAliasFallback)
 	vsm := newVStreamManager(srvResolver, serv, cell)
 
 	var si SchemaInfo // default nil
