@@ -849,7 +849,7 @@ message RealtimeStats {
   // TODO(mberlin): Let's switch it to int64 instead?
   uint32 replication_lag_seconds = 2;
 
-  // bin_log_players_count is the number of currently running binlog players.
+  // binlog_players_count is the number of currently running binlog players.
   // if the value is 0, it means that filtered replication is currently not
   // running on the tablet. If >0, filtered replication is running.
   // NOTE: This field must not be evaluated if "health_error" is not empty.
@@ -871,6 +871,9 @@ message RealtimeStats {
 
   // table_schema_changed is to provide list of tables that have schema changes detected by the tablet.
   repeated string table_schema_changed = 7;
+
+  // uptime_seconds indicates the uptime of the MySQL server in seconds.
+  uint64 uptime_seconds = 8;
 }
 
 // AggregateStats contains information about the health of a group of

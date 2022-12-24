@@ -94,6 +94,18 @@ func (mysqlFlavor) gtidMode(c *Conn) (string, error) {
 	return qr.Rows[0][0].ToString(), nil
 }
 
+// uptime is part of the Flavor interface.
+func (mysqlFlavor) uptime(c *Conn) (uint64, error) {
+	qr, err := c.ExecuteFetch("SELECT @@uptime", 1, false)
+	if err != nil {
+		return -1, err
+	}
+	if len(qr.Rows) != 1 || len(qr.Rows[0]) != 1 {
+		return "", vterrors.Errorf(vtrpc.Code_INTERNAL, "unexpected result format for uptime: %#v", qr)
+	}
+	return qr.Rows[0][0].ToUint64()
+}
+
 func (mysqlFlavor) startReplicationCommand() string {
 	return "START SLAVE"
 }
@@ -254,8 +266,6 @@ func parseMysqlPrimaryStatus(resultMap map[string]string) (PrimaryStatus, error)
 
 	return status, nil
 }
-
-// waitUntilPositionCommand is part of the Flavor interface.
 
 // waitUntilPositionCommand is part of the Flavor interface.
 func (mysqlFlavor) waitUntilPositionCommand(ctx context.Context, pos Position) (string, error) {

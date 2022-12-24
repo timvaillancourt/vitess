@@ -87,6 +87,9 @@ type flavor interface {
 	// serverUUID returns the UUID of a server.
 	serverUUID(c *Conn) (string, error)
 
+	// uptime returns the uptime of a server in seconds.
+	uptime(c *Conn) (uint64, error)
+
 	// startReplicationCommand returns the command to start the replication.
 	startReplicationCommand() string
 
@@ -587,4 +590,9 @@ func (c *Conn) BaseShowTablesWithSizes() string {
 // SupportsCapability checks if the database server supports the given capability
 func (c *Conn) SupportsCapability(capability FlavorCapability) (bool, error) {
 	return c.flavor.supportsCapability(c.ServerVersion, capability)
+}
+
+// Uptime returns the uptime of the server in seconds.
+func (c *Conn) Uptime() (uint64, error) {
+	return c.flavor.uptime(c)
 }

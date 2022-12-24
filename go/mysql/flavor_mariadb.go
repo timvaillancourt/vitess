@@ -68,6 +68,18 @@ func (mariadbFlavor) gtidMode(c *Conn) (string, error) {
 	return "", nil
 }
 
+// uptime is part of the Flavor interface.
+func (mariadbFlavor) uptime(c *Conn) (uint64, error) {
+	qr, err := c.ExecuteFetch("SELECT @@uptime", 1, false)
+	if err != nil {
+		return -1, err
+	}
+	if len(qr.Rows) != 1 || len(qr.Rows[0]) != 1 {
+		return "", vterrors.Errorf(vtrpc.Code_INTERNAL, "unexpected result format for uptime: %#v", qr)
+	}
+	return qr.Rows[0][0].ToUint64()
+}
+
 func (mariadbFlavor) startReplicationUntilAfter(pos Position) string {
 	return fmt.Sprintf("START SLAVE UNTIL master_gtid_pos = \"%s\"", pos)
 }

@@ -94,6 +94,11 @@ func (flv *filePosFlavor) serverUUID(c *Conn) (string, error) {
 	return qr.Rows[0][0].ToString(), nil
 }
 
+// uptime is part of the Flavor interface.
+func (flv *filePosFlavor) uptime(c *Conn) (uint64, error) {
+	return 0, nil
+}
+
 func (flv *filePosFlavor) startReplicationCommand() string {
 	return "unsupported"
 }
