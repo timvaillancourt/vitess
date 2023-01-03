@@ -411,14 +411,14 @@ func (vs *vstream) alignStreams(ctx context.Context, event *binlogdatapb.VEvent,
 	}
 }
 
-// getCells determines the availability zones to select tablets from.
+// getCells determines the availability zones to select tablets from
 // 2 scenarios:
 //
 // 1. No cells specified by the client via the gRPC request:
 // Tablets from the local cell AND the cell alias that the VTGate's local cell belongs to will be selected.
 // The local cell of the VTGate will take precendence over any other cell in the alias.
 //
-// 3. Cells are specified by the client via the gRPC request
+// 2. Cells are specified by the client via the gRPC request
 // These cells will take precendence over the default cell and its alias and only tablets belonging to
 // the specified cells will be selected.
 // If the "local" tag is passed in as an option in the list of optCells,
@@ -441,18 +441,13 @@ func (vs *vstream) getCells(ctx context.Context) []string {
 	if len(cells) == 0 {
 		log.Info("[VSTREAM MANAGER] no cells specified by client, falling back to alias...")
 		// append the alias this cell belongs to, otherwise appends the vtgate's cell
-		alias := []string{topo.GetAliasByCell(ctx, vs.ts, vs.vsm.cell)}
+		alias := topo.GetAliasByCell(ctx, vs.ts, vs.vsm.cell)
 		// an alias was actually found
-		if alias[0] != vs.vsm.cell {
+		if alias != vs.vsm.cell {
 			// send in the vtgate's cell for local cell preference
 			cells = append(cells, fmt.Sprintf("local:%s", vs.vsm.cell))
 		}
-		cells = append(cells, alias...)
-	}
-
-	if len(cells) == 0 {
-		// use the vtgate's cell by default
-		cells = append(cells, vs.vsm.cell)
+		cells = append(cells, alias)
 	}
 
 	log.Infof("[VSTREAM MANAGER] cells to pick from %v", cells)
