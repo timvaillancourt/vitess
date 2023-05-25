@@ -832,6 +832,10 @@ func (te *testQueryEngine) Open() error {
 	return nil
 }
 
+func (te *testQueryEngine) GetConnPoolUsage() float64 {
+	return 1.234
+}
+
 func (te *testQueryEngine) IsMySQLReachable() error {
 	if te.failMySQL {
 		te.failMySQL = false

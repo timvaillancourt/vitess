@@ -882,6 +882,9 @@ message RealtimeStats {
 
   // view_schema_changed is to provide list of views that have schema changes detected by the tablet.
   repeated string view_schema_changed = 8;
+
+  // conn_pool_usage provides the capacity of the vttablet conn pool.
+  double conn_pool_usage = 9;
 }
 
 // AggregateStats contains information about the health of a group of

@@ -34,6 +34,60 @@ import (
 	"vitess.io/vitess/go/vt/vterrors"
 )
 
+func TestShouldThrottleQuery(t *testing.T) {
+	shouldThrottleQueryRandIntFunc = func() int { return 42 }
+	{
+		// disabled
+		throttleTabletConnPoolUsageThreshold = 0
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{},
+		}
+		assert.False(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{}))
+	}
+	{
+		// priority 0 (never throttle)
+		throttleTabletConnPoolUsageThreshold = 90
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{ConnPoolUsage: 99},
+		}
+		assert.False(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{Priority: "0"}))
+	}
+	{
+		// default priority
+		queryDefaultPriority = 66
+		throttleTabletConnPoolUsageThreshold = 50
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{ConnPoolUsage: 99},
+		}
+		assert.True(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{Priority: ""}))
+	}
+	{
+		// default priority on error
+		queryDefaultPriority = 25
+		throttleTabletConnPoolUsageThreshold = 10
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{ConnPoolUsage: 99},
+		}
+		assert.False(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{Priority: "wont-parse"}))
+	}
+	{
+		// below usage threshold (no throttle)
+		throttleTabletConnPoolUsageThreshold = 90
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{ConnPoolUsage: 5},
+		}
+		assert.False(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{Priority: "99"}))
+	}
+	{
+		// enabled + exhausted conn pool (throttle)
+		throttleTabletConnPoolUsageThreshold = 90
+		th := &discovery.TabletHealth{
+			Stats: &querypb.RealtimeStats{ConnPoolUsage: 99},
+		}
+		assert.True(t, shouldThrottleQuery(th, &querypb.ExecuteOptions{Priority: "99"}))
+	}
+}
+
 func TestTabletGatewayExecute(t *testing.T) {
 	testTabletGatewayGeneric(t, func(tg *TabletGateway, target *querypb.Target) error {
 		_, err := tg.Execute(context.Background(), target, "query", nil, 0, 0, nil)

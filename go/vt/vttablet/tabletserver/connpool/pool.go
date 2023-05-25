@@ -304,6 +304,15 @@ func (cp *Pool) Active() int64 {
 	return p.Active()
 }
 
+// Usage returns the connection pool usage as a percentage
+func (cp *Pool) Usage() float64 {
+	p := cp.pool()
+	if p == nil {
+		return 0
+	}
+	return (float64(p.Active()) / float64(p.Capacity()) * 100)
+}
+
 // InUse returns the number of in-use connections in the pool
 func (cp *Pool) InUse() int64 {
 	p := cp.pool()

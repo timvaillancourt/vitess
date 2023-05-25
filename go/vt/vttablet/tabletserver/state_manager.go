@@ -153,6 +153,7 @@ type (
 
 	queryEngine interface {
 		Open() error
+		GetConnPoolUsage() float64
 		IsMySQLReachable() error
 		Close()
 	}
@@ -664,7 +665,7 @@ func (sm *stateManager) Broadcast() {
 	defer sm.mu.Unlock()
 
 	lag, err := sm.refreshReplHealthLocked()
-	sm.hs.ChangeState(sm.target.TabletType, sm.terTimestamp, lag, err, sm.isServingLocked())
+	sm.hs.ChangeState(sm.target.TabletType, sm.terTimestamp, lag, err, sm.isServingLocked(), sm.qe.GetConnPoolUsage())
 }
 
 func (sm *stateManager) refreshReplHealthLocked() (time.Duration, error) {

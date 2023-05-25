@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/srvtopo"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
@@ -52,6 +54,10 @@ var (
 	initialTabletTimeout = 30 * time.Second
 	// retryCount is the number of times a query will be retried on error
 	retryCount = 2
+
+	queryDefaultPriority                 int
+	throttleTabletConnPoolUsageThreshold float64
+	shouldThrottleQueryRandIntFunc       = func() int { return rand.Intn(sqlparser.MaxPriorityValue) }
 )
 
 func init() {
@@ -60,6 +66,8 @@ func init() {
 		fs.StringVar(&bufferImplementation, "buffer_implementation", "keyspace_events", "Allowed values: healthcheck (legacy implementation), keyspace_events (default)")
 		fs.DurationVar(&initialTabletTimeout, "gateway_initial_tablet_timeout", 30*time.Second, "At startup, the tabletGateway will wait up to this duration to get at least one tablet per keyspace/shard/tablet type")
 		fs.IntVar(&retryCount, "retry-count", 2, "retry count")
+		fs.IntVar(&queryDefaultPriority, "query-default-priority", 0, "Default priority assigned to queries that lack priority information")
+		fs.Float64Var(&throttleTabletConnPoolUsageThreshold, "throttle-tablet-connpool-usage", 0, "Percent of replica tablet usage to begin throttling read traffic, 0 = disabled")
 	})
 }
 
@@ -86,6 +94,24 @@ type TabletGateway struct {
 
 func createHealthCheck(ctx context.Context, retryDelay, timeout time.Duration, ts *topo.Server, cell, cellsToWatch string) discovery.HealthCheck {
 	return discovery.NewHealthCheck(ctx, retryDelay, timeout, ts, cell, cellsToWatch)
+}
+
+// shouldThrottleQuery returns true when a tablet queryservice requires throttling due to high
+// conn pool usage. The threshold for high conn pool usage is defined by the flag:
+// --throttle-tablet-connpool-usage. The flag --query-default-priority is used
+// when no priority directive is provided.
+func shouldThrottleQuery(th *discovery.TabletHealth, options *querypb.ExecuteOptions) bool {
+	if th.Stats == nil {
+		return false
+	}
+	if th.Stats.GetConnPoolUsage() >= throttleTabletConnPoolUsageThreshold {
+		priority, err := strconv.Atoi(options.GetPriority())
+		if err != nil {
+			priority = queryDefaultPriority
+		}
+		return shouldThrottleQueryRandIntFunc() < priority
+	}
+	return false
 }
 
 // NewTabletGateway creates and returns a new TabletGateway
@@ -243,7 +269,8 @@ func (gw *TabletGateway) CacheStatus() TabletCacheStatusList {
 // withRetry also adds shard information to errors returned from the inner QueryService, so
 // withShardError should not be combined with withRetry.
 func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, _ queryservice.QueryService,
-	_ string, inTransaction bool, inner func(ctx context.Context, target *querypb.Target, conn queryservice.QueryService) (bool, error)) error {
+	_ string, inTransaction bool, options *querypb.ExecuteOptions,
+	inner func(ctx context.Context, target *querypb.Target, conn queryservice.QueryService) (bool, error)) error {
 	// for transactions, we connect to a specific tablet instead of letting gateway choose one
 	if inTransaction && target.TabletType != topodatapb.TabletType_PRIMARY {
 		return vterrors.Errorf(vtrpcpb.Code_INTERNAL, "tabletGateway's query service can only be used for non-transactional queries on replicas")
@@ -345,6 +372,13 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 
 		gw.updateDefaultConnCollation(tabletLastUsed)
 
+		// throttle queries to tablets if connpool usage threshold > 0.
+		// depending on retries, the query may succeed on another tablet.
+		// this logic assumes the query service only receives reads.
+		if throttleTabletConnPoolUsageThreshold > 0 && !inTransaction && shouldThrottleQuery(th, options) {
+			return vterrors.New(vtrpcpb.Code_RESOURCE_EXHAUSTED, "query throttled")
+		}
+
 		startTime := time.Now()
 		var canRetry bool
 		canRetry, err = inner(ctx, target, th.Conn)
@@ -360,7 +394,7 @@ func (gw *TabletGateway) withRetry(ctx context.Context, target *querypb.Target, 
 
 // withShardError adds shard information to errors returned from the inner QueryService.
 func (gw *TabletGateway) withShardError(ctx context.Context, target *querypb.Target, conn queryservice.QueryService,
-	_ string, _ bool, inner func(ctx context.Context, target *querypb.Target, conn queryservice.QueryService) (bool, error)) error {
+	_ string, _ bool, options *querypb.ExecuteOptions, inner func(ctx context.Context, target *querypb.Target, conn queryservice.QueryService) (bool, error)) error {
 	_, err := inner(ctx, target, conn)
 	return NewShardError(err, target)
 }
