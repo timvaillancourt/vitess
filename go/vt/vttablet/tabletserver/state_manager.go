@@ -154,6 +154,7 @@ type (
 
 	queryEngine interface {
 		Open() error
+		GetConnPoolUsagePercent() float64
 		IsMySQLReachable() error
 		Close()
 	}
