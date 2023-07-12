@@ -179,6 +179,11 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.TwoPCEnable, "twopc_enable", defaultConfig.TwoPCEnable, "if the flag is on, 2pc is enabled. Other 2pc flags must be supplied.")
 	fs.StringVar(&currentConfig.TwoPCCoordinatorAddress, "twopc_coordinator_address", defaultConfig.TwoPCCoordinatorAddress, "address of the (VTGate) process(es) that will be used to notify of abandoned transactions.")
 	SecondsVar(fs, &currentConfig.TwoPCAbandonAge, "twopc_abandon_age", defaultConfig.TwoPCAbandonAge, "time in seconds. Any unresolved transaction older than this time will be sent to the coordinator to be resolved.")
+	// Query throttler config
+	fs.BoolVar(&currentConfig.EnableQueryThrottler, "enable-query-throttler", defaultConfig.EnableQueryThrottler, "If true throttling on low-priority queries will be enabled.")
+	fs.IntVar(&currentConfig.QueryThrottlerPoolThreshold, "query-throttler-pool-threshold", defaultConfig.QueryThrottlerPoolThreshold, "query pool usage percent to trigger query throttling")
+	fs.IntVar(&currentConfig.QueryThrottlerDefaultPriority, "query-throttler-default-priority", defaultConfig.QueryThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information")
+
 	// Tx throttler config
 	flagutil.DualFormatBoolVar(fs, &currentConfig.EnableTxThrottler, "enable_tx_throttler", defaultConfig.EnableTxThrottler, "If true replication-lag-based throttling on transactions will be enabled.")
 	flagutil.DualFormatVar(fs, currentConfig.TxThrottlerConfig, "tx_throttler_config", "The configuration of the transaction throttler as a text-formatted throttlerdata.Configuration protocol buffer message.")
@@ -359,6 +364,10 @@ type TabletConfig struct {
 	TwoPCEnable             bool    `json:"-"`
 	TwoPCCoordinatorAddress string  `json:"-"`
 	TwoPCAbandonAge         Seconds `json:"-"`
+
+	EnableQueryThrottler          bool `json:"-"`
+	QueryThrottlerPoolThreshold   int  `json:"-"`
+	QueryThrottlerDefaultPriority int  `json:"-"`
 
 	EnableTxThrottler           bool                          `json:"-"`
 	TxThrottlerConfig           *TxThrottlerConfigFlag        `json:"-"`
