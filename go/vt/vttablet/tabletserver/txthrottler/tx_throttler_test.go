@@ -33,6 +33,7 @@ import (
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 
 	querypb "vitess.io/vitess/go/vt/proto/query"
@@ -43,13 +44,16 @@ func TestDisabledThrottler(t *testing.T) {
 	config := tabletenv.NewDefaultConfig()
 	config.EnableTxThrottler = false
 	env := tabletenv.NewEnv(config, t.Name())
-	throttler := NewTxThrottler(env, nil)
+	throttler := NewTxThrottler(env, nil, newMockQueryEngine())
 	throttler.InitDBConfig(&querypb.Target{
 		Keyspace: "keyspace",
 		Shard:    "shard",
 	})
 	assert.Nil(t, throttler.Open())
-	assert.False(t, throttler.Throttle(0))
+	assert.False(t, throttler.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "0"},
+	))
 	throttlerImpl, _ := throttler.(*txThrottler)
 	assert.Zero(t, throttlerImpl.throttlerRunning.Get())
 	throttler.Close()
@@ -113,9 +117,12 @@ func TestEnabledThrottler(t *testing.T) {
 	config.EnableTxThrottler = true
 	config.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 	config.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA}
+	config.TxThrottlerQueryPoolThresholdSoft = 66.66
+	config.TxThrottlerQueryPoolThresholdHard = 80
 
 	env := tabletenv.NewEnv(config, t.Name())
-	throttler := NewTxThrottler(env, ts)
+	queryEngine := newMockQueryEngine()
+	throttler := NewTxThrottler(env, ts, queryEngine)
 	throttlerImpl, _ := throttler.(*txThrottler)
 	assert.NotNil(t, throttlerImpl)
 	throttler.InitDBConfig(&querypb.Target{
@@ -125,9 +132,14 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Nil(t, throttlerImpl.Open())
 	assert.Equal(t, int64(1), throttlerImpl.throttlerRunning.Get())
 
-	assert.False(t, throttlerImpl.Throttle(100))
-	assert.Equal(t, int64(1), throttlerImpl.requestsTotal.Get())
-	assert.Zero(t, throttlerImpl.requestsThrottled.Get())
+	assert.False(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanBegin},
+		&querypb.ExecuteOptions{Priority: "100"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String(): 1,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Len(t, throttlerImpl.requestsThrottled.Counts(), 0)
 
 	throttlerImpl.state.StatsUpdate(tabletStats) // This calls replication lag thing
 	rdonlyTabletStats := &discovery.TabletHealth{
@@ -138,14 +150,80 @@ func TestEnabledThrottler(t *testing.T) {
 	// This call should not be forwarded to the go/vt/throttlerImpl.Throttler object.
 	throttlerImpl.state.StatsUpdate(rdonlyTabletStats)
 	// The second throttle call should reject.
-	assert.True(t, throttlerImpl.Throttle(100))
-	assert.Equal(t, int64(2), throttlerImpl.requestsTotal.Get())
-	assert.Equal(t, int64(1), throttlerImpl.requestsThrottled.Get())
+	assert.True(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "100"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String():  1,
+		planbuilder.PlanInsert.String(): 1,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+	}, throttlerImpl.requestsThrottled.Counts())
 
 	// This call should not throttle due to priority. Check that's the case and counters agree.
-	assert.False(t, throttlerImpl.Throttle(0))
-	assert.Equal(t, int64(3), throttlerImpl.requestsTotal.Get())
-	assert.Equal(t, int64(1), throttlerImpl.requestsThrottled.Get())
+	assert.False(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "0"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String():  1,
+		planbuilder.PlanInsert.String(): 2,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Test select + query conn pool signal, which is below threshold. This call should not throttle.
+	queryEngine.SetConnPoolUsagePercent(12.345)
+	assert.False(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
+		&querypb.ExecuteOptions{Priority: "100"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String():  1,
+		planbuilder.PlanInsert.String(): 2,
+		planbuilder.PlanSelect.String(): 1,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
+	queryEngine.SetConnPoolUsagePercent(75)
+	assert.True(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
+		&querypb.ExecuteOptions{Priority: "100"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String():  1,
+		planbuilder.PlanInsert.String(): 2,
+		planbuilder.PlanSelect.String(): 2,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String():    1,
+		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageSoft.String(): 1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
+	queryEngine.SetConnPoolUsagePercent(99.999)
+	assert.True(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
+		&querypb.ExecuteOptions{Priority: "1"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String():  1,
+		planbuilder.PlanInsert.String(): 2,
+		planbuilder.PlanSelect.String(): 3,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String():    1,
+		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageSoft.String(): 1,
+		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageHard.String(): 1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Close throttler.
 	throttlerImpl.Close()
 	assert.Zero(t, throttlerImpl.throttlerRunning.Get())
 }
@@ -157,7 +235,7 @@ func TestNewTxThrottler(t *testing.T) {
 	{
 		// disabled
 		config.EnableTxThrottler = false
-		throttler := NewTxThrottler(env, nil)
+		throttler := NewTxThrottler(env, nil, newMockQueryEngine())
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)
@@ -168,7 +246,7 @@ func TestNewTxThrottler(t *testing.T) {
 		config.EnableTxThrottler = true
 		config.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 		config.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA}
-		throttler := NewTxThrottler(env, nil)
+		throttler := NewTxThrottler(env, nil, newMockQueryEngine())
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)

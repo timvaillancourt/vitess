@@ -184,7 +184,7 @@ func NewTabletServer(name string, config *tabletenv.TabletConfig, topoServer *to
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
-	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer)
+	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer, tsv.qe)
 	tsv.te = NewTxEngine(tsv)
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
@@ -494,7 +494,8 @@ func (tsv *TabletServer) begin(ctx context.Context, target *querypb.Target, save
 		target, options, false, /* allowOnShutdown */
 		func(ctx context.Context, logStats *tabletenv.LogStats) error {
 			startTime := time.Now()
-			if tsv.txThrottler.Throttle(tsv.getPriorityFromOptions(options)) {
+			plan := &planbuilder.Plan{PlanID: planbuilder.PlanBegin}
+			if tsv.txThrottler.Throttle(plan, options) {
 				return errTxThrottled
 			}
 			var connSetting *pools.Setting
@@ -524,30 +525,6 @@ func (tsv *TabletServer) begin(ctx context.Context, target *querypb.Target, save
 		},
 	)
 	return state, err
-}
-
-func (tsv *TabletServer) getPriorityFromOptions(options *querypb.ExecuteOptions) int {
-	priority := tsv.config.TxThrottlerDefaultPriority
-	if options == nil {
-		return priority
-	}
-	if options.Priority == "" {
-		return priority
-	}
-
-	optionsPriority, err := strconv.Atoi(options.Priority)
-	// This should never error out, as the value for Priority has been validated in the vtgate already.
-	// Still, handle it just to make sure.
-	if err != nil {
-		log.Errorf(
-			"The value of the %s query directive could not be converted to integer, using the "+
-				"default value. Error was: %s",
-			sqlparser.DirectivePriority, priority, err)
-
-		return priority
-	}
-
-	return optionsPriority
 }
 
 // Commit commits the specified transaction.
