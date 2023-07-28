@@ -321,9 +321,9 @@ func (qe *QueryEngine) Close() {
 	log.Info("Query Engine: closed")
 }
 
-// GetConnPoolUsagePercent returns the capacity of the query
+// GetPoolUsagePercent returns the capacity of the query
 // engine conn pool as a percentage.
-func (qe *QueryEngine) GetConnPoolUsagePercent() float64 {
+func (qe *QueryEngine) GetPoolUsagePercent() float64 {
 	return qe.conns.UsagePercent()
 }
 

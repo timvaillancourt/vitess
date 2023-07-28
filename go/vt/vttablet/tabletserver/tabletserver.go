@@ -495,8 +495,8 @@ func (tsv *TabletServer) begin(ctx context.Context, target *querypb.Target, save
 		func(ctx context.Context, logStats *tabletenv.LogStats) error {
 			startTime := time.Now()
 			plan := &planbuilder.Plan{PlanID: planbuilder.PlanBegin}
-			if tsv.txThrottler.Throttle(plan, options) {
-				return errTxThrottled
+			if err := tsv.txThrottler.Throttle(plan, options); err != nil {
+				return err
 			}
 			var connSetting *pools.Setting
 			if len(settings) > 0 {

@@ -80,8 +80,6 @@ var (
 			Type: sqltypes.Int64,
 		},
 	}
-	errQueryThrottled = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Query throttled")
-	errTxThrottled    = vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "Transaction throttled")
 )
 
 func returnStreamResult(result *sqltypes.Result) error {
@@ -171,8 +169,8 @@ func (qre *QueryExecutor) Execute() (reply *sqltypes.Result, err error) {
 
 	switch qre.plan.PlanID {
 	case p.PlanSelect, p.PlanSelectImpossible, p.PlanShow:
-		if qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options) {
-			return nil, errQueryThrottled
+		if err := qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options); err != nil {
+			return nil, err
 		}
 
 		maxrows := qre.getSelectLimit()
@@ -226,8 +224,8 @@ func (qre *QueryExecutor) execAutocommit(f func(conn *StatefulConnection) (*sqlt
 	}
 	qre.options.TransactionIsolation = querypb.ExecuteOptions_AUTOCOMMIT
 
-	if qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options) {
-		return nil, errTxThrottled
+	if err := qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options); err != nil {
+		return nil, err
 	}
 
 	conn, _, _, err := qre.tsv.te.txPool.Begin(qre.ctx, qre.options, false, 0, nil, qre.setting)
@@ -241,8 +239,8 @@ func (qre *QueryExecutor) execAutocommit(f func(conn *StatefulConnection) (*sqlt
 }
 
 func (qre *QueryExecutor) execAsTransaction(f func(conn *StatefulConnection) (*sqltypes.Result, error)) (*sqltypes.Result, error) {
-	if qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options) {
-		return nil, errTxThrottled
+	if err := qre.tsv.txThrottler.Throttle(qre.plan.Plan, qre.options); err != nil {
+		return nil, err
 	}
 	conn, beginSQL, _, err := qre.tsv.te.txPool.Begin(qre.ctx, qre.options, false, 0, nil, qre.setting)
 	if err != nil {
