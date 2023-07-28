@@ -46,7 +46,7 @@ func TestDisabledThrottler(t *testing.T) {
 	config := tabletenv.NewDefaultConfig()
 	config.EnableTxThrottler = false
 	env := tabletenv.NewEnv(config, t.Name())
-	throttler := NewTxThrottler(env, nil, newMockPoolUsager())
+	throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
 	throttler.InitDBConfig(&querypb.Target{
 		Keyspace: "keyspace",
 		Shard:    "shard",
@@ -124,7 +124,8 @@ func TestEnabledThrottler(t *testing.T) {
 
 	env := tabletenv.NewEnv(config, t.Name())
 	queryEngine := newMockPoolUsager()
-	throttler := NewTxThrottler(env, ts, queryEngine)
+	txEngine := newMockPoolUsager()
+	throttler := NewTxThrottler(env, ts, queryEngine, txEngine)
 	throttlerImpl, _ := throttler.(*txThrottler)
 	assert.NotNil(t, throttlerImpl)
 	throttler.InitDBConfig(&querypb.Target{
@@ -243,7 +244,7 @@ func TestNewTxThrottler(t *testing.T) {
 	{
 		// disabled
 		config.EnableTxThrottler = false
-		throttler := NewTxThrottler(env, nil, newMockPoolUsager())
+		throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)
@@ -254,7 +255,7 @@ func TestNewTxThrottler(t *testing.T) {
 		config.EnableTxThrottler = true
 		config.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 		config.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA}
-		throttler := NewTxThrottler(env, nil, newMockPoolUsager())
+		throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)

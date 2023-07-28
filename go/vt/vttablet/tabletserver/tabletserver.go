@@ -184,8 +184,8 @@ func NewTabletServer(name string, config *tabletenv.TabletConfig, topoServer *to
 	tsv.tracker = schema.NewTracker(tsv, tsv.vstreamer, tsv.se)
 	tsv.watcher = NewBinlogWatcher(tsv, tsv.vstreamer, tsv.config)
 	tsv.qe = NewQueryEngine(tsv, tsv.se)
-	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer, tsv.qe)
 	tsv.te = NewTxEngine(tsv)
+	tsv.txThrottler = txthrottler.NewTxThrottler(tsv, topoServer, tsv.qe, tsv.te)
 	tsv.messager = messager.NewEngine(tsv, tsv.se, tsv.vstreamer)
 
 	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer)

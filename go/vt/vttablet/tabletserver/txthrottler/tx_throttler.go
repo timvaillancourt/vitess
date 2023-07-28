@@ -176,9 +176,12 @@ type txThrottler struct {
 	// if the TransactionThrottler is closed.
 	state *txThrottlerState
 
+	// engines
 	queryEngine poolUsageInterface
-	target      *querypb.Target
-	topoServer  *topo.Server
+	txEngine    poolUsageInterface
+
+	target     *querypb.Target
+	topoServer *topo.Server
 
 	// stats
 	throttlerRunning  *stats.Gauge
@@ -222,6 +225,7 @@ type txThrottlerState struct {
 	throttler       ThrottlerInterface
 	stopHealthCheck context.CancelFunc
 	queryEngine     poolUsageInterface
+	txEngine        poolUsageInterface
 
 	healthCheck      discovery.HealthCheck
 	topologyWatchers []TopologyWatcherInterface
@@ -232,7 +236,7 @@ type txThrottlerState struct {
 // any error occurs.
 // This function calls tryCreateTxThrottler that does the actual creation work
 // and returns an error if one occurred.
-func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine poolUsageInterface) TxThrottler {
+func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine, txEngine poolUsageInterface) TxThrottler {
 	throttlerConfig := &txThrottlerConfig{enabled: false}
 
 	if env.Config().EnableTxThrottler {
@@ -256,6 +260,7 @@ func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine pool
 	return &txThrottler{
 		config:           throttlerConfig,
 		queryEngine:      queryEngine,
+		txEngine:         txEngine,
 		topoServer:       topoServer,
 		throttlerRunning: env.Exporter().NewGauge("TransactionThrottlerRunning", "transaction throttler running state"),
 		requestsTotal: env.Exporter().NewCountersWithSingleLabel("TransactionThrottlerRequests", "transaction throttler requests",
