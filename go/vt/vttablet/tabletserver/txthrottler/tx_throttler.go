@@ -332,10 +332,10 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 	// are less likely to be throttled.
 	throttledLabels := []string{plan.PlanID.String(), throttleErr.Error()}
 	switch throttleErr {
-	case ErrThrottledConnPoolUsageHard:
+	case ErrThrottledConnPoolUsageHard, ErrThrottledTxPoolUsageHard:
 		t.requestsThrottled.Add(throttledLabels, 1)
 		return throttleErr
-	case ErrThrottledConnPoolUsageSoft, ErrThrottledReplicationLag:
+	case ErrThrottledConnPoolUsageSoft, ErrThrottledTxPoolUsageSoft, ErrThrottledReplicationLag:
 		priority := t.getPriorityFromOptions(options)
 		if priority == 0 {
 			return nil

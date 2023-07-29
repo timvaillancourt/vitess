@@ -152,11 +152,10 @@ func TestEnabledThrottler(t *testing.T) {
 	// This call should not be forwarded to the go/vt/throttlerImpl.Throttler object.
 	throttlerImpl.state.StatsUpdate(rdonlyTabletStats)
 	// The second throttle call should reject.
-	err := throttlerImpl.Throttle(
+	assert.ErrorIs(t, ErrThrottledReplicationLag, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
 		&querypb.ExecuteOptions{Priority: "100"},
-	)
-	assert.ErrorIs(t, ErrThrottledReplicationLag, err)
+	))
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 1,
@@ -195,11 +194,10 @@ func TestEnabledThrottler(t *testing.T) {
 
 	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
 	queryEngine.SetPoolUsagePercent(75)
-	err = throttlerImpl.Throttle(
+	assert.ErrorIs(t, ErrThrottledConnPoolUsageSoft, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
-	)
-	assert.ErrorIs(t, ErrThrottledConnPoolUsageSoft, err)
+	))
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 2,
@@ -212,11 +210,10 @@ func TestEnabledThrottler(t *testing.T) {
 
 	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
 	queryEngine.SetPoolUsagePercent(99.999)
-	err = throttlerImpl.Throttle(
+	assert.ErrorIs(t, ErrThrottledConnPoolUsageHard, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "1"},
-	)
-	assert.ErrorIs(t, ErrThrottledConnPoolUsageHard, err)
+	))
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 2,
