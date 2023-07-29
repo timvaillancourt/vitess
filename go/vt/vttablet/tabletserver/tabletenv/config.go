@@ -185,8 +185,8 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	flagutil.DualFormatStringListVar(fs, &currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
 	fs.IntVar(&currentConfig.TxThrottlerDefaultPriority, "tx-throttler-default-priority", defaultConfig.TxThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information")
 	fs.Var(currentConfig.TxThrottlerTabletTypes, "tx-throttler-tablet-types", "A comma-separated list of tablet types. Only tablets of this type are monitored for replication lag by the transaction throttler. Supported types are replica and/or rdonly.")
-	fs.Float64Var(&currentConfig.TxThrottlerQueryPoolThresholdSoft, "tx-throttler-query-pool-threshold-soft", defaultConfig.TxThrottlerQueryPoolThresholdSoft, "query pool usage percent to begin throttling a portion of low-priority select queries")
-	fs.Float64Var(&currentConfig.TxThrottlerQueryPoolThresholdHard, "tx-throttler-query-pool-threshold-hard", defaultConfig.TxThrottlerQueryPoolThresholdHard, "query pool usage percent to begin throttling all low-priority select queries")
+	fs.Var(currentConfig.TxThrottlerQueryPoolThresholds, "tx-throttler-query-pool-thresholds", "The low:high query pool usage percentages for the transaction throttler to begin throttling low-priority select queries")
+	fs.Var(currentConfig.TxThrottlerTxPoolThresholds, "tx-throttler-tx-pool-thresholds", "The low:high tx pool usage percentages for the transaction throttler to begin throttling low-priority transactions")
 
 	fs.BoolVar(&enableHotRowProtection, "enable_hot_row_protection", false, "If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.")
 	fs.BoolVar(&enableHotRowProtectionDryRun, "enable_hot_row_protection_dry_run", false, "If true, hot row protection is not enforced but logs if transactions would have been queued.")
@@ -361,13 +361,13 @@ type TabletConfig struct {
 	TwoPCCoordinatorAddress string  `json:"-"`
 	TwoPCAbandonAge         Seconds `json:"-"`
 
-	EnableTxThrottler                 bool                          `json:"-"`
-	TxThrottlerConfig                 *TxThrottlerConfigFlag        `json:"-"`
-	TxThrottlerHealthCheckCells       []string                      `json:"-"`
-	TxThrottlerDefaultPriority        int                           `json:"-"`
-	TxThrottlerTabletTypes            *topoproto.TabletTypeListFlag `json:"-"`
-	TxThrottlerQueryPoolThresholdHard float64                       `json:"-"`
-	TxThrottlerQueryPoolThresholdSoft float64                       `json:"-"`
+	EnableTxThrottler              bool                                 `json:"-"`
+	TxThrottlerConfig              *TxThrottlerConfigFlag               `json:"-"`
+	TxThrottlerHealthCheckCells    []string                             `json:"-"`
+	TxThrottlerDefaultPriority     int                                  `json:"-"`
+	TxThrottlerTabletTypes         *topoproto.TabletTypeListFlag        `json:"-"`
+	TxThrottlerQueryPoolThresholds *flagutil.StringLowHighPercentValues `json:"-"`
+	TxThrottlerTxPoolThresholds    *flagutil.StringLowHighPercentValues `json:"-"`
 
 	EnableTableGC bool `json:"-"` // can be turned off programmatically by tests
 
@@ -831,11 +831,13 @@ var defaultConfig = TabletConfig{
 	MessagePostponeParallelism: 4,
 	SignalWhenSchemaChange:     true,
 
-	EnableTxThrottler:           false,
-	TxThrottlerConfig:           defaultTxThrottlerConfig(),
-	TxThrottlerHealthCheckCells: []string{},
-	TxThrottlerDefaultPriority:  sqlparser.MaxPriorityValue, // This leads to all queries being candidates to throttle
-	TxThrottlerTabletTypes:      &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA},
+	EnableTxThrottler:              false,
+	TxThrottlerConfig:              defaultTxThrottlerConfig(),
+	TxThrottlerHealthCheckCells:    []string{},
+	TxThrottlerDefaultPriority:     sqlparser.MaxPriorityValue, // This leads to all queries being candidates to throttle
+	TxThrottlerTabletTypes:         &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA},
+	TxThrottlerQueryPoolThresholds: &flagutil.StringLowHighPercentValues{},
+	TxThrottlerTxPoolThresholds:    &flagutil.StringLowHighPercentValues{},
 
 	TransactionLimitConfig: defaultTransactionLimitConfig(),
 

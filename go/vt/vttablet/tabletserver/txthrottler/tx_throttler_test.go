@@ -28,18 +28,17 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
+	"vitess.io/vitess/go/flagutil"
 	"vitess.io/vitess/go/vt/discovery"
 	"vitess.io/vitess/go/vt/throttler"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
-	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
 func TestDisabledThrottler(t *testing.T) {
@@ -119,8 +118,8 @@ func TestEnabledThrottler(t *testing.T) {
 	config.EnableTxThrottler = true
 	config.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 	config.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA}
-	config.TxThrottlerQueryPoolThresholdSoft = 66.66
-	config.TxThrottlerQueryPoolThresholdHard = 80
+	config.TxThrottlerQueryPoolThresholds = &flagutil.StringLowHighPercentValues{Low: 66.66, High: 80}
+	config.TxThrottlerTxPoolThresholds = &flagutil.StringLowHighPercentValues{Low: 66.66, High: 80}
 
 	env := tabletenv.NewEnv(config, t.Name())
 	queryEngine := newMockPoolUsager()
@@ -157,14 +156,13 @@ func TestEnabledThrottler(t *testing.T) {
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
 		&querypb.ExecuteOptions{Priority: "100"},
 	)
-	assert.Equal(t, vtrpcpb.Code_RESOURCE_EXHAUSTED, vterrors.Code(err))
-	assert.ErrorContains(t, err, "Transaction throttled, cause: ReplicationLag")
+	assert.ErrorIs(t, ErrThrottledReplicationLag, err)
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 1,
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Equal(t, map[string]int64{
-		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error(): 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// This call should not throttle due to priority. Check that's the case and counters agree.
@@ -177,7 +175,7 @@ func TestEnabledThrottler(t *testing.T) {
 		planbuilder.PlanInsert.String(): 2,
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Equal(t, map[string]int64{
-		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error(): 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is below threshold. This call should not throttle.
@@ -192,7 +190,7 @@ func TestEnabledThrottler(t *testing.T) {
 		planbuilder.PlanSelect.String(): 1,
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Equal(t, map[string]int64{
-		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String(): 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error(): 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
@@ -201,16 +199,15 @@ func TestEnabledThrottler(t *testing.T) {
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
 	)
-	assert.Equal(t, vtrpcpb.Code_RESOURCE_EXHAUSTED, vterrors.Code(err))
-	assert.ErrorContains(t, err, "Query throttled, cause: ConnPoolUsageSoft")
+	assert.ErrorIs(t, ErrThrottledConnPoolUsageSoft, err)
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 2,
 		planbuilder.PlanSelect.String(): 2,
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Equal(t, map[string]int64{
-		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String():    1,
-		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageSoft.String(): 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error():    1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageSoft.Error(): 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
@@ -219,17 +216,16 @@ func TestEnabledThrottler(t *testing.T) {
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "1"},
 	)
-	assert.Equal(t, vtrpcpb.Code_RESOURCE_EXHAUSTED, vterrors.Code(err))
-	assert.ErrorContains(t, err, "Query throttled, cause: ConnPoolUsageHard")
+	assert.ErrorIs(t, ErrThrottledConnPoolUsageHard, err)
 	assert.Equal(t, map[string]int64{
 		planbuilder.PlanBegin.String():  1,
 		planbuilder.PlanInsert.String(): 2,
 		planbuilder.PlanSelect.String(): 3,
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Equal(t, map[string]int64{
-		planbuilder.PlanInsert.String() + "." + throttledReplicationLag.String():    1,
-		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageSoft.String(): 1,
-		planbuilder.PlanSelect.String() + "." + throttledConnPoolUsageHard.String(): 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error():    1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageSoft.Error(): 1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error(): 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Close throttler.
