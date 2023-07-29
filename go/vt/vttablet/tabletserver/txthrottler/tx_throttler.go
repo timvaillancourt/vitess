@@ -322,24 +322,28 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 		return nil
 	}
 
+	// check if any throttling is needed
 	throttleErr := t.state.throttle(plan)
 	t.requestsTotal.Add(plan.PlanID.String(), 1)
 	if throttleErr == nil {
 		return nil
 	}
 
-	// Throttle according to both what the throttler state says and the priority. Workloads with lower priority value
-	// are less likely to be throttled.
+	// get priority from execute options
+	priority := t.getPriorityFromOptions(options)
+	if priority == 0 {
+		return nil
+	}
+
+	// Throttle probabilistically according to both what the throttler state says and the priority.
+	// Workloads with lower priority value are less likely to be throttled. "Hard" pool usage
+	// errors will throttle regardless of priority.
 	throttledLabels := []string{plan.PlanID.String(), throttleErr.Error()}
 	switch throttleErr {
 	case ErrThrottledConnPoolUsageHard, ErrThrottledTxPoolUsageHard:
 		t.requestsThrottled.Add(throttledLabels, 1)
 		return throttleErr
 	case ErrThrottledConnPoolUsageSoft, ErrThrottledTxPoolUsageSoft, ErrThrottledReplicationLag:
-		priority := t.getPriorityFromOptions(options)
-		if priority == 0 {
-			return nil
-		}
 		if rand.Intn(sqlparser.MaxPriorityValue) < priority {
 			t.requestsThrottled.Add(throttledLabels, 1)
 			return throttleErr
