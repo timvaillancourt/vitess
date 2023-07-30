@@ -122,9 +122,9 @@ func TestEnabledThrottler(t *testing.T) {
 	config.TxThrottlerTxPoolThresholds = &flagutil.StringLowHighPercentValues{Low: 66.66, High: 80}
 
 	env := tabletenv.NewEnv(config, t.Name())
-	queryEngine := newMockPoolUsager()
-	txEngine := newMockPoolUsager()
-	throttler := NewTxThrottler(env, ts, queryEngine, txEngine)
+	mockQueryEngine := newMockPoolUsager()
+	mockTxEngine := newMockPoolUsager()
+	throttler := NewTxThrottler(env, ts, mockQueryEngine, mockTxEngine)
 	throttlerImpl, _ := throttler.(*txThrottler)
 	assert.NotNil(t, throttlerImpl)
 	throttler.InitDBConfig(&querypb.Target{
@@ -178,7 +178,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is below threshold. This call should not throttle.
-	queryEngine.setPoolUsagePercent(12.345)
+	mockQueryEngine.setPoolUsagePercent(12.345)
 	assert.Nil(t, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
@@ -193,7 +193,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
-	queryEngine.setPoolUsagePercent(75)
+	mockQueryEngine.setPoolUsagePercent(75)
 	assert.ErrorIs(t, ErrThrottledConnPoolUsageSoft, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
@@ -209,7 +209,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
-	queryEngine.setPoolUsagePercent(99.999)
+	mockQueryEngine.setPoolUsagePercent(99.999)
 	assert.ErrorIs(t, ErrThrottledConnPoolUsageHard, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "1"},
