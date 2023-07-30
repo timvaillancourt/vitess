@@ -83,7 +83,7 @@ func TestQueryExecutorPlans(t *testing.T) {
 		inTxWant string
 		// errorWantCode is the vtrpcpb error code we expect to get, if any, and should be nil if no error should be returned
 		errorWantCode vtrpcpb.Code
-		// errorContains and errorWanTx contains are strings we expect to get in errors, if any, and should be nil if no error should be returned
+		// errorContains and errorContainsInTx contains are strings we expect to get in errors, if any, and should be nil if no error should be returned
 		errorContains, errorContainsInTx string
 		// TxThrottler allows the test case to override the transaction throttler
 		txThrottler txthrottler.TxThrottler

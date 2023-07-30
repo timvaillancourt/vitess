@@ -149,8 +149,7 @@ func (te *TxEngine) AcceptReadOnly() {
 // GetPoolUsagePercent returns the capacity of the
 // engine tx pool as a percentage.
 func (te *TxEngine) GetPoolUsagePercent() float64 {
-	// TODO: get usage from real pool
-	return 0
+	return te.txPool.UsagePercent()
 }
 
 func (te *TxEngine) transition(state txEngineState) {
