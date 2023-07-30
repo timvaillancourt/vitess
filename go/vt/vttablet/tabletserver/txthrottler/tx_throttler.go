@@ -329,7 +329,7 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 		return nil
 	}
 
-	// get priority from execute options
+	// get priority from execute options, skip priority 0
 	priority := t.getPriorityFromOptions(options)
 	if priority == 0 {
 		return nil
@@ -434,10 +434,8 @@ func (ts *txThrottlerState) throttle(plan *planbuilder.Plan) error {
 	}
 	switch plan.PlanID {
 	case planbuilder.PlanSelect, planbuilder.PlanSelectImpossible, planbuilder.PlanShow:
-		if err := checkPoolUsage(ts.queryEngine, ts.config.queryPoolThresholds, ErrThrottledConnPoolUsageHard,
-			ErrThrottledConnPoolUsageSoft); err != nil {
-			return err
-		}
+		return checkPoolUsage(ts.queryEngine, ts.config.queryPoolThresholds, ErrThrottledConnPoolUsageHard,
+			ErrThrottledConnPoolUsageSoft)
 	default:
 		// check tx pool usage
 		if err := checkPoolUsage(ts.txEngine, ts.config.txPoolThresholds, ErrThrottledTxPoolUsageHard,
@@ -445,7 +443,8 @@ func (ts *txThrottlerState) throttle(plan *planbuilder.Plan) error {
 			return err
 		}
 
-		// Serialize calls to ts.throttle.Throttle().
+		// check max replication lag.
+		// serialize calls to ts.throttle.Throttle().
 		ts.throttleMu.Lock()
 		defer ts.throttleMu.Unlock()
 		if ts.throttler.Throttle(0 /* threadId */) > 0 {

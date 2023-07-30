@@ -125,8 +125,8 @@ func TestStringLowHighPercent(t *testing.T) {
 			err: errInvalidLowHighPercentValuePair,
 		},
 		{
-			in:  "1.23:4.56",
-			out: &StringLowHighPercentValues{Low: 1.23, High: 4.56},
+			in:  "75.123:90.456",
+			out: &StringLowHighPercentValues{Low: 75.123, High: 90.456},
 		},
 		{
 			in:  "2",
