@@ -178,7 +178,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is below threshold. This call should not throttle.
-	queryEngine.SetPoolUsagePercent(12.345)
+	queryEngine.setPoolUsagePercent(12.345)
 	assert.Nil(t, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
@@ -193,7 +193,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
-	queryEngine.SetPoolUsagePercent(75)
+	queryEngine.setPoolUsagePercent(75)
 	assert.ErrorIs(t, ErrThrottledConnPoolUsageSoft, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "100"},
@@ -209,7 +209,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
-	queryEngine.SetPoolUsagePercent(99.999)
+	queryEngine.setPoolUsagePercent(99.999)
 	assert.ErrorIs(t, ErrThrottledConnPoolUsageHard, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
 		&querypb.ExecuteOptions{Priority: "1"},

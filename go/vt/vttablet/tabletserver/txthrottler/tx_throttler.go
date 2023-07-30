@@ -45,9 +45,9 @@ import (
 var (
 	ErrThrottledConnPoolUsageHard = errors.New("ConnPoolUsageHard")
 	ErrThrottledConnPoolUsageSoft = errors.New("ConnPoolUsageSoft")
+	ErrThrottledReplicationLag    = errors.New("ReplicationLag")
 	ErrThrottledTxPoolUsageHard   = errors.New("TxPoolUsageHard")
 	ErrThrottledTxPoolUsageSoft   = errors.New("TxPoolUsageSoft")
-	ErrThrottledReplicationLag    = errors.New("ReplicationLag")
 )
 
 // These vars store the functions used to create the topo server, healthcheck,
@@ -241,10 +241,10 @@ func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine, txE
 		topoServer:       topoServer,
 		throttlerRunning: env.Exporter().NewGauge("TransactionThrottlerRunning", "transaction throttler running state"),
 		requestsTotal: env.Exporter().NewCountersWithSingleLabel("TransactionThrottlerRequests", "transaction throttler requests",
-			"type",
+			"plan",
 		),
 		requestsThrottled: env.Exporter().NewCountersWithMultiLabels("TransactionThrottlerThrottled", "transaction throttler requests throttled",
-			[]string{"type", "reason"},
+			[]string{"plan", "cause"},
 		),
 	}
 }
@@ -290,7 +290,7 @@ func (t *txThrottler) Open() (err error) {
 	}
 	log.Info("txThrottler: opening")
 	t.throttlerRunning.Set(1)
-	t.state, err = newTxThrottlerState(t.topoServer, t.queryEngine, t.txEngine, t.config, t.target)
+	t.state, err = newTxThrottlerState(t.topoServer, t.config, t.target, t.queryEngine, t.txEngine)
 	return err
 }
 
@@ -322,16 +322,16 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 		return nil
 	}
 
-	// check if any throttling is needed
-	throttleErr := t.state.throttle(plan)
+	// get priority from execute options, skip priority 0
 	t.requestsTotal.Add(plan.PlanID.String(), 1)
-	if throttleErr == nil {
+	priority := t.getPriorityFromOptions(options)
+	if priority == 0 {
 		return nil
 	}
 
-	// get priority from execute options, skip priority 0
-	priority := t.getPriorityFromOptions(options)
-	if priority == 0 {
+	// check if any throttling is needed
+	throttleErr := t.state.throttle(plan)
+	if throttleErr == nil {
 		return nil
 	}
 
@@ -352,7 +352,7 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 	return nil
 }
 
-func newTxThrottlerState(topoServer *topo.Server, queryEngine, txEngine poolUsageInterface, config *txThrottlerConfig, target *querypb.Target) (*txThrottlerState, error) {
+func newTxThrottlerState(topoServer *topo.Server, config *txThrottlerConfig, target *querypb.Target, queryEngine, txEngine poolUsageInterface) (*txThrottlerState, error) {
 	maxReplicationLagModuleConfig := throttler.MaxReplicationLagModuleConfig{Configuration: config.throttlerConfig}
 
 	t, err := throttlerFactory(
@@ -414,9 +414,9 @@ func createTxThrottlerHealthCheck(topoServer *topo.Server, config *txThrottlerCo
 func checkPoolUsage(engine poolUsageInterface, thresholds *flagutil.StringLowHighPercentValues, highErr, lowErr error) error {
 	// Calls to .GetPoolUsagePercent() are serialized by the underlying engine.
 	switch usagePercent := engine.GetPoolUsagePercent(); {
-	case thresholds.High > 0 && usagePercent >= thresholds.High:
+	case thresholds.High != 0 && usagePercent >= thresholds.High:
 		return highErr
-	case thresholds.Low > 0 && usagePercent >= thresholds.Low:
+	case thresholds.Low != 0 && usagePercent >= thresholds.Low:
 		return lowErr
 	default:
 		return nil
@@ -434,6 +434,7 @@ func (ts *txThrottlerState) throttle(plan *planbuilder.Plan) error {
 	}
 	switch plan.PlanID {
 	case planbuilder.PlanSelect, planbuilder.PlanSelectImpossible, planbuilder.PlanShow:
+		// check query conn pool usage
 		return checkPoolUsage(ts.queryEngine, ts.config.queryPoolThresholds, ErrThrottledConnPoolUsageHard,
 			ErrThrottledConnPoolUsageSoft)
 	default:

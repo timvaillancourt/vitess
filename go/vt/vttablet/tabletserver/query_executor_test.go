@@ -83,8 +83,8 @@ func TestQueryExecutorPlans(t *testing.T) {
 		inTxWant string
 		// errorWantCode is the vtrpcpb error code we expect to get, if any, and should be nil if no error should be returned
 		errorWantCode vtrpcpb.Code
-		// errorWantContains is string we expect to get in the error, if any, and should be nil if no error should be returned
-		errorWantContains string
+		// errorContains and errorWanTx contains are strings we expect to get in errors, if any, and should be nil if no error should be returned
+		errorContains, errorContainsInTx string
 		// TxThrottler allows the test case to override the transaction throttler
 		txThrottler txthrottler.TxThrottler
 	}{{
@@ -279,9 +279,9 @@ func TestQueryExecutorPlans(t *testing.T) {
 			query:  "update test_table set a = 1 limit 10001",
 			result: dmlResult,
 		}},
-		errorWantCode:     vtrpcpb.Code_RESOURCE_EXHAUSTED,
-		errorWantContains: fmt.Sprintf("Transaction throttled, cause: %v", txthrottler.ErrThrottledReplicationLag),
-		txThrottler:       &mockTxThrottler{true},
+		errorWantCode: vtrpcpb.Code_RESOURCE_EXHAUSTED,
+		errorContains: fmt.Sprintf("Transaction throttled, cause: %v", txthrottler.ErrThrottledReplicationLag),
+		txThrottler:   &mockTxThrottler{txthrottler.ErrThrottledReplicationLag},
 	}, {
 		input:       "update test_table set a=1",
 		passThrough: true,
@@ -289,9 +289,19 @@ func TestQueryExecutorPlans(t *testing.T) {
 			query:  "update test_table set a = 1 limit 10001",
 			result: dmlResult,
 		}},
+		errorWantCode: vtrpcpb.Code_RESOURCE_EXHAUSTED,
+		errorContains: fmt.Sprintf("Transaction throttled, cause: %v", txthrottler.ErrThrottledTxPoolUsageHard),
+		txThrottler:   &mockTxThrottler{txthrottler.ErrThrottledTxPoolUsageHard},
+	}, {
+		input: "select * from test_table where a=1",
+		dbResponses: []dbResponse{{
+			query:  "select * from test_table where a = 1 limit 10001",
+			result: selectResult,
+		}},
 		errorWantCode:     vtrpcpb.Code_RESOURCE_EXHAUSTED,
-		errorWantContains: fmt.Sprintf("Transaction throttled, cause: %v", txthrottler.ErrThrottledReplicationLag),
-		txThrottler:       &mockTxThrottler{true},
+		errorContains:     fmt.Sprintf("Query throttled, cause: %v", txthrottler.ErrThrottledConnPoolUsageHard),
+		errorContainsInTx: fmt.Sprintf("Transaction throttled, cause: %v", txthrottler.ErrThrottledConnPoolUsageHard),
+		txThrottler:       &mockTxThrottler{txthrottler.ErrThrottledConnPoolUsageHard},
 	},
 	}
 	for _, tcase := range testcases {
@@ -311,16 +321,20 @@ func TestQueryExecutorPlans(t *testing.T) {
 
 			tsv.SetPassthroughDMLs(tcase.passThrough)
 
+			if tcase.errorContainsInTx == "" {
+				tcase.errorContainsInTx = tcase.errorContains
+			}
+
 			// Test outside a transaction.
 			qre := newTestQueryExecutor(ctx, tsv, tcase.input, 0)
 			got, err := qre.Execute()
-			if tcase.errorWantContains == "" {
+			if tcase.errorContains == "" {
 				require.NoError(t, err, tcase.input)
 				assert.Equal(t, tcase.resultWant, got, tcase.input)
 				assert.Equal(t, tcase.planWant, qre.logStats.PlanType, tcase.input)
 				assert.Equal(t, tcase.logWant, qre.logStats.RewrittenSQL(), tcase.input)
 			} else {
-				assert.ErrorContains(t, err, tcase.errorWantContains)
+				assert.ErrorContains(t, err, tcase.errorContains)
 			}
 			if tcase.errorWantCode != vtrpcpb.Code_OK {
 				assert.Equal(t, tcase.errorWantCode, vterrors.Code(err))
@@ -331,7 +345,7 @@ func TestQueryExecutorPlans(t *testing.T) {
 			// Test inside a transaction.
 			target := tsv.sm.Target()
 			state, err := tsv.Begin(ctx, target, nil)
-			if tcase.errorWantContains == "" {
+			if tcase.errorContainsInTx == "" {
 				require.NoError(t, err)
 				require.NotNil(t, state.TabletAlias, "alias should not be nil")
 				assert.Equal(t, tsv.alias, state.TabletAlias, "Wrong alias returned by Begin")
@@ -348,7 +362,7 @@ func TestQueryExecutorPlans(t *testing.T) {
 				}
 				assert.Equal(t, want, qre.logStats.RewrittenSQL(), "in tx: %v", tcase.input)
 			} else {
-				assert.ErrorContains(t, err, tcase.errorWantContains)
+				assert.ErrorContains(t, err, tcase.errorContainsInTx)
 			}
 			if tcase.errorWantCode != vtrpcpb.Code_OK {
 				assert.Equal(t, tcase.errorWantCode, vterrors.Code(err))
@@ -1802,7 +1816,7 @@ func TestQueryExecSchemaReloadCount(t *testing.T) {
 }
 
 type mockTxThrottler struct {
-	throttle bool
+	throttleErr error
 }
 
 func (m mockTxThrottler) InitDBConfig(target *querypb.Target) {
@@ -1817,8 +1831,5 @@ func (m mockTxThrottler) Close() {
 }
 
 func (m mockTxThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteOptions) error {
-	if m.throttle {
-		return txthrottler.ErrThrottledReplicationLag
-	}
-	return nil
+	return m.throttleErr
 }

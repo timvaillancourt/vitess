@@ -8,7 +8,7 @@ func newMockPoolUsager() *mockPoolUsager {
 	return &mockPoolUsager{}
 }
 
-func (qe *mockPoolUsager) SetPoolUsagePercent(pu float64) {
+func (qe *mockPoolUsager) setPoolUsagePercent(pu float64) {
 	qe.poolUsage = pu
 }
 
