@@ -23,6 +23,7 @@ package txthrottler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -306,7 +307,8 @@ func TestFetchKnownCells(t *testing.T) {
 		assert.Equal(t, []string{"cell1", "cell2"}, cells)
 	}
 	{
-		ts := memorytopo.NewServer()
+		ts, factory := memorytopo.NewServerAndFactory("shouldfail")
+		factory.SetError(errors.New("mock topo error"))
 		cells := fetchKnownCells(context.Background(), ts, &querypb.Target{Cell: "cell1"})
 		assert.Equal(t, []string{"cell1"}, cells)
 	}
