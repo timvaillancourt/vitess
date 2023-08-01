@@ -242,7 +242,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsThrottled.Counts())
 
 	// call4 - returns 0 (no throttling)
-	// Test insert + query conn pool signal, which is below threshold. This call should not throttle.
+	// Test insert + tx pool signal, which is below threshold. This call should not throttle.
 	mockTxEngine.setPoolUsagePercent(12.345)
 	assert.Nil(t, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
@@ -259,7 +259,7 @@ func TestEnabledThrottler(t *testing.T) {
 		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error() + ".some_workload": 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
-	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
+	// Test insert + tx pool signal, which is above the "soft" threshold. This call should throttle.
 	mockTxEngine.setPoolUsagePercent(75)
 	assert.ErrorIs(t, ErrThrottledTxPoolUsageSoft, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
@@ -277,7 +277,7 @@ func TestEnabledThrottler(t *testing.T) {
 		planbuilder.PlanInsert.String() + "." + ErrThrottledTxPoolUsageSoft.Error() + ".some_workload":   1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
-	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
+	// Test insert + tx pool signal, which is above the "high" threshold. This call should throttle.
 	mockTxEngine.setPoolUsagePercent(99.999)
 	assert.ErrorIs(t, ErrThrottledTxPoolUsageHard, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
