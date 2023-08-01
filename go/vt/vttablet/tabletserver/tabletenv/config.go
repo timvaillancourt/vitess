@@ -185,6 +185,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	flagutil.DualFormatStringListVar(fs, &currentConfig.TxThrottlerHealthCheckCells, "tx_throttler_healthcheck_cells", defaultConfig.TxThrottlerHealthCheckCells, "A comma-separated list of cells. Only tabletservers running in these cells will be monitored for replication lag by the transaction throttler.")
 	fs.IntVar(&currentConfig.TxThrottlerDefaultPriority, "tx-throttler-default-priority", defaultConfig.TxThrottlerDefaultPriority, "Default priority assigned to queries that lack priority information")
 	fs.Var(currentConfig.TxThrottlerTabletTypes, "tx-throttler-tablet-types", "A comma-separated list of tablet types. Only tablets of this type are monitored for replication lag by the transaction throttler. Supported types are replica and/or rdonly.")
+	fs.DurationVar(&currentConfig.TxThrottlerTopoRefreshInterval, "tx-throttler-topo-refresh-interval", time.Minute*5, "The rate that the transaction throttler will refresh the topology to find cells.")
 	fs.Var(currentConfig.TxThrottlerQueryPoolThresholds, "tx-throttler-query-pool-thresholds", "The low:high query pool usage percentages for the transaction throttler to begin throttling low-priority select queries, defined as two colon-separated floats.")
 	fs.Var(currentConfig.TxThrottlerTxPoolThresholds, "tx-throttler-tx-pool-thresholds", "The low:high tx pool usage percentages for the transaction throttler to begin throttling low-priority transactions, defined as two colon-separated floats.")
 
@@ -366,6 +367,7 @@ type TabletConfig struct {
 	TxThrottlerHealthCheckCells    []string                             `json:"-"`
 	TxThrottlerDefaultPriority     int                                  `json:"-"`
 	TxThrottlerTabletTypes         *topoproto.TabletTypeListFlag        `json:"-"`
+	TxThrottlerTopoRefreshInterval time.Duration                        `json:"-"`
 	TxThrottlerQueryPoolThresholds *flagutil.StringLowHighPercentValues `json:"-"`
 	TxThrottlerTxPoolThresholds    *flagutil.StringLowHighPercentValues `json:"-"`
 
@@ -725,9 +727,6 @@ func (c *TabletConfig) verifyTxThrottlerConfig() error {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "failed to parse throttlerdatapb.Configuration config: %v", err)
 	}
 
-	if len(c.TxThrottlerHealthCheckCells) == 0 {
-		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "empty healthCheckCells given: %+v", c.TxThrottlerHealthCheckCells)
-	}
 	if v := c.TxThrottlerDefaultPriority; v > sqlparser.MaxPriorityValue || v < 0 {
 		return vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "--tx-throttler-default-priority must be > 0 and < 100 (specified value: %d)", v)
 	}
@@ -836,6 +835,7 @@ var defaultConfig = TabletConfig{
 	TxThrottlerHealthCheckCells:    []string{},
 	TxThrottlerDefaultPriority:     sqlparser.MaxPriorityValue, // This leads to all queries being candidates to throttle
 	TxThrottlerTabletTypes:         &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA},
+	TxThrottlerTopoRefreshInterval: time.Minute * 5,
 	TxThrottlerQueryPoolThresholds: &flagutil.StringLowHighPercentValues{},
 	TxThrottlerTxPoolThresholds:    &flagutil.StringLowHighPercentValues{},
 
