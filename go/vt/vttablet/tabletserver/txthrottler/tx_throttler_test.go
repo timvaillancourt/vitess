@@ -105,9 +105,9 @@ func TestEnabledThrottler(t *testing.T) {
 	call2 := mockThrottler.EXPECT().RecordReplicationLag(gomock.Any(), tabletStats)
 	call3 := mockThrottler.EXPECT().Throttle(0)
 	call3.Return(1 * time.Second)
-
 	call4 := mockThrottler.EXPECT().Throttle(0)
-	call4.Return(1 * time.Second)
+	call4.Return(0 * time.Second)
+
 	calllast := mockThrottler.EXPECT().Close()
 
 	call1.After(call0)
@@ -138,6 +138,7 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Equal(t, int64(1), throttlerImpl.throttlerRunning.Get())
 	assert.Equal(t, map[string]int64{"cell1": 1, "cell2": 1}, throttlerImpl.topoWatchers.Counts())
 
+	// call1 - returns 0
 	assert.Nil(t, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanBegin},
 		&querypb.ExecuteOptions{Priority: "100"},
@@ -147,6 +148,7 @@ func TestEnabledThrottler(t *testing.T) {
 	}, throttlerImpl.requestsTotal.Counts())
 	assert.Len(t, throttlerImpl.requestsThrottled.Counts(), 0)
 
+	// call2 - should record lag
 	throttlerImpl.state.StatsUpdate(tabletStats) // This calls replication lag thing
 	assert.Equal(t, map[string]int64{"cell1.REPLICA": 1}, throttlerImpl.healthChecksReadTotal.Counts())
 	assert.Equal(t, map[string]int64{"cell1.REPLICA": 1}, throttlerImpl.healthChecksRecordedTotal.Counts())
@@ -161,6 +163,7 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Equal(t, map[string]int64{"cell1.REPLICA": 1, "cell2.RDONLY": 1}, throttlerImpl.healthChecksReadTotal.Counts())
 	assert.Equal(t, map[string]int64{"cell1.REPLICA": 1}, throttlerImpl.healthChecksRecordedTotal.Counts())
 
+	// call3 - returns 1 (throttle due to replication lag)
 	// The second throttle call should reject.
 	assert.ErrorIs(t, ErrThrottledReplicationLag, throttlerImpl.Throttle(
 		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
@@ -235,15 +238,60 @@ func TestEnabledThrottler(t *testing.T) {
 		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error() + ".some_workload": 1,
 	}, throttlerImpl.requestsThrottled.Counts())
 
-	/*
-		// This call should not throttle due to priority. Check that's the case and counters agree.
-		assert.Nil(t, throttlerImpl.Throttle(
-			&planbuilder.Plan{PlanID: planbuilder.PlanSelect},
-			&querypb.ExecuteOptions{Priority: "0", WorkloadName: "some_workload"},
-		))
-		assert.Equal(t, int64(3), throttlerImpl.requestsTotal.Counts()["some_workload"])
-		assert.Equal(t, int64(1), throttlerImpl.requestsThrottled.Counts()["some_workload"])
-	*/
+	// call4 - returns 0 (no throttling)
+	// Test insert + query conn pool signal, which is below threshold. This call should not throttle.
+	mockTxEngine.setPoolUsagePercent(12.345)
+	assert.Nil(t, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "100", WorkloadName: "some_workload"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String() + ".":               1,
+		planbuilder.PlanInsert.String() + ".some_workload": 3,
+		planbuilder.PlanSelect.String() + ".some_workload": 3,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error() + ".some_workload":    1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageSoft.Error() + ".some_workload": 1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error() + ".some_workload": 1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Test select + query conn pool signal, which is above the "soft" threshold. This call should throttle.
+	mockTxEngine.setPoolUsagePercent(75)
+	assert.ErrorIs(t, ErrThrottledTxPoolUsageSoft, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "100", WorkloadName: "some_workload"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String() + ".":               1,
+		planbuilder.PlanInsert.String() + ".some_workload": 4,
+		planbuilder.PlanSelect.String() + ".some_workload": 3,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error() + ".some_workload":    1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageSoft.Error() + ".some_workload": 1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error() + ".some_workload": 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledTxPoolUsageSoft.Error() + ".some_workload":   1,
+	}, throttlerImpl.requestsThrottled.Counts())
+
+	// Test select + query conn pool signal, which is above the "high" threshold. This call should throttle.
+	mockTxEngine.setPoolUsagePercent(99.999)
+	assert.ErrorIs(t, ErrThrottledTxPoolUsageHard, throttlerImpl.Throttle(
+		&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+		&querypb.ExecuteOptions{Priority: "1", WorkloadName: "some_workload"},
+	))
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanBegin.String() + ".":               1,
+		planbuilder.PlanInsert.String() + ".some_workload": 5,
+		planbuilder.PlanSelect.String() + ".some_workload": 3,
+	}, throttlerImpl.requestsTotal.Counts())
+	assert.Equal(t, map[string]int64{
+		planbuilder.PlanInsert.String() + "." + ErrThrottledReplicationLag.Error() + ".some_workload":    1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageSoft.Error() + ".some_workload": 1,
+		planbuilder.PlanSelect.String() + "." + ErrThrottledConnPoolUsageHard.Error() + ".some_workload": 1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledTxPoolUsageSoft.Error() + ".some_workload":   1,
+		planbuilder.PlanInsert.String() + "." + ErrThrottledTxPoolUsageHard.Error() + ".some_workload":   1,
+	}, throttlerImpl.requestsThrottled.Counts())
 
 	// Close throttler.
 	throttlerImpl.Close()
