@@ -135,6 +135,8 @@ func TestEnabledThrottler(t *testing.T) {
 		Shard:    "shard",
 	})
 
+	//TODO(timvaillancourt): move the test cases below to parallel t.Run(...) tests
+
 	assert.Nil(t, throttlerImpl.Open())
 	assert.Equal(t, int64(1), throttlerImpl.throttlerRunning.Get())
 	assert.Equal(t, map[string]int64{"cell1": 1, "cell2": 1}, throttlerImpl.topoWatchers.Counts())
