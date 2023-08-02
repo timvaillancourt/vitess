@@ -344,3 +344,58 @@ func TestNewTxThrottler(t *testing.T) {
 		assert.Equal(t, []string{"cell1", "cell2"}, throttlerImpl.config.healthCheckCells)
 	}
 }
+
+func TestDryRunThrottler(t *testing.T) {
+	config := tabletenv.NewDefaultConfig()
+	env := tabletenv.NewEnv(config, t.Name())
+
+	testCases := []struct {
+		Name                        string
+		txThrottlerStateThrottleErr error
+		throttlerDryRun             bool
+		expectedResult              error
+	}{
+		{Name: "Real run throttles when txThrottlerStateImpl says it should", txThrottlerStateThrottleErr: ErrThrottledReplicationLag, throttlerDryRun: false, expectedResult: ErrThrottledReplicationLag},
+		{Name: "Real run does not throttle when txThrottlerStateImpl says it should not", txThrottlerStateThrottleErr: nil, throttlerDryRun: false, expectedResult: nil},
+		{Name: "Dry run does not throttle when txThrottlerStateImpl says it should", txThrottlerStateThrottleErr: ErrThrottledReplicationLag, throttlerDryRun: true, expectedResult: nil},
+		{Name: "Dry run does not throttle when txThrottlerStateImpl says it should not", txThrottlerStateThrottleErr: nil, throttlerDryRun: true, expectedResult: nil},
+	}
+
+	for _, aTestCase := range testCases {
+		theTestCase := aTestCase
+
+		t.Run(theTestCase.Name, func(t *testing.T) {
+			aTxThrottler := &txThrottler{
+				config: &txThrottlerConfig{
+					enabled: true,
+					dryRun:  theTestCase.throttlerDryRun,
+				},
+				state:            &mockTxThrottlerState{throttleErr: theTestCase.txThrottlerStateThrottleErr},
+				throttlerRunning: env.Exporter().NewGauge("TransactionThrottlerRunning", "transaction throttler running state"),
+				requestsTotal: env.Exporter().NewCountersWithMultiLabels("TransactionThrottlerRequests", "transaction throttler requests",
+					[]string{"plan", "workload"}),
+				requestsThrottled: env.Exporter().NewCountersWithMultiLabels("TransactionThrottlerThrottled", "transaction throttler requests throttled",
+					[]string{"plan", "cause", "workload"}),
+			}
+			assert.ErrorIs(t, theTestCase.expectedResult, aTxThrottler.Throttle(
+				&planbuilder.Plan{PlanID: planbuilder.PlanInsert},
+				&querypb.ExecuteOptions{Priority: "100", WorkloadName: "some_workload"},
+			))
+		})
+	}
+}
+
+type mockTxThrottlerState struct {
+	throttleErr error
+}
+
+func (t *mockTxThrottlerState) deallocateResources() {
+
+}
+func (t *mockTxThrottlerState) StatsUpdate(tabletStats *discovery.TabletHealth) {
+
+}
+
+func (t *mockTxThrottlerState) throttle(plan *planbuilder.Plan) error {
+	return t.throttleErr
+}
