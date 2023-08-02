@@ -88,9 +88,9 @@ type TxThrottler interface {
 	Throttle(plan *planbuilder.Plan, options *querypb.ExecuteOptions) error
 }
 
-// poolUsageInterface defines an interface that provides throttling
+// TabletserverEngineInterface defines an interface that provides throttling
 // signals based on pool usage.
-type poolUsageInterface interface {
+type TabletserverEngineInterface interface {
 	GetPoolUsagePercent() float64
 }
 
@@ -169,8 +169,8 @@ type txThrottler struct {
 	state *txThrottlerState
 
 	// engines
-	queryEngine poolUsageInterface
-	txEngine    poolUsageInterface
+	queryEngine TabletserverEngineInterface
+	txEngine    TabletserverEngineInterface
 
 	target     *querypb.Target
 	topoServer *topo.Server
@@ -220,8 +220,8 @@ type txThrottlerState struct {
 	throttleMu       sync.Mutex
 	throttler        ThrottlerInterface
 	stopHealthCheck  context.CancelFunc
-	queryEngine      poolUsageInterface
-	txEngine         poolUsageInterface
+	queryEngine      TabletserverEngineInterface
+	txEngine         TabletserverEngineInterface
 	topologyWatchers map[string]TopologyWatcherInterface
 
 	healthCheck      discovery.HealthCheck
@@ -235,7 +235,7 @@ type txThrottlerState struct {
 // any error occurs.
 // This function calls tryCreateTxThrottler that does the actual creation work
 // and returns an error if one occurred.
-func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine, txEngine poolUsageInterface) TxThrottler {
+func NewTxThrottler(env tabletenv.Env, topoServer *topo.Server, queryEngine, txEngine TabletserverEngineInterface) TxThrottler {
 	throttlerConfig := &txThrottlerConfig{enabled: false}
 
 	if env.Config().EnableTxThrottler {
@@ -389,7 +389,7 @@ func (t *txThrottler) Throttle(plan *planbuilder.Plan, options *querypb.ExecuteO
 	return nil
 }
 
-func newTxThrottlerState(txThrottler *txThrottler, config *txThrottlerConfig, target *querypb.Target, queryEngine, txEngine poolUsageInterface) (*txThrottlerState, error) {
+func newTxThrottlerState(txThrottler *txThrottler, config *txThrottlerConfig, target *querypb.Target, queryEngine, txEngine TabletserverEngineInterface) (*txThrottlerState, error) {
 	maxReplicationLagModuleConfig := throttler.MaxReplicationLagModuleConfig{Configuration: config.throttlerConfig}
 
 	t, err := throttlerFactory(
@@ -496,7 +496,7 @@ func (ts *txThrottlerState) healthChecksProcessor(ctx context.Context, topoServe
 	}
 }
 
-func checkPoolUsage(engine poolUsageInterface, thresholds *flagutil.StringLowHighPercentValues, highErr, lowErr error) error {
+func checkPoolUsage(engine TabletserverEngineInterface, thresholds *flagutil.StringLowHighPercentValues, highErr, lowErr error) error {
 	// Calls to .GetPoolUsagePercent() are serialized by the underlying engine.
 	switch usagePercent := engine.GetPoolUsagePercent(); {
 	case thresholds.High != 0 && usagePercent >= thresholds.High:

@@ -47,7 +47,8 @@ func TestDisabledThrottler(t *testing.T) {
 	config := tabletenv.NewDefaultConfig()
 	config.EnableTxThrottler = false
 	env := tabletenv.NewEnv(config, t.Name())
-	throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
+	mockEngine := NewMockTabletserverEngine()
+	throttler := NewTxThrottler(env, nil, mockEngine, mockEngine)
 	throttler.InitDBConfig(&querypb.Target{
 		Keyspace: "keyspace",
 		Shard:    "shard",
@@ -124,8 +125,8 @@ func TestEnabledThrottler(t *testing.T) {
 	config.TxThrottlerTxPoolThresholds = &flagutil.StringLowHighPercentValues{Low: 66.66, High: 80}
 
 	env := tabletenv.NewEnv(config, t.Name())
-	mockQueryEngine := newMockPoolUsager()
-	mockTxEngine := newMockPoolUsager()
+	mockQueryEngine := NewMockTabletserverEngine()
+	mockTxEngine := NewMockTabletserverEngine()
 	throttler := NewTxThrottler(env, ts, mockQueryEngine, mockTxEngine)
 	throttlerImpl, _ := throttler.(*txThrottler)
 	assert.NotNil(t, throttlerImpl)
@@ -319,11 +320,12 @@ func TestFetchKnownCells(t *testing.T) {
 func TestNewTxThrottler(t *testing.T) {
 	config := tabletenv.NewDefaultConfig()
 	env := tabletenv.NewEnv(config, t.Name())
+	mockEngine := NewMockTabletserverEngine()
 
 	{
 		// disabled
 		config.EnableTxThrottler = false
-		throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
+		throttler := NewTxThrottler(env, nil, mockEngine, mockEngine)
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)
@@ -334,7 +336,7 @@ func TestNewTxThrottler(t *testing.T) {
 		config.EnableTxThrottler = true
 		config.TxThrottlerHealthCheckCells = []string{"cell1", "cell2"}
 		config.TxThrottlerTabletTypes = &topoproto.TabletTypeListFlag{topodatapb.TabletType_REPLICA}
-		throttler := NewTxThrottler(env, nil, newMockPoolUsager(), newMockPoolUsager())
+		throttler := NewTxThrottler(env, nil, mockEngine, mockEngine)
 		throttlerImpl, _ := throttler.(*txThrottler)
 		assert.NotNil(t, throttlerImpl)
 		assert.NotNil(t, throttlerImpl.config)
