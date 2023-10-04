@@ -7,7 +7,8 @@ concurrency:
 jobs:
   build:
     name: Run endtoend tests on {{.Name}}
-    runs-on: ubuntu-20.04
+    runs-on:
+      group: vitess-ubuntu20
     timeout-minutes: 45
 
     steps:
@@ -15,7 +16,7 @@ jobs:
       id: skip-workflow
       run: |
         skip='false'
-        if [[ "{{"${{github.event.pull_request}}"}}" ==  "" ]] && [[ "{{"${{github.ref}}"}}" != "refs/heads/main" ]] && [[ ! "{{"${{github.ref}}"}}" =~ ^refs/heads/slack-vitess-r[0-9]+\.[0-9]\.[0-9]+$ ]] && [[ ! "{{"${{github.ref}}"}}" =~ "refs/tags/.*" ]]; then
+        if [[ "{{"${{github.event.pull_request}}"}}" ==  "" ]] && [[ "{{"${{github.ref}}"}}" != "refs/heads/main" ]] && [[ ! "{{"${{github.ref}}"}}" =~ ^refs/heads/slack-vitess-r.*$ ]] && [[ ! "{{"${{github.ref}}"}}" =~ "refs/tags/.*" ]]; then
           skip='true'
         fi
         echo Skip ${skip}
