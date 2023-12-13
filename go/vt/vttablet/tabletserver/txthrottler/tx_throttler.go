@@ -86,6 +86,7 @@ type ThrottlerInterface interface {
 	GetConfiguration() *throttlerdatapb.Configuration
 	UpdateConfiguration(configuration *throttlerdatapb.Configuration, copyZeroValues bool) error
 	ResetConfiguration()
+	LastMaxLagNotIgnoredForTabletType(tabletType topodatapb.TabletType) uint32
 }
 
 // TopologyWatcherInterface defines the public interface that is implemented by
@@ -359,7 +360,19 @@ func (ts *txThrottlerStateImpl) throttle() bool {
 	// Serialize calls to ts.throttle.Throttle()
 	ts.throttleMu.Lock()
 	defer ts.throttleMu.Unlock()
-	return ts.throttler.Throttle(0 /* threadId */) > 0
+
+	var maxLag uint32
+
+	for _, tabletType := range ts.config.tabletTypes {
+		maxLagPerTabletType := ts.throttler.LastMaxLagNotIgnoredForTabletType(tabletType)
+		if maxLagPerTabletType > maxLag {
+			maxLag = maxLagPerTabletType
+		}
+	}
+
+	return ts.throttler.Throttle(0 /* threadId */) > 0 &&
+		int64(maxLag) > ts.config.throttlerConfig.TargetReplicationLagSec
+
 }
 
 func (ts *txThrottlerStateImpl) deallocateResources() {
