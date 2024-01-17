@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/encoding/prototext"
@@ -185,6 +186,9 @@ type txThrottlerStateImpl struct {
 
 	healthCheck      discovery.LegacyHealthCheck
 	topologyWatchers []TopologyWatcherInterface
+
+	shardMaxLag atomic.Int64
+	endChannel  chan bool
 }
 
 // NewTxThrottler tries to construct a txThrottler from the
@@ -330,8 +334,9 @@ func newTxThrottlerState(topoServer *topo.Server, config *txThrottlerConfig, tar
 		return nil, err
 	}
 	result := &txThrottlerStateImpl{
-		config:    config,
-		throttler: t,
+		config:     config,
+		throttler:  t,
+		endChannel: make(chan bool),
 	}
 	result.healthCheck = healthCheckFactory()
 	result.healthCheck.SetListener(result, false /* sendDownEvents */)
@@ -349,6 +354,9 @@ func newTxThrottlerState(topoServer *topo.Server, config *txThrottlerConfig, tar
 				discovery.DefaultTopologyWatcherRefreshInterval,
 				discovery.DefaultTopoReadConcurrency))
 	}
+
+	go result.updateMaxShardLag()
+
 	return result, nil
 }
 
@@ -361,18 +369,31 @@ func (ts *txThrottlerStateImpl) throttle() bool {
 	ts.throttleMu.Lock()
 	defer ts.throttleMu.Unlock()
 
-	var maxLag uint32
-
-	for _, tabletType := range ts.config.tabletTypes {
-		maxLagPerTabletType := ts.throttler.LastMaxLagNotIgnoredForTabletType(tabletType)
-		if maxLagPerTabletType > maxLag {
-			maxLag = maxLagPerTabletType
-		}
-	}
+	maxLag := ts.shardMaxLag.Load()
 
 	return ts.throttler.Throttle(0 /* threadId */) > 0 &&
-		int64(maxLag) > ts.config.throttlerConfig.TargetReplicationLagSec
+		maxLag > ts.config.throttlerConfig.TargetReplicationLagSec
+}
 
+func (ts *txThrottlerStateImpl) updateMaxShardLag() {
+	// We use half of the target lag to ensure we have enough resolution to see changes in lag below that value
+	ticker := time.NewTicker(time.Duration(ts.config.throttlerConfig.TargetReplicationLagSec/2) * time.Second)
+	for {
+		select {
+		case _ = <-ticker.C:
+			var maxLag uint32
+
+			for _, tabletType := range ts.config.tabletTypes {
+				maxLagPerTabletType := ts.throttler.LastMaxLagNotIgnoredForTabletType(tabletType)
+				if maxLagPerTabletType > maxLag {
+					maxLag = maxLagPerTabletType
+				}
+			}
+			ts.shardMaxLag.Store(int64(maxLag))
+		case _ = <-ts.endChannel:
+			break
+		}
+	}
 }
 
 func (ts *txThrottlerStateImpl) deallocateResources() {
@@ -387,6 +408,7 @@ func (ts *txThrottlerStateImpl) deallocateResources() {
 	ts.healthCheck.Close()
 	ts.healthCheck = nil
 
+	ts.endChannel <- true
 	// After ts.healthCheck is closed txThrottlerStateImpl.StatsUpdate() is guaranteed not
 	// to be executing, so we can safely close the throttler.
 	ts.throttler.Close()
