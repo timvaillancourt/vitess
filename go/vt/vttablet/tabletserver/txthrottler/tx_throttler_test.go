@@ -54,58 +54,6 @@ func TestDisabledThrottler(t *testing.T) {
 	throttler.Close()
 }
 
-// mockThrottlerWrapper is used to intercept calls to LastMaxLagNotIgnoredForTabletType so that we can set their output
-// value withour worrying about them being called multiple times in a separate go routine. This avoids gomock leading
-// to failed tests due to multiple calls.
-type mockThrottlerWrapper struct {
-	mockThrottlerIface      *MockThrottlerInterface
-	lastMaxLagForTabletType map[topodatapb.TabletType]uint32
-}
-
-func (m mockThrottlerWrapper) Throttle(threadID int) time.Duration {
-	return m.mockThrottlerIface.Throttle(threadID)
-}
-
-func (m mockThrottlerWrapper) ThreadFinished(threadID int) {
-	m.mockThrottlerIface.ThreadFinished(threadID)
-}
-
-func (m mockThrottlerWrapper) Close() {
-	m.mockThrottlerIface.Close()
-}
-
-func (m mockThrottlerWrapper) MaxRate() int64 {
-	return m.mockThrottlerIface.MaxRate()
-}
-
-func (m mockThrottlerWrapper) SetMaxRate(rate int64) {
-	m.mockThrottlerIface.SetMaxRate(rate)
-}
-
-func (m mockThrottlerWrapper) RecordReplicationLag(time time.Time, ts *discovery.LegacyTabletStats) {
-	m.mockThrottlerIface.RecordReplicationLag(time, ts)
-}
-
-func (m mockThrottlerWrapper) GetConfiguration() *throttlerdatapb.Configuration {
-	return m.mockThrottlerIface.GetConfiguration()
-}
-
-func (m mockThrottlerWrapper) UpdateConfiguration(configuration *throttlerdatapb.Configuration, copyZeroValues bool) error {
-	return m.mockThrottlerIface.UpdateConfiguration(configuration, copyZeroValues)
-}
-
-func (m mockThrottlerWrapper) ResetConfiguration() {
-	m.mockThrottlerIface.ResetConfiguration()
-}
-
-func (m mockThrottlerWrapper) EXPECT() *MockThrottlerInterfaceMockRecorder {
-	return m.mockThrottlerIface.EXPECT()
-}
-
-func (m mockThrottlerWrapper) LastMaxLagNotIgnoredForTabletType(tabletType topodatapb.TabletType) uint32 {
-	return m.lastMaxLagForTabletType[tabletType]
-}
-
 func TestEnabledThrottler(t *testing.T) {
 	mockCtrl := gomock.NewController(t)
 	defer mockCtrl.Finish()
@@ -133,14 +81,6 @@ func TestEnabledThrottler(t *testing.T) {
 		result.EXPECT().Stop()
 		return result
 	}
-
-	//mockThrottler := mockThrottlerWrapper{
-	//	mockThrottlerIface: NewMockThrottlerInterface(mockCtrl),
-	//	lastMaxLagForTabletType: map[topodatapb.TabletType]uint32{
-	//		topodatapb.TabletType_REPLICA: 0,
-	//		topodatapb.TabletType_RDONLY:  0,
-	//	},
-	//}
 
 	mockThrottler := NewMockThrottlerInterface(mockCtrl)
 
@@ -234,7 +174,7 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
 
 	// 4 should not throttle despite return value of underlying Throttle() and priority = 100, due to low lag
-
+	throttlerImpl.shardMaxLag.Store(1)
 	assert.False(t, throttler.Throttle(100, "some-workload"))
 	assert.Equal(t, int64(4), throttler.requestsTotal.Counts()["some-workload"])
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
