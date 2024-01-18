@@ -187,8 +187,9 @@ type txThrottlerStateImpl struct {
 	healthCheck      discovery.LegacyHealthCheck
 	topologyWatchers []TopologyWatcherInterface
 
-	shardMaxLag int64
-	endChannel  chan bool
+	shardMaxLag  int64
+	endChannel   chan bool
+	endWaitGroup sync.WaitGroup
 }
 
 // NewTxThrottler tries to construct a txThrottler from the
@@ -336,7 +337,7 @@ func newTxThrottlerState(topoServer *topo.Server, config *txThrottlerConfig, tar
 	result := &txThrottlerStateImpl{
 		config:     config,
 		throttler:  t,
-		endChannel: make(chan bool),
+		endChannel: make(chan bool, 1),
 	}
 	result.healthCheck = healthCheckFactory()
 	result.healthCheck.SetListener(result, false /* sendDownEvents */)
@@ -355,6 +356,7 @@ func newTxThrottlerState(topoServer *topo.Server, config *txThrottlerConfig, tar
 				discovery.DefaultTopoReadConcurrency))
 	}
 
+	result.endWaitGroup.Add(1)
 	go result.updateMaxShardLag()
 
 	return result, nil
@@ -376,11 +378,13 @@ func (ts *txThrottlerStateImpl) throttle() bool {
 }
 
 func (ts *txThrottlerStateImpl) updateMaxShardLag() {
+	defer ts.endWaitGroup.Done()
 	// We use half of the target lag to ensure we have enough resolution to see changes in lag below that value
 	ticker := time.NewTicker(time.Duration(ts.config.throttlerConfig.TargetReplicationLagSec/2) * time.Second)
+outerloop:
 	for {
 		select {
-		case _ = <-ticker.C:
+		case <-ticker.C:
 			var maxLag uint32
 
 			for _, tabletType := range ts.config.tabletTypes {
@@ -390,8 +394,8 @@ func (ts *txThrottlerStateImpl) updateMaxShardLag() {
 				}
 			}
 			atomic.StoreInt64(&ts.shardMaxLag, int64(maxLag))
-		case _ = <-ts.endChannel:
-			break
+		case <-ts.endChannel:
+			break outerloop
 		}
 	}
 }
@@ -409,6 +413,7 @@ func (ts *txThrottlerStateImpl) deallocateResources() {
 	ts.healthCheck = nil
 
 	ts.endChannel <- true
+	ts.endWaitGroup.Wait()
 	// After ts.healthCheck is closed txThrottlerStateImpl.StatsUpdate() is guaranteed not
 	// to be executing, so we can safely close the throttler.
 	ts.throttler.Close()
