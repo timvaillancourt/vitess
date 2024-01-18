@@ -187,7 +187,7 @@ type txThrottlerStateImpl struct {
 	healthCheck      discovery.LegacyHealthCheck
 	topologyWatchers []TopologyWatcherInterface
 
-	shardMaxLag atomic.Int64
+	shardMaxLag int64
 	endChannel  chan bool
 }
 
@@ -369,7 +369,7 @@ func (ts *txThrottlerStateImpl) throttle() bool {
 	ts.throttleMu.Lock()
 	defer ts.throttleMu.Unlock()
 
-	maxLag := ts.shardMaxLag.Load()
+	maxLag := atomic.LoadInt64(&ts.shardMaxLag)
 
 	return ts.throttler.Throttle(0 /* threadId */) > 0 &&
 		maxLag > ts.config.throttlerConfig.TargetReplicationLagSec
@@ -389,7 +389,7 @@ func (ts *txThrottlerStateImpl) updateMaxShardLag() {
 					maxLag = maxLagPerTabletType
 				}
 			}
-			ts.shardMaxLag.Store(int64(maxLag))
+			atomic.StoreInt64(&ts.shardMaxLag, int64(maxLag))
 		case _ = <-ts.endChannel:
 			break
 		}

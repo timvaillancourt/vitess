@@ -22,6 +22,7 @@ package txthrottler
 //go:generate mockgen -destination mock_topology_watcher_test.go -package txthrottler vitess.io/vitess/go/vt/vttablet/tabletserver/txthrottler TopologyWatcherInterface
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,9 +149,12 @@ func TestEnabledThrottler(t *testing.T) {
 
 	throttlerImpl, ok := throttler.state.(*txThrottlerStateImpl)
 	assert.True(t, ok)
+	// Stop the go routine that keeps updating the cached  shard's max lag to preventi it from changing the value in a
+	// way that will interfere with how we manipulate that value in our tests to evaluate different cases:
+	throttlerImpl.endChannel <- true
 
 	// 1 should not throttle due to return value of underlying Throttle(), despite high lag
-	throttlerImpl.shardMaxLag.Store(20)
+	atomic.StoreInt64(&throttlerImpl.shardMaxLag, 20)
 	assert.False(t, throttler.Throttle(100, "some-workload"))
 	assert.Equal(t, int64(1), throttler.requestsTotal.Counts()["some-workload"])
 	assert.Zero(t, throttler.requestsThrottled.Counts()["some-workload"])
@@ -175,7 +179,7 @@ func TestEnabledThrottler(t *testing.T) {
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
 
 	// 4 should not throttle despite return value of underlying Throttle() and priority = 100, due to low lag
-	throttlerImpl.shardMaxLag.Store(1)
+	atomic.StoreInt64(&throttlerImpl.shardMaxLag, 1)
 	assert.False(t, throttler.Throttle(100, "some-workload"))
 	assert.Equal(t, int64(4), throttler.requestsTotal.Counts()["some-workload"])
 	assert.Equal(t, int64(1), throttler.requestsThrottled.Counts()["some-workload"])
