@@ -208,7 +208,7 @@ func (gw *TabletGateway) WaitForTablets(tabletTypesToWait []topodatapb.TabletTyp
 	}
 
 	// Finds the targets to look for.
-	targets, err := srvtopo.FindAllTargets(ctx, gw.srvTopoServer, gw.localCell, tabletTypesToWait)
+	targets, err := srvtopo.FindAllTargets(ctx, gw.srvTopoServer, gw.localCell, discovery.KeyspacesToWatch, tabletTypesToWait)
 	if err != nil {
 		return err
 	}
