@@ -190,7 +190,7 @@ func (TabletType) EnumDescriptor() ([]byte, []int) {
 type PromotionRule int32
 
 const (
-	// NONE represe an undefined promotion rule.
+	// NONE represents an undefined promotion rule.
 	PromotionRule_NONE PromotionRule = 0
 	// NEUTRAL represents a neutral promotion rule.
 	PromotionRule_NEUTRAL PromotionRule = 1
