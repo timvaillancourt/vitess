@@ -109,11 +109,12 @@ func PromotionRule(durability Durabler, tablet *topodatapb.Tablet) promotionrule
 		return promotionrule.MustNot
 	}
 	// Support per-tablet override.
-	if tablet.PromotionRule != topodatapb.PromotionRule_NEUTRAL {
-		ruleName := topoproto.PromotionRuleLString(tablet.PromotionRule)
-		if promotionRule, err := promotionrule.Parse(ruleName); err == nil {
-			return promotionRule
+	if tablet.PromotionRule != topodatapb.PromotionRule_NONE {
+		promotionRule, err := promotionrule.NewFromProto(tablet.PromotionRule)
+		if err != nil {
+			log.Errorf("failed to parse tablet promotion rule: %v", err)
 		}
+		return promotionRule
 	}
 	return durability.PromotionRule(tablet)
 }

@@ -17,7 +17,10 @@
 package promotionrule
 
 import (
+	"errors"
 	"fmt"
+
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
 // CandidatePromotionRule describe the promotion preference/rule for an instance.
@@ -30,6 +33,8 @@ const (
 	PreferNot CandidatePromotionRule = "prefer_not"
 	MustNot   CandidatePromotionRule = "must_not"
 )
+
+var ErrUnsupportedPromotionRule = errors.New("unsupported promotion rule")
 
 var promotionRuleOrderMap = map[CandidatePromotionRule]int{
 	Must:      0,
@@ -63,5 +68,23 @@ func Parse(ruleName string) (CandidatePromotionRule, error) {
 		return CandidatePromotionRule(""), fmt.Errorf("CandidatePromotionRule: %v not supported yet", ruleName)
 	default:
 		return CandidatePromotionRule(""), fmt.Errorf("Invalid CandidatePromotionRule: %v", ruleName)
+	}
+}
+
+// NewFromProto returns a *CandidatePromotionRule from a topodatapb.PromotionRule.
+func NewFromProto(promotionRule topodatapb.PromotionRule) (CandidatePromotionRule, error) {
+	switch promotionRule {
+	case topodatapb.PromotionRule_NEUTRAL:
+		return Neutral, nil
+	case topodatapb.PromotionRule_MUST:
+		return Must, nil
+	case topodatapb.PromotionRule_PREFER:
+		return Prefer, nil
+	case topodatapb.PromotionRule_PREFER_NOT:
+		return PreferNot, nil
+	case topodatapb.PromotionRule_MUST_NOT:
+		return MustNot, nil
+	default:
+		return MustNot, ErrUnsupportedPromotionRule
 	}
 }
