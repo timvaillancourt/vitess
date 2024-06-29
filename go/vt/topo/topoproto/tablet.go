@@ -30,6 +30,7 @@ import (
 
 	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/sets"
+	"vitess.io/vitess/go/vt/vtctl/reparentutil/promotionrule"
 	"vitess.io/vitess/go/vt/vterrors"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -294,4 +295,23 @@ func IsServingType(tabletType topodatapb.TabletType) bool {
 	default:
 		return false
 	}
+}
+
+// ParsePromotionRule parses the tablet promotion rule.
+func ParsePromotionRule(param string) (topodatapb.PromotionRule, error) {
+	value, ok := topodatapb.PromotionRule_value[strings.ToUpper(param)]
+	if !ok {
+		return topodatapb.PromotionRule_NEUTRAL, fmt.Errorf("unknown PromotionRule %v", param)
+	}
+	return topodatapb.PromotionRule(value), nil
+}
+
+// PromotionRuleLString returns a lower case version of the Promotion Rule,
+// or "none" if not known.
+func PromotionRuleLString(promotionRule topodatapb.PromotionRule) string {
+	value, ok := topodatapb.PromotionRule_name[int32(promotionRule)]
+	if !ok {
+		value = string(promotionrule.Neutral)
+	}
+	return strings.ToLower(value)
 }
