@@ -104,7 +104,7 @@ enum TabletType {
 
 // PromotionRule represents a Durability Policy override for an instance of vttablet.
 enum PromotionRule {
-  // NONE represe an undefined promotion rule.
+  // NONE represents an undefined promotion rule.
   NONE = 0;
 
   // NEUTRAL represents a neutral promotion rule.
