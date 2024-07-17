@@ -51,7 +51,10 @@ type (
 		offsetPlanned bool
 
 		// Original will only be true for the original aggregator created from the AST
-		Original      bool
+		Original bool
+
+		// ResultColumns signals how many columns will be produced by this operator
+		// This is used to truncate the columns in the final result
 		ResultColumns int
 
 		QP *QueryProjection
@@ -98,7 +101,7 @@ func (a *Aggregator) addColumnWithoutPushing(ctx *plancontext.PlanningContext, e
 		case sqlparser.AggrFunc:
 			aggr = createAggrFromAggrFunc(e, expr)
 		case *sqlparser.FuncExpr:
-			if IsAggr(ctx, e) {
+			if ctx.IsAggr(e) {
 				aggr = NewAggr(opcode.AggregateUDF, nil, expr, expr.As.String())
 			} else {
 				aggr = NewAggr(opcode.AggregateAnyValue, nil, expr, expr.As.String())
@@ -110,14 +113,6 @@ func (a *Aggregator) addColumnWithoutPushing(ctx *plancontext.PlanningContext, e
 		a.Aggregations = append(a.Aggregations, aggr)
 	}
 	return offset
-}
-
-func (a *Aggregator) addColumnsWithoutPushing(ctx *plancontext.PlanningContext, reuse bool, groupby []bool, exprs []*sqlparser.AliasedExpr) (offsets []int) {
-	for i, ae := range exprs {
-		offset := a.addColumnWithoutPushing(ctx, ae, groupby[i])
-		offsets = append(offsets, offset)
-	}
-	return
 }
 
 func (a *Aggregator) isDerived() bool {
@@ -141,12 +136,24 @@ func (a *Aggregator) FindCol(ctx *plancontext.PlanningContext, in sqlparser.Expr
 
 	expr := a.DT.RewriteExpression(ctx, in)
 	if offset, found := canReuseColumn(ctx, a.Columns, expr, extractExpr); found {
+		a.checkOffset(offset)
 		return offset
 	}
 	return -1
 }
 
-func (a *Aggregator) AddColumn(ctx *plancontext.PlanningContext, reuse bool, groupBy bool, ae *sqlparser.AliasedExpr) int {
+func (a *Aggregator) checkOffset(offset int) {
+	// if the offset is greater than the number of columns we expect to produce, we need to update the number of columns
+	// this is to make sure that the column is not truncated in the final result
+	if a.ResultColumns > 0 && a.ResultColumns <= offset {
+		a.ResultColumns = offset + 1
+	}
+}
+
+func (a *Aggregator) AddColumn(ctx *plancontext.PlanningContext, reuse bool, groupBy bool, ae *sqlparser.AliasedExpr) (offset int) {
+	defer func() {
+		a.checkOffset(offset)
+	}()
 	rewritten := a.DT.RewriteExpression(ctx, ae.Expr)
 
 	ae = &sqlparser.AliasedExpr{
@@ -180,7 +187,7 @@ func (a *Aggregator) AddColumn(ctx *plancontext.PlanningContext, reuse bool, gro
 		a.Aggregations = append(a.Aggregations, aggr)
 	}
 
-	offset := len(a.Columns)
+	offset = len(a.Columns)
 	a.Columns = append(a.Columns, ae)
 	incomingOffset := a.Source.AddColumn(ctx, false, groupBy, ae)
 
@@ -246,6 +253,7 @@ func (a *Aggregator) AddWSColumn(ctx *plancontext.PlanningContext, offset int, u
 		// TODO: we could handle this case by adding a projection on under the aggregator to make the columns line up
 		panic(errFailedToPlan(wsAe))
 	}
+	a.checkOffset(wsOffset)
 	return wsOffset
 }
 
@@ -281,9 +289,9 @@ func isDerived(op Operator) bool {
 	}
 }
 
-func (a *Aggregator) GetColumns(ctx *plancontext.PlanningContext) []*sqlparser.AliasedExpr {
+func (a *Aggregator) GetColumns(ctx *plancontext.PlanningContext) (res []*sqlparser.AliasedExpr) {
 	if isDerived(a.Source) {
-		return a.Columns
+		return truncate(a, a.Columns)
 	}
 
 	// we update the incoming columns, so we know about any new columns that have been added
@@ -296,7 +304,7 @@ func (a *Aggregator) GetColumns(ctx *plancontext.PlanningContext) []*sqlparser.A
 		a.Columns = append(a.Columns, columns[len(a.Columns):]...)
 	}
 
-	return a.Columns
+	return truncate(a, a.Columns)
 }
 
 func (a *Aggregator) GetSelectExprs(ctx *plancontext.PlanningContext) sqlparser.SelectExprs {
@@ -314,6 +322,9 @@ func (a *Aggregator) ShortDescription() string {
 	org := ""
 	if a.Original {
 		org = "ORG "
+	}
+	if a.ResultColumns > 0 {
+		org += fmt.Sprintf(":%d ", a.ResultColumns)
 	}
 
 	if len(a.Grouping) == 0 {
@@ -360,7 +371,7 @@ func (a *Aggregator) planOffsets(ctx *plancontext.PlanningContext) Operator {
 			a.Grouping[idx].ColOffset = offset
 			gb.ColOffset = offset
 		}
-		if gb.WSOffset != -1 || !ctx.SemTable.NeedsWeightString(gb.Inner) {
+		if gb.WSOffset != -1 || !ctx.NeedsWeightString(gb.Inner) {
 			continue
 		}
 
@@ -372,8 +383,16 @@ func (a *Aggregator) planOffsets(ctx *plancontext.PlanningContext) Operator {
 		if !aggr.NeedsWeightString(ctx) {
 			continue
 		}
-		arg := aggr.getPushColumn()
-		offset := a.internalAddColumn(ctx, aeWrap(weightStringFor(arg)), true)
+		var offset int
+		if aggr.PushedDown {
+			// if we have already pushed down aggregation, we need to use
+			// the weight string of the aggregation and not the argument
+			offset = a.internalAddColumn(ctx, aeWrap(weightStringFor(aggr.Func)), false)
+		} else {
+			// If we have not pushed down the aggregation, we need the weight_string of the argument
+			arg := aggr.getPushColumn()
+			offset = a.internalAddColumn(ctx, aeWrap(weightStringFor(arg)), true)
+		}
 		a.Aggregations[idx].WSOffset = offset
 	}
 	return nil
@@ -419,6 +438,9 @@ func (aggr Aggr) getPushColumnExprs() sqlparser.Exprs {
 		return sqlparser.Exprs{aggr.Original.Expr}
 	case opcode.AggregateCountStar:
 		return sqlparser.Exprs{sqlparser.NewIntLiteral("1")}
+	case opcode.AggregateUDF:
+		// AggregateUDFs can't be evaluated on the vtgate. So either we are able to push everything down, or we will have to fail the query.
+		return nil
 	default:
 		return aggr.Func.GetArgs()
 	}
@@ -489,7 +511,7 @@ func (a *Aggregator) pushRemainingGroupingColumnsAndWeightStrings(ctx *planconte
 			a.Grouping[idx].ColOffset = offset
 		}
 
-		if gb.WSOffset != -1 || !ctx.SemTable.NeedsWeightString(gb.Inner) {
+		if gb.WSOffset != -1 || !ctx.NeedsWeightString(gb.Inner) {
 			continue
 		}
 
@@ -511,7 +533,16 @@ func (a *Aggregator) setTruncateColumnCount(offset int) {
 	a.ResultColumns = offset
 }
 
+func (a *Aggregator) getTruncateColumnCount() int {
+	return a.ResultColumns
+}
+
 func (a *Aggregator) internalAddColumn(ctx *plancontext.PlanningContext, aliasedExpr *sqlparser.AliasedExpr, addToGroupBy bool) int {
+	if a.ResultColumns == 0 {
+		// if we need to use `internalAddColumn`, it means we are adding columns that are not part of the original list,
+		// so we need to set the ResultColumns to the current length of the columns list
+		a.ResultColumns = len(a.Columns)
+	}
 	offset := a.Source.AddColumn(ctx, true, addToGroupBy, aliasedExpr)
 
 	if offset == len(a.Columns) {
