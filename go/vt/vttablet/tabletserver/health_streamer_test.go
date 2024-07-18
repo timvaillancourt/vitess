@@ -31,6 +31,7 @@ import (
 
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/mysql/fakesqldb"
+	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/sqltypes"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -47,7 +48,7 @@ func TestHealthStreamerClosed(t *testing.T) {
 		Uid:  1,
 	}
 	blpFunc = testBlpFunc
-	hs := newHealthStreamer(env, alias, &schema.Engine{}, time.Now())
+	hs := NewHealthStreamer(env, alias, &schema.Engine{})
 	err := hs.Stream(context.Background(), func(shr *querypb.StreamHealthResponse) error {
 		return nil
 	})
@@ -72,7 +73,7 @@ func TestNotServingPrimaryNoWrite(t *testing.T) {
 		Uid:  1,
 	}
 	// Create a new health streamer and set it to a serving primary state
-	hs := newHealthStreamer(env, alias, &schema.Engine{}, time.Now())
+	hs := NewHealthStreamer(env, alias, &schema.Engine{})
 	hs.isServingPrimary = true
 	hs.Open()
 	defer hs.Close()
@@ -91,14 +92,13 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 	cfg := newConfig(nil)
 	cfg.SignalWhenSchemaChange = false
 
+	now := time.Now()
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "ReplTrackerTest")
 	alias := &topodatapb.TabletAlias{
 		Cell: "cell",
 		Uid:  1,
 	}
 	blpFunc = testBlpFunc
-	now := time.Now()
-	vttimeNow := timeToVttime(now)
 	hs := newHealthStreamer(env, alias, &schema.Engine{}, now)
 	hs.Open()
 	defer hs.Close()
@@ -112,7 +112,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		TabletAlias: alias,
 		RealtimeStats: &querypb.RealtimeStats{
 			HealthError: "tabletserver uninitialized",
-			Timestamp:   vttimeNow,
+			Timestamp:   protoutil.TimeToProto(now),
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -127,7 +127,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		RealtimeStats: &querypb.RealtimeStats{
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
-			Timestamp:                     vttimeNow,
+			Timestamp:                     protoutil.TimeToProto(now),
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -145,7 +145,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		RealtimeStats: &querypb.RealtimeStats{
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
-			Timestamp:                     vttimeNow,
+			Timestamp:                     protoutil.TimeToProto(now),
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -162,7 +162,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 			ReplicationLagSeconds:         1,
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
-			Timestamp:                     vttimeNow,
+			Timestamp:                     protoutil.TimeToProto(now),
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -179,7 +179,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 			HealthError:                   "repl err",
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
-			Timestamp:                     vttimeNow,
+			Timestamp:                     protoutil.TimeToProto(now),
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -216,7 +216,7 @@ func TestReloadSchema(t *testing.T) {
 			}
 			blpFunc = testBlpFunc
 			se := schema.NewEngine(env)
-			hs := newHealthStreamer(env, alias, se, time.Now())
+			hs := NewHealthStreamer(env, alias, se)
 
 			db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(
 				sqltypes.MakeTestFields(
@@ -344,7 +344,7 @@ func TestReloadView(t *testing.T) {
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TestReloadView")
 	alias := &topodatapb.TabletAlias{Cell: "cell", Uid: 1}
 	se := schema.NewEngine(env)
-	hs := newHealthStreamer(env, alias, se, time.Now())
+	hs := NewHealthStreamer(env, alias, se)
 
 	db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields(

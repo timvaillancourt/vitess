@@ -26,19 +26,17 @@ import (
 
 	"github.com/spf13/pflag"
 
-	vtschema "vitess.io/vitess/go/vt/schema"
-	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
-
-	"vitess.io/vitess/go/vt/servenv"
-
 	"vitess.io/vitess/go/history"
+	"vitess.io/vitess/go/protoutil"
 	"vitess.io/vitess/go/vt/log"
 	querypb "vitess.io/vitess/go/vt/proto/query"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
-	vttimepb "vitess.io/vitess/go/vt/proto/vttime"
+	vtschema "vitess.io/vitess/go/vt/schema"
+	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/vreplication"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -59,13 +57,6 @@ func init() {
 
 func registerHealthStreamerFlags(fs *pflag.FlagSet) {
 	fs.UintVar(&streamHealthBufferSize, "stream_health_buffer_size", streamHealthBufferSize, "max streaming health entries to buffer per streaming health client")
-}
-
-func timeToVttime(t time.Time) *vttimepb.Time {
-	return &vttimepb.Time{
-		Seconds:     t.Unix(),
-		Nanoseconds: int32(t.UnixNano() - (t.Unix() * 1000000000)),
-	}
 }
 
 // healthStreamer streams health information to callers.
@@ -100,7 +91,7 @@ func newHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine 
 			TabletAlias: alias,
 			RealtimeStats: &querypb.RealtimeStats{
 				HealthError: errUnintialized,
-				Timestamp:   timeToVttime(now),
+				Timestamp:   protoutil.TimeToProto(now),
 			},
 		},
 
@@ -111,6 +102,10 @@ func newHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine 
 	}
 	hs.unhealthyThreshold.Store(env.Config().Healthcheck.UnhealthyThreshold.Nanoseconds())
 	return hs
+}
+
+func NewHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine *schema.Engine) *healthStreamer {
+	return newHealthStreamer(env, alias, engine, time.Now())
 }
 
 func (hs *healthStreamer) InitDBConfig(target *querypb.Target) {
@@ -208,7 +203,7 @@ func (hs *healthStreamer) ChangeState(tabletType topodatapb.TabletType, ptsTimes
 
 	hs.state.RealtimeStats.FilteredReplicationLagSeconds, hs.state.RealtimeStats.BinlogPlayersCount = blpFunc()
 	hs.state.RealtimeStats.Qps = hs.stats.QPSRates.TotalRate()
-	hs.state.RealtimeStats.Timestamp = timeToVttime(ptsTimestamp)
+	hs.state.RealtimeStats.Timestamp = protoutil.TimeToProto(ptsTimestamp)
 	shr := hs.state.CloneVT()
 	hs.broadCastToClients(shr)
 	hs.history.Add(&historyRecord{
@@ -345,7 +340,6 @@ func (hs *healthStreamer) reload(created, altered, dropped []*schema.Table, udfs
 		return nil
 	}
 
-	now := time.Now()
 	hs.state.RealtimeStats.TableSchemaChanged = tables
 	hs.state.RealtimeStats.ViewSchemaChanged = views
 	hs.state.RealtimeStats.UdfsChanged = udfsChanged
@@ -354,7 +348,7 @@ func (hs *healthStreamer) reload(created, altered, dropped []*schema.Table, udfs
 	hs.state.RealtimeStats.TableSchemaChanged = nil
 	hs.state.RealtimeStats.ViewSchemaChanged = nil
 	hs.state.RealtimeStats.UdfsChanged = false
-	hs.state.RealtimeStats.Timestamp = timeToVttime(now)
+	hs.state.RealtimeStats.Timestamp = protoutil.TimeToProto(time.Now())
 	return nil
 }
 
@@ -367,10 +361,9 @@ func (hs *healthStreamer) sendUnresolvedTransactionSignal() {
 		return
 	}
 
-	now := time.Now()
 	hs.state.RealtimeStats.TxUnresolved = true
 	shr := hs.state.CloneVT()
 	hs.broadCastToClients(shr)
 	hs.state.RealtimeStats.TxUnresolved = false
-	hs.state.RealtimeStats.Timestamp = timeToVttime(now)
+	hs.state.RealtimeStats.Timestamp = protoutil.TimeToProto(time.Now())
 }
