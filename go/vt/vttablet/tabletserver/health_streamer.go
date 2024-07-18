@@ -61,6 +61,13 @@ func registerHealthStreamerFlags(fs *pflag.FlagSet) {
 	fs.UintVar(&streamHealthBufferSize, "stream_health_buffer_size", streamHealthBufferSize, "max streaming health entries to buffer per streaming health client")
 }
 
+func timeToVttime(t time.Time) *vttimepb.Time {
+	return &vttimepb.Time{
+		Seconds:     t.Unix(),
+		Nanoseconds: int32(t.UnixNano() - (t.Unix() * 1000000000)),
+	}
+}
+
 // healthStreamer streams health information to callers.
 type healthStreamer struct {
 	stats              *tabletenv.Stats
@@ -83,9 +90,7 @@ type healthStreamer struct {
 	viewsEnabled bool
 }
 
-func newHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine *schema.Engine) *healthStreamer {
-	now := time.Now()
-	nanos := now.UnixNano() - (now.Unix() * 1000000000)
+func newHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine *schema.Engine, now time.Time) *healthStreamer {
 	hs := &healthStreamer{
 		stats:             env.Stats(),
 		degradedThreshold: env.Config().Healthcheck.DegradedThreshold,
@@ -95,10 +100,7 @@ func newHealthStreamer(env tabletenv.Env, alias *topodatapb.TabletAlias, engine 
 			TabletAlias: alias,
 			RealtimeStats: &querypb.RealtimeStats{
 				HealthError: errUnintialized,
-				Timestamp: &vttimepb.Time{
-					Seconds:     now.Unix(),
-					Nanoseconds: int32(nanos),
-				},
+				Timestamp:   timeToVttime(now),
 			},
 		},
 
@@ -206,10 +208,7 @@ func (hs *healthStreamer) ChangeState(tabletType topodatapb.TabletType, ptsTimes
 
 	hs.state.RealtimeStats.FilteredReplicationLagSeconds, hs.state.RealtimeStats.BinlogPlayersCount = blpFunc()
 	hs.state.RealtimeStats.Qps = hs.stats.QPSRates.TotalRate()
-	hs.state.RealtimeStats.Timestamp = &vttimepb.Time{
-		Seconds:     ptsTimestamp.Unix(),
-		Nanoseconds: int32(ptsTimestamp.UnixNano() - (ptsTimestamp.Unix() * 1000000000)),
-	}
+	hs.state.RealtimeStats.Timestamp = timeToVttime(ptsTimestamp)
 	shr := hs.state.CloneVT()
 	hs.broadCastToClients(shr)
 	hs.history.Add(&historyRecord{
@@ -355,10 +354,7 @@ func (hs *healthStreamer) reload(created, altered, dropped []*schema.Table, udfs
 	hs.state.RealtimeStats.TableSchemaChanged = nil
 	hs.state.RealtimeStats.ViewSchemaChanged = nil
 	hs.state.RealtimeStats.UdfsChanged = false
-	hs.state.RealtimeStats.Timestamp = &vttimepb.Time{
-		Seconds:     now.Unix(),
-		Nanoseconds: int32(now.UnixNano() - (now.Unix() * 1000000000)),
-	}
+	hs.state.RealtimeStats.Timestamp = timeToVttime(now)
 	return nil
 }
 
@@ -376,8 +372,5 @@ func (hs *healthStreamer) sendUnresolvedTransactionSignal() {
 	shr := hs.state.CloneVT()
 	hs.broadCastToClients(shr)
 	hs.state.RealtimeStats.TxUnresolved = false
-	hs.state.RealtimeStats.Timestamp = &vttimepb.Time{
-		Seconds:     now.Unix(),
-		Nanoseconds: int32(now.UnixNano() - (now.Unix() * 1000000000)),
-	}
+	hs.state.RealtimeStats.Timestamp = timeToVttime(now)
 }

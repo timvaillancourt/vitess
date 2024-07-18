@@ -47,7 +47,7 @@ func TestHealthStreamerClosed(t *testing.T) {
 		Uid:  1,
 	}
 	blpFunc = testBlpFunc
-	hs := newHealthStreamer(env, alias, &schema.Engine{})
+	hs := newHealthStreamer(env, alias, &schema.Engine{}, time.Now())
 	err := hs.Stream(context.Background(), func(shr *querypb.StreamHealthResponse) error {
 		return nil
 	})
@@ -72,7 +72,7 @@ func TestNotServingPrimaryNoWrite(t *testing.T) {
 		Uid:  1,
 	}
 	// Create a new health streamer and set it to a serving primary state
-	hs := newHealthStreamer(env, alias, &schema.Engine{})
+	hs := newHealthStreamer(env, alias, &schema.Engine{}, time.Now())
 	hs.isServingPrimary = true
 	hs.Open()
 	defer hs.Close()
@@ -97,7 +97,9 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		Uid:  1,
 	}
 	blpFunc = testBlpFunc
-	hs := newHealthStreamer(env, alias, &schema.Engine{})
+	now := time.Now()
+	vttimeNow := timeToVttime(now)
+	hs := newHealthStreamer(env, alias, &schema.Engine{}, now)
 	hs.Open()
 	defer hs.Close()
 
@@ -110,11 +112,12 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		TabletAlias: alias,
 		RealtimeStats: &querypb.RealtimeStats{
 			HealthError: "tabletserver uninitialized",
+			Timestamp:   vttimeNow,
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
 
-	hs.ChangeState(topodatapb.TabletType_REPLICA, time.Time{}, 0, nil, false)
+	hs.ChangeState(topodatapb.TabletType_REPLICA, now, 0, nil, false)
 	shr = <-ch
 	want = &querypb.StreamHealthResponse{
 		Target: &querypb.Target{
@@ -124,12 +127,12 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		RealtimeStats: &querypb.RealtimeStats{
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
+			Timestamp:                     vttimeNow,
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
 
 	// Test primary and timestamp.
-	now := time.Now()
 	hs.ChangeState(topodatapb.TabletType_PRIMARY, now, 0, nil, true)
 	shr = <-ch
 	want = &querypb.StreamHealthResponse{
@@ -142,6 +145,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 		RealtimeStats: &querypb.RealtimeStats{
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
+			Timestamp:                     vttimeNow,
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -158,6 +162,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 			ReplicationLagSeconds:         1,
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
+			Timestamp:                     vttimeNow,
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -174,6 +179,7 @@ func TestHealthStreamerBroadcast(t *testing.T) {
 			HealthError:                   "repl err",
 			FilteredReplicationLagSeconds: 1,
 			BinlogPlayersCount:            2,
+			Timestamp:                     vttimeNow,
 		},
 	}
 	assert.Truef(t, proto.Equal(want, shr), "want: %v, got: %v", want, shr)
@@ -210,7 +216,7 @@ func TestReloadSchema(t *testing.T) {
 			}
 			blpFunc = testBlpFunc
 			se := schema.NewEngine(env)
-			hs := newHealthStreamer(env, alias, se)
+			hs := newHealthStreamer(env, alias, se, time.Now())
 
 			db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(
 				sqltypes.MakeTestFields(
@@ -338,7 +344,7 @@ func TestReloadView(t *testing.T) {
 	env := tabletenv.NewEnv(vtenv.NewTestEnv(), cfg, "TestReloadView")
 	alias := &topodatapb.TabletAlias{Cell: "cell", Uid: 1}
 	se := schema.NewEngine(env)
-	hs := newHealthStreamer(env, alias, se)
+	hs := newHealthStreamer(env, alias, se, time.Now())
 
 	db.AddQueryPattern("SELECT UNIX_TIMESTAMP()"+".*", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields(
