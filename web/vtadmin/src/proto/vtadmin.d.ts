@@ -42597,6 +42597,9 @@ export namespace query {
 
         /** RealtimeStats tx_unresolved */
         tx_unresolved?: (boolean|null);
+
+        /** RealtimeStats timestamp */
+        timestamp?: (vttime.ITime|null);
     }
 
     /** Represents a RealtimeStats. */
@@ -42637,6 +42640,9 @@ export namespace query {
 
         /** RealtimeStats tx_unresolved. */
         public tx_unresolved: boolean;
+
+        /** RealtimeStats timestamp. */
+        public timestamp?: (vttime.ITime|null);
 
         /**
          * Creates a new RealtimeStats instance using the specified properties.
