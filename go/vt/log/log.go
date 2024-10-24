@@ -23,57 +23,66 @@ package log
 
 import (
 	"fmt"
-	"strconv"
-	"sync/atomic"
+	"os"
+	//"strconv"
+	//"sync/atomic"
 
-	"github.com/golang/glog"
-	"github.com/spf13/pflag"
+	//"github.com/spf13/pflag"
+	"go.uber.org/zap"
 )
 
-// Level is used with V() to test log verbosity.
-type Level = glog.Level
+var logger *zap.SugaredLogger
+
+func init() {
+	logCfg := zap.NewProductionConfig()
+	lz, err := logCfg.Build()
+	if err != nil {
+		fmt.Printf("failed to configure logger: %+v", err)
+		os.Exit(1)
+	}
+	logger = lz.Sugar()
+}
 
 var (
-	// V quickly checks if the logging verbosity meets a threshold.
-	V = glog.V
-
 	// Flush ensures any pending I/O is written.
-	Flush = glog.Flush
+	Flush = func() {
+		_ = logger.Sync()
+		return
+	}
+	Sync = logger.Sync
+
+	// Debug formats arguments like fmt.Print.
+	Debug = logger.Debug
+	// Debugf formats arguments like fmt.Printf.
+	Debugf = logger.Debugf
 
 	// Info formats arguments like fmt.Print.
-	Info = glog.Info
+	Info = logger.Info
 	// Infof formats arguments like fmt.Printf.
-	Infof = glog.Infof
-	// InfoDepth formats arguments like fmt.Print and uses depth to choose which call frame to log.
-	InfoDepth = glog.InfoDepth
+	Infof = logger.Infof
 
+	// Warn formats arguments like fmt.Print.
+	Warn = logger.Warn
+	// Warnf formats arguments like fmt.Printf.
+	Warnf = logger.Warnf
 	// Warning formats arguments like fmt.Print.
-	Warning = glog.Warning
+	Warning = logger.Warn
 	// Warningf formats arguments like fmt.Printf.
-	Warningf = glog.Warningf
-	// WarningDepth formats arguments like fmt.Print and uses depth to choose which call frame to log.
-	WarningDepth = glog.WarningDepth
+	Warningf = logger.Warnf
 
 	// Error formats arguments like fmt.Print.
-	Error = glog.Error
+	Error = logger.Error
 	// Errorf formats arguments like fmt.Printf.
-	Errorf = glog.Errorf
-	// ErrorDepth formats arguments like fmt.Print and uses depth to choose which call frame to log.
-	ErrorDepth = glog.ErrorDepth
+	Errorf = logger.Errorf
 
 	// Exit formats arguments like fmt.Print.
-	Exit = glog.Exit
+	Exit = logger.Fatal
 	// Exitf formats arguments like fmt.Printf.
-	Exitf = glog.Exitf
-	// ExitDepth formats arguments like fmt.Print and uses depth to choose which call frame to log.
-	ExitDepth = glog.ExitDepth
-
+	Exitf = logger.Fatalf
 	// Fatal formats arguments like fmt.Print.
-	Fatal = glog.Fatal
+	Fatal = logger.Fatal
 	// Fatalf formats arguments like fmt.Printf
-	Fatalf = glog.Fatalf
-	// FatalDepth formats arguments like fmt.Print and uses depth to choose which call frame to log.
-	FatalDepth = glog.FatalDepth
+	Fatalf = logger.Fatalf
 )
 
 // RegisterFlags installs log flags on the given FlagSet.
@@ -81,6 +90,7 @@ var (
 // `go/cmd/*` entrypoints should either use servenv.ParseFlags(WithArgs)? which
 // calls this function, or call this function directly before parsing
 // command-line arguments.
+/*
 func RegisterFlags(fs *pflag.FlagSet) {
 	flagVal := logRotateMaxSize{
 		val: fmt.Sprintf("%d", atomic.LoadUint64(&glog.MaxSize)),
@@ -111,3 +121,4 @@ func (lrms *logRotateMaxSize) String() string {
 func (lrms *logRotateMaxSize) Type() string {
 	return "uint64"
 }
+*/
