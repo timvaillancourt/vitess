@@ -161,7 +161,7 @@ func refreshTabletsInCell(ctx context.Context, cell string, loader func(tabletAl
 		log.Errorf("Error fetching topo info for cell %v: %v", cell, err)
 		return
 	}
-	query := "select alias from vitess_tablet where cell = ?"
+	query := "select alias, hostname from vitess_tablet where cell = ?"
 	args := sqlutils.Args(cell)
 	refreshTablets(tablets, query, args, loader, forceRefresh, nil)
 }
@@ -193,7 +193,7 @@ func refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, 
 		log.Errorf("Error fetching tablets for keyspace/shard %v/%v: %v", keyspace, shard, err)
 		return
 	}
-	query := "select alias from vitess_tablet where keyspace = ? and shard = ?"
+	query := "select alias, hostname from vitess_tablet where keyspace = ? and shard = ?"
 	args := sqlutils.Args(keyspace, shard)
 	refreshTablets(tablets, query, args, loader, forceRefresh, tabletsToIgnore)
 }

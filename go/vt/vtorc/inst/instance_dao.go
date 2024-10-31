@@ -36,6 +36,7 @@ import (
 	"vitess.io/vitess/go/tb"
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtorc/collection"
 	"vitess.io/vitess/go/vt/vtorc/config"
@@ -300,7 +301,7 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 			instance.SecondsBehindPrimary.Int64 = int64(fs.ReplicationStatus.ReplicationLagSeconds)
 		}
 		if instance.SecondsBehindPrimary.Valid && instance.SecondsBehindPrimary.Int64 < 0 {
-			log.Warningf("Alias: %+v, instance.SecondsBehindPrimary < 0 [%+v], correcting to 0", tabletAlias, instance.SecondsBehindPrimary.Int64)
+			log.Warningf("Tablet: %s, instance.SecondsBehindPrimary < 0 [%+v], correcting to 0", logutil.TabletToString(tablet), instance.SecondsBehindPrimary.Int64)
 			instance.SecondsBehindPrimary.Int64 = 0
 		}
 		// And until told otherwise:
@@ -978,16 +979,16 @@ func WriteInstance(instance *Instance, instanceWasActuallyFound bool, lastError 
 
 // UpdateInstanceLastChecked updates the last_check timestamp in the vtorc backed database
 // for a given instance
-func UpdateInstanceLastChecked(tabletAlias string, partialSuccess bool) error {
+func UpdateInstanceLastChecked(tablet *topodatapob.Tablet, partialSuccess bool) error {
 	writeFunc := func() error {
 		_, err := db.ExecVTOrc(`
         	update
         		database_instance
         	set
-						last_checked = NOW(),
-						last_check_partial_success = ?
-			where
-				alias = ?`,
+			last_checked = NOW(),
+			last_check_partial_success = ?
+		where
+			alias = ?`,
 			partialSuccess,
 			tabletAlias,
 		)
@@ -1007,16 +1008,16 @@ func UpdateInstanceLastChecked(tabletAlias string, partialSuccess bool) error {
 // And so we make sure to note down *before* we even attempt to access the instance; and this raises a red flag when we
 // wish to access the instance again: if last_attempted_check is *newer* than last_checked, that's bad news and means
 // we have a "hanging" issue.
-func UpdateInstanceLastAttemptedCheck(tabletAlias string) error {
+func UpdateInstanceLastAttemptedCheck(tablet *topodatapb.Tablet) error {
 	writeFunc := func() error {
 		_, err := db.ExecVTOrc(`
-    	update
-    		database_instance
-    	set
-    		last_attempted_check = NOW()
-			where
-				alias = ?`,
-			tabletAlias,
+		update
+			database_instance
+		set
+			last_attempted_check = NOW()
+		where
+			alias = ?`,
+			topoproto.TabletAliasString(tablet.Alias),
 		)
 		if err != nil {
 			log.Error(err)
@@ -1026,31 +1027,33 @@ func UpdateInstanceLastAttemptedCheck(tabletAlias string) error {
 	return ExecDBWriteFunc(writeFunc)
 }
 
-func InstanceIsForgotten(tabletAlias string) bool {
+func InstanceIsForgotten(tablet *topodatapb.Tablet) bool {
+	tabletAlias := topoproto.TabletAliasString(tablet.Alias)
 	_, found := forgetAliases.Get(tabletAlias)
 	return found
 }
 
 // ForgetInstance removes an instance entry from the vtorc backed database.
 // It may be auto-rediscovered through topology or requested for discovery by multiple means.
-func ForgetInstance(tabletAlias string) error {
-	if tabletAlias == "" {
-		errMsg := "ForgetInstance(): empty tabletAlias"
+func ForgetInstance(tablet *topodatapb.Tablet) error {
+	if tablet == nil {
+		errMsg := "ForgetInstance(): nil tablet"
 		log.Errorf(errMsg)
 		return errors.New(errMsg)
 	}
+	tabletAlias := topoproto.TabletAliasString(tablet.Alias)
 	forgetAliases.Set(tabletAlias, true, cache.DefaultExpiration)
-	log.Infof("Forgetting: %v", tabletAlias)
+	log.Infof("Forgetting: %s", logutil.TabletToString(tablet))
 
 	// Remove this tablet from errant GTID count metric.
 	currentErrantGTIDCount.Reset(tabletAlias)
 
 	// Delete from the 'vitess_tablet' table.
 	_, err := db.ExecVTOrc(`
-					delete
-						from vitess_tablet
-					where
-						alias = ?`,
+		delete
+			from vitess_tablet
+		where
+			alias = ?`,
 		tabletAlias,
 	)
 	if err != nil {
@@ -1060,10 +1063,10 @@ func ForgetInstance(tabletAlias string) error {
 
 	// Also delete from the 'database_instance' table.
 	sqlResult, err := db.ExecVTOrc(`
-			delete
-				from database_instance
-			where
-				alias = ?`,
+		delete
+			from database_instance
+		where
+			alias = ?`,
 		tabletAlias,
 	)
 	if err != nil {

@@ -21,6 +21,7 @@ import (
 
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/inst"
@@ -92,6 +93,7 @@ func addStatusParts() {
 func init() {
 	servenv.RegisterDefaultFlags()
 	servenv.RegisterFlags()
+	servenv.OnParse(logutil.RegisterTabletFlags)
 
 	servenv.MoveFlagsToCobraCommand(Main)
 

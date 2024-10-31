@@ -24,8 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/pflag"
-
 	_flag "vitess.io/vitess/go/internal/flag"
 )
 
@@ -34,17 +32,6 @@ var (
 	keepLogsByMtime   time.Duration
 	purgeLogsInterval = 1 * time.Hour
 )
-
-// RegisterFlags installs logutil flags on the given FlagSet.
-//
-// `go/cmd/*` entrypoints should either use servenv.ParseFlags(WithArgs)? which
-// calls this function, or call this function directly before parsing
-// command-line arguments.
-func RegisterFlags(fs *pflag.FlagSet) {
-	fs.DurationVar(&keepLogsByCtime, "keep_logs", keepLogsByCtime, "keep logs for this long (using ctime) (zero to keep forever)")
-	fs.DurationVar(&keepLogsByMtime, "keep_logs_by_mtime", keepLogsByMtime, "keep logs for this long (using mtime) (zero to keep forever)")
-	fs.DurationVar(&purgeLogsInterval, "purge_logs_interval", purgeLogsInterval, "how often try to remove old logs")
-}
 
 // parse parses a file name (as used by glog) and returns its process
 // name and timestamp.
