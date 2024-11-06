@@ -56,18 +56,17 @@ func OpenVTOrc() (*sqlx.DB, error) {
 	defer sqliteDBMu.Unlock()
 
 	var err error
-	var exists bool
-	if sqliteDB != nil {
-		exists = true
-	} else {
+	var created bool
+	if sqliteDB == nil {
 		sqliteDB, err = sqlx.Connect("sqlite", config.Config.SQLite3DataFile)
+		if err == nil {
+			created = true
+		}
 	}
 
-	if err == nil && !exists {
+	if created {
 		log.Infof("Connected to vtorc backend: sqlite on %v", config.Config.SQLite3DataFile)
 		_ = initVTOrcDB(sqliteDB)
-	}
-	if sqliteDB != nil {
 		sqliteDB.SetMaxOpenConns(1)
 		sqliteDB.SetMaxIdleConns(1)
 	}
