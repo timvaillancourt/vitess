@@ -18,6 +18,10 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
+	"sync"
+
+	"github.com/jmoiron/sqlx"
 
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	"vitess.io/vitess/go/vt/log"
@@ -41,23 +45,38 @@ func (m *vtorcDB) QueryVTOrc(query string, argsArray []any, onRow func(sqlutils.
 	return QueryVTOrc(query, argsArray, onRow)
 }
 
+var (
+	sqliteDB   *sqlx.DB
+	sqliteDBMu sync.Mutex
+)
+
 // OpenTopology returns the DB instance for the vtorc backed database
-func OpenVTOrc() (db *sql.DB, err error) {
-	var fromCache bool
-	db, fromCache, err = sqlutils.GetSQLiteDB(config.Config.SQLite3DataFile)
-	if err == nil && !fromCache {
+func OpenVTOrc() (*sqlx.DB, error) {
+	sqliteDBMu.Lock()
+	defer sqliteDBMu.Unlock()
+
+	var err error
+	var exists bool
+	if sqliteDB != nil {
+		exists = true
+	} else {
+		sqliteDB, err = sqlx.Connect("sqlite", config.Config.SQLite3DataFile)
+	}
+
+	if err == nil && !exists {
 		log.Infof("Connected to vtorc backend: sqlite on %v", config.Config.SQLite3DataFile)
-		_ = initVTOrcDB(db)
+		_ = initVTOrcDB(sqliteDB)
 	}
-	if db != nil {
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(1)
+	if sqliteDB != nil {
+		sqliteDB.SetMaxOpenConns(1)
+		sqliteDB.SetMaxIdleConns(1)
 	}
-	return db, err
+
+	return sqliteDB, err
 }
 
 // registerVTOrcDeployment updates the vtorc_db_deployments table upon successful deployment
-func registerVTOrcDeployment(db *sql.DB) error {
+func registerVTOrcDeployment(db *sqlx.DB) error {
 	query := `
     	replace into vtorc_db_deployments (
 				deployed_version, deployed_timestamp
@@ -73,7 +92,7 @@ func registerVTOrcDeployment(db *sql.DB) error {
 
 // deployStatements will issue given sql queries that are not already known to be deployed.
 // This iterates both lists (to-run and already-deployed) and also verifies no contradictions.
-func deployStatements(db *sql.DB, queries []string) error {
+func deployStatements(db *sqlx.DB, queries []string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Fatal(err.Error())
@@ -94,7 +113,7 @@ func deployStatements(db *sql.DB, queries []string) error {
 // ClearVTOrcDatabase is used to clear the VTOrc database. This function is meant to be used by tests to clear the
 // database to get a clean slate without starting a new one.
 func ClearVTOrcDatabase() {
-	db, _, _ := sqlutils.GetSQLiteDB(config.Config.SQLite3DataFile)
+	db, _ := OpenVTOrc()
 	if db != nil {
 		_ = initVTOrcDB(db)
 	}
@@ -102,7 +121,7 @@ func ClearVTOrcDatabase() {
 
 // initVTOrcDB attempts to create/upgrade the vtorc backend database. It is created once in the
 // application's lifetime.
-func initVTOrcDB(db *sql.DB) error {
+func initVTOrcDB(db *sqlx.DB) error {
 	log.Info("Initializing vtorc")
 	log.Info("Migrating database schema")
 	_ = deployStatements(db, vtorcBackend)
@@ -115,9 +134,17 @@ func initVTOrcDB(db *sql.DB) error {
 }
 
 // execInternal
-func execInternal(db *sql.DB, query string, args ...any) (sql.Result, error) {
-	var err error
-	res, err := sqlutils.ExecNoPrepare(db, query, args...)
+func execInternal(db *sqlx.DB, query string, args ...any) (res sql.Result, err error) {
+	defer func() {
+		if derr := recover(); derr != nil {
+			err = fmt.Errorf("execInternal unexpected error: %+v", derr)
+		}
+	}()
+
+	res, err = db.Exec(query, args...)
+	if err != nil {
+		log.Error("Failed to exec query: %+v", err)
+	}
 	return res, err
 }
 
@@ -128,28 +155,4 @@ func ExecVTOrc(query string, args ...any) (sql.Result, error) {
 		return nil, err
 	}
 	return execInternal(db, query, args...)
-}
-
-// QueryVTOrcRowsMap
-func QueryVTOrcRowsMap(query string, onRow func(sqlutils.RowMap) error) error {
-	db, err := OpenVTOrc()
-	if err != nil {
-		return err
-	}
-
-	return sqlutils.QueryRowsMap(db, query, onRow)
-}
-
-// QueryVTOrc
-func QueryVTOrc(query string, argsArray []any, onRow func(sqlutils.RowMap) error) error {
-	db, err := OpenVTOrc()
-	if err != nil {
-		return err
-	}
-
-	if err = sqlutils.QueryRowsMap(db, query, onRow, argsArray...); err != nil {
-		log.Warning(err.Error())
-	}
-
-	return err
 }

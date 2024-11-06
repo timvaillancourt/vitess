@@ -99,6 +99,7 @@ require (
 	github.com/gammazero/deque v0.2.1
 	github.com/google/safehtml v0.1.0
 	github.com/hashicorp/go-version v1.7.0
+	github.com/jmoiron/sqlx v1.3.5
 	github.com/kr/pretty v0.3.1
 	github.com/kr/text v0.2.0
 	github.com/mitchellh/mapstructure v1.5.0
