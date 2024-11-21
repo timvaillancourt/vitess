@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 
@@ -82,33 +82,30 @@ func populateAllInformation() {
 }
 
 // refreshAllTablets reloads the tablets from topo and discovers the ones which haven't been refreshed in a while
-func refreshAllTablets() {
-	refreshTabletsUsing(func(tabletAlias string) {
+func refreshAllTablets(ctx context.Context) error {
+	return refreshTabletsUsing(ctx, func(tabletAlias string) {
 		DiscoverInstance(tabletAlias, false /* forceDiscovery */)
 	}, false /* forceRefresh */)
 }
 
-func refreshTabletsUsing(loader func(tabletAlias string), forceRefresh bool) {
+func refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), forceRefresh bool) error {
+	ctx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	defer cancel()
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(topo.DefaultConcurrency)
+
 	if len(clustersToWatch) == 0 { // all known clusters
-		ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-		defer cancel()
 		cells, err := ts.GetKnownCells(ctx)
 		if err != nil {
 			log.Error(err)
-			return
+			return err
 		}
-
-		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-		defer refreshCancel()
-		var wg sync.WaitGroup
 		for _, cell := range cells {
-			wg.Add(1)
-			go func(cell string) {
-				defer wg.Done()
-				refreshTabletsInCell(refreshCtx, cell, loader, forceRefresh)
-			}(cell)
+			eg.Go(func() error {
+				return refreshTabletsInCell(ctx, cell, loader, forceRefresh)
+			})
 		}
-		wg.Wait()
 	} else {
 		// Parse input and build list of keyspaces / shards
 		var keyspaceShards []*topo.KeyspaceShard
@@ -119,8 +116,6 @@ func refreshTabletsUsing(loader func(tabletAlias string), forceRefresh bool) {
 				keyspaceShards = append(keyspaceShards, &topo.KeyspaceShard{Keyspace: input[0], Shard: input[1]})
 			} else {
 				// Assume this is a keyspace and find all shards in keyspace
-				ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-				defer cancel()
 				shards, err := ts.GetShardNames(ctx, ks)
 				if err != nil {
 					// Log the errr and continue
@@ -138,66 +133,62 @@ func refreshTabletsUsing(loader func(tabletAlias string), forceRefresh bool) {
 		}
 		if len(keyspaceShards) == 0 {
 			log.Errorf("Found no keyspaceShards for input: %+v", clustersToWatch)
-			return
+			return nil
 		}
-		refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-		defer refreshCancel()
-		var wg sync.WaitGroup
 		for _, ks := range keyspaceShards {
-			wg.Add(1)
-			go func(ks *topo.KeyspaceShard) {
-				defer wg.Done()
-				refreshTabletsInKeyspaceShard(refreshCtx, ks.Keyspace, ks.Shard, loader, forceRefresh, nil)
-			}(ks)
+			eg.Go(func() error {
+				return refreshTabletsInKeyspaceShard(ctx, ks.Keyspace, ks.Shard, loader, forceRefresh, nil)
+			})
 		}
-		wg.Wait()
 	}
+
+	return eg.Wait()
 }
 
-func refreshTabletsInCell(ctx context.Context, cell string, loader func(tabletAlias string), forceRefresh bool) {
+func refreshTabletsInCell(ctx context.Context, cell string, loader func(tabletAlias string), forceRefresh bool) error {
 	tablets, err := ts.GetTabletsByCell(ctx, cell, &topo.GetTabletsByCellOptions{Concurrency: topo.DefaultConcurrency})
 	if err != nil {
 		log.Errorf("Error fetching topo info for cell %v: %v", cell, err)
-		return
+		return err
 	}
 	query := "select alias from vitess_tablet where cell = ?"
 	args := sqlutils.Args(cell)
-	refreshTablets(tablets, query, args, loader, forceRefresh, nil)
+	return refreshTablets(tablets, query, args, loader, forceRefresh, nil)
 }
 
 // forceRefreshAllTabletsInShard is used to refresh all the tablet's information (both MySQL information and topo records)
 // for a given shard. This function is meant to be called before or after a cluster-wide operation that we know will
 // change the replication information for the entire cluster drastically enough to warrant a full forceful refresh
-func forceRefreshAllTabletsInShard(ctx context.Context, keyspace, shard string, tabletsToIgnore []string) {
+func forceRefreshAllTabletsInShard(ctx context.Context, keyspace, shard string, tabletsToIgnore []string) error {
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
-	refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
+	return refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
 		DiscoverInstance(tabletAlias, true)
 	}, true, tabletsToIgnore)
 }
 
 // refreshTabletInfoOfShard only refreshes the tablet records from the topo-server for all the tablets
 // of the given keyspace-shard.
-func refreshTabletInfoOfShard(ctx context.Context, keyspace, shard string) {
+func refreshTabletInfoOfShard(ctx context.Context, keyspace, shard string) error {
 	log.Infof("refresh of tablet records of shard - %v/%v", keyspace, shard)
-	refreshTabletsInKeyspaceShard(ctx, keyspace, shard, func(tabletAlias string) {
+	return refreshTabletsInKeyspaceShard(ctx, keyspace, shard, func(tabletAlias string) {
 		// No-op
 		// We only want to refresh the tablet information for the given shard
 	}, false, nil)
 }
 
-func refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) {
+func refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) error {
 	tablets, err := ts.GetTabletsByShard(ctx, keyspace, shard)
 	if err != nil {
 		log.Errorf("Error fetching tablets for keyspace/shard %v/%v: %v", keyspace, shard, err)
-		return
+		return err
 	}
 	query := "select alias from vitess_tablet where keyspace = ? and shard = ?"
 	args := sqlutils.Args(keyspace, shard)
-	refreshTablets(tablets, query, args, loader, forceRefresh, tabletsToIgnore)
+	return refreshTablets(tablets, query, args, loader, forceRefresh, tabletsToIgnore)
 }
 
-func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) {
+func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) error {
 	// Discover new tablets.
 	latestInstances := make(map[string]bool)
 	var wg sync.WaitGroup
@@ -239,13 +230,14 @@ func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader
 		return nil
 	})
 	if err != nil {
-		log.Error(err)
+		return err
 	}
 	for _, tabletAlias := range toForget {
 		if err := inst.ForgetInstance(tabletAlias); err != nil {
 			log.Error(err)
 		}
 	}
+	return nil
 }
 
 func getLockAction(analysedInstance string, code inst.AnalysisCode) string {

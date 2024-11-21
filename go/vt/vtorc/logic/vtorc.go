@@ -17,6 +17,7 @@
 package logic
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtorc/collection"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/discovery"
@@ -349,7 +351,12 @@ func refreshAllInformation() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		refreshAllTablets()
+
+		ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+		defer cancel()
+		if err := refreshAllTablets(ctx); err != nil {
+			log.Errorf("Failed to refresh all tablets: %+v", err)
+		}
 	}()
 
 	// Wait for both the refreshes to complete
