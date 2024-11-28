@@ -210,19 +210,9 @@ func (td *TabletDiscovery) refreshTabletsUsing(loader func(tabletAlias string), 
 }
 
 func (td *TabletDiscovery) refreshTabletsInCell(ctx context.Context, cell string, loader func(tabletAlias string), forceRefresh bool) error {
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-	tablets, err := ts.GetTabletsByCell(ctx, cell, &topo.GetTabletsByCellOptions{Concurrency: topo.DefaultConcurrency})
-=======
-	tablets, err := td.topoServer().GetTabletsByCell(ctx, cell, nil)
->>>>>>> Stashed changes
-=======
-	tablets, err := td.topoServer().GetTabletsByCell(ctx, cell, nil)
->>>>>>> Stashed changes
-=======
-	tablets, err := td.topoServer().GetTabletsByCell(ctx, cell, nil)
->>>>>>> Stashed changes
+	tablets, err := td.topoServer().GetTabletsByCell(ctx, cell, &topo.GetTabletsByCellOptions{
+		Concurrency: topo.DefaultConcurrency,
+	})
 	if err != nil {
 		log.Errorf("Error fetching topo info for cell %v: %v", cell, err)
 		return err
