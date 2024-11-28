@@ -17,6 +17,7 @@
 package logic
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"sync"
@@ -26,16 +27,19 @@ import (
 
 	"github.com/patrickmn/go-cache"
 	"github.com/sjmudd/stopwatch"
+	"golang.org/x/sync/errgroup"
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtorc/collection"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/discovery"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	ometrics "vitess.io/vitess/go/vt/vtorc/metrics"
 	"vitess.io/vitess/go/vt/vtorc/util"
+	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
 const (
@@ -93,21 +97,47 @@ func acceptSighupSignal() {
 	}()
 }
 
+type VTOrc struct {
+	ksd *KeyspaceShardDiscovery
+	td  *TabletDiscovery
+	tmc tmclient.TabletManagerClient
+	ts  *topo.Server
+}
+
+func NewVTOrc() (v *VTOrc, err error) {
+	ts := topo.Open()
+	tmc := inst.InitializeTMC()
+
+	v = &VTOrc{
+		ksd: NewKeyspaceShardDiscovery(ts),
+		tmc: tmc,
+		ts:  ts,
+	}
+
+	v.td, err = NewTabletDiscovery(v)
+	return v, err
+}
+
 // closeVTOrc runs all the operations required to cleanly shutdown VTOrc
-func closeVTOrc() {
+func (v *VTOrc) Close() {
 	log.Infof("Starting VTOrc shutdown")
 	atomic.StoreInt32(&hasReceivedSIGTERM, 1)
 	discoveryMetrics.StopAutoExpiration()
 	// Poke other go routines to stop cleanly here ...
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
 	// wait for the locks to be released
-	waitForLocksRelease()
-	ts.Close()
+	v.waitForLocksRelease()
+	if v.td != nil {
+		v.td.Close()
+	}
+	if v.ts != nil {
+		v.ts.Close()
+	}
 	log.Infof("VTOrc closed")
 }
 
 // waitForLocksRelease is used to wait for release of locks
-func waitForLocksRelease() {
+func (v *VTOrc) waitForLocksRelease() {
 	timeout := time.After(shutdownWaitTime)
 	for {
 		count := atomic.LoadInt32(&shardsLockCounter)
@@ -127,7 +157,7 @@ func waitForLocksRelease() {
 
 // handleDiscoveryRequests iterates the discoveryQueue channel and calls upon
 // instance discovery per entry.
-func handleDiscoveryRequests() {
+func (v *VTOrc) handleDiscoveryRequests() {
 	discoveryQueue = discovery.CreateOrReturnQueue("DEFAULT")
 	// create a pool of discovery workers
 	for i := uint(0); i < config.DiscoveryMaxConcurrency; i++ {
@@ -144,7 +174,7 @@ func handleDiscoveryRequests() {
 // DiscoverInstance will attempt to discover (poll) an instance (unless
 // it is already up-to-date) and will also ensure that its primary and
 // replicas (if any) are also checked.
-func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
+func (v *VTOrc) DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	if inst.InstanceIsForgotten(tabletAlias) {
 		log.Infof("discoverInstance: skipping discovery of %+v because it is set to be forgotten", tabletAlias)
 		return
@@ -238,7 +268,7 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 }
 
 // onHealthTick handles the actions to take to discover/poll instances
-func onHealthTick() {
+func (v *VTOrc) onHealthTick() {
 	tabletAliases, err := inst.ReadOutdatedInstanceKeys()
 	if err != nil {
 		log.Error(err)
@@ -269,7 +299,7 @@ func onHealthTick() {
 // periodically investigated and their status captured, and long since unseen instances are
 // purged and forgotten.
 // nolint SA1015: using time.Tick leaks the underlying ticker
-func ContinuousDiscovery() {
+func (v *VTOrc) ContinuousDiscovery() {
 	log.Infof("continuous discovery: setting up")
 	recentDiscoveryOperationKeys = cache.New(instancePollSecondsDuration(), time.Second)
 
@@ -328,30 +358,27 @@ func ContinuousDiscovery() {
 				go inst.SnapshotTopologies()
 			}()
 		case <-tabletTopoTick:
-			refreshAllInformation()
+			ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+			defer cancel()
+			v.RefreshAllInformation(ctx)
 		}
 	}
 }
 
 // refreshAllInformation refreshes both shard and tablet information. This is meant to be run on tablet topo ticks.
-func refreshAllInformation() {
-	// Create a wait group
-	var wg sync.WaitGroup
+func (v *VTOrc) RefreshAllInformation(ctx context.Context) error {
+	eg, ctx := errgroup.WithContext(ctx)
 
 	// Refresh all keyspace information.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		RefreshAllKeyspacesAndShards()
-	}()
+	eg.Go(func() error {
+		return RefreshAllKeyspacesAndShards(ctx)
+	})
 
 	// Refresh all tablets.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		refreshAllTablets()
-	}()
+	eg.Go(func() error {
+		return v.td.RefreshAllTablets(ctx)
+	})
 
 	// Wait for both the refreshes to complete
-	wg.Wait()
+	return eg.Wait()
 }
