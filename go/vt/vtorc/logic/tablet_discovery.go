@@ -39,7 +39,6 @@ import (
 	"vitess.io/vitess/go/vt/vtorc/db"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	"vitess.io/vitess/go/vt/vtorc/process"
-	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
 var (
@@ -60,18 +59,20 @@ func RegisterFlags(fs *pflag.FlagSet) {
 type TabletDiscovery struct {
 	keyspaceShards []*topo.KeyspaceShard
 	refreshTicker  *time.Ticker
+	tm             *TabletManager
 	vtorc          *VTOrc
 }
 
 // OpenTabletDiscovery opens the vitess topo if enables and returns a ticker
 // channel for polling.
-func NewTabletDiscovery(v *VTOrc) (*TabletDiscovery, error) {
+func NewTabletDiscovery(v *VTOrc, tm *TabletManager) (*TabletDiscovery, error) {
 	// Clear existing cache and perform a new refresh.
 	if _, err := db.ExecVTOrc("DELETE FROM vitess_tablet"); err != nil {
 		return nil, err
 	}
 
 	td := &TabletDiscovery{
+		tm:    tm,
 		vtorc: v,
 	}
 
@@ -98,8 +99,7 @@ func (td *TabletDiscovery) Close() {
 	}
 }
 
-func (td *TabletDiscovery) tmClient() tmclient.TabletManagerClient { return td.vtorc.tmc }
-func (td *TabletDiscovery) topoServer() *topo.Server               { return td.vtorc.ts }
+func (td *TabletDiscovery) topoServer() *topo.Server { return td.vtorc.ts }
 
 // Parse input and build list of keyspaces / shards
 func (td *TabletDiscovery) parseKeyspaceShardsToWatch() {
@@ -336,41 +336,6 @@ func (td *TabletDiscovery) LockShard(ctx context.Context, tabletAlias string, lo
 		defer atomic.AddInt32(&shardsLockCounter, -1)
 		unlock(e)
 	}, nil
-}
-
-// tabletUndoDemotePrimary calls the said RPC for the given tablet.
-func (td *TabletDiscovery) tabletUndoDemotePrimary(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
-	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer tmcCancel()
-	return td.tmClient().UndoDemotePrimary(tmcCtx, tablet, semiSync)
-}
-
-// setReadOnly calls the said RPC for the given tablet
-func (td *TabletDiscovery) setReadOnly(ctx context.Context, tablet *topodatapb.Tablet) error {
-	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer tmcCancel()
-	return td.tmClient().SetReadOnly(tmcCtx, tablet)
-}
-
-// changeTabletType calls the said RPC for the given tablet with the given parameters.
-func (td *TabletDiscovery) changeTabletType(ctx context.Context, tablet *topodatapb.Tablet, tabletType topodatapb.TabletType, semiSync bool) error {
-	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer tmcCancel()
-	return td.tmClient().ChangeType(tmcCtx, tablet, tabletType, semiSync)
-}
-
-// resetReplicationParameters resets the replication parameters on the given tablet.
-func (td *TabletDiscovery) resetReplicationParameters(ctx context.Context, tablet *topodatapb.Tablet) error {
-	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer tmcCancel()
-	return td.tmClient().ResetReplicationParameters(tmcCtx, tablet)
-}
-
-// setReplicationSource calls the said RPC with the parameters provided
-func (td *TabletDiscovery) setReplicationSource(ctx context.Context, replica *topodatapb.Tablet, primary *topodatapb.Tablet, semiSync bool, heartbeatInterval float64) error {
-	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer tmcCancel()
-	return td.tmClient().SetReplicationSource(tmcCtx, replica, primary.Alias, 0, "", true, semiSync, heartbeatInterval)
 }
 
 // shardPrimary finds the primary of the given keyspace-shard by reading the vtorc backend

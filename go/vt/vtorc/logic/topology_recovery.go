@@ -97,8 +97,16 @@ const (
 	recoverErrantGTIDDetectedFunc
 )
 
-// TopologyRecovery represents an entry in the topology_recovery table
 type TopologyRecovery struct {
+	vtorc *VTOrc
+}
+
+func NewTopologyRecovery(v *VTOrc) *TopologyRecovery {
+	return &TopologyRecovery{v}
+}
+
+// TopologyRecoveryEntry represents an entry in the topology_recovery table
+type TopologyRecoveryEntry struct {
 	ID                     int64
 	AnalysisEntry          inst.ReplicationAnalysis
 	SuccessorAlias         string
@@ -109,23 +117,23 @@ type TopologyRecovery struct {
 	DetectionID            int64
 }
 
-func NewTopologyRecovery(replicationAnalysis inst.ReplicationAnalysis) *TopologyRecovery {
-	topologyRecovery := &TopologyRecovery{}
-	topologyRecovery.AnalysisEntry = replicationAnalysis
-	topologyRecovery.AllErrors = []string{}
-	return topologyRecovery
+func NewTopologyRecoveryEntry(replicationAnalysis inst.ReplicationAnalysis) *TopologyRecoveryEntry {
+	return &TopologyRecoveryEntry{
+		AnalysisEntry: replicationAnalysis,
+		AllErrors:     make([]string, 0),
+	}
 }
 
-func (topologyRecovery *TopologyRecovery) AddError(err error) error {
+func (tre *TopologyRecoveryEntry) AddError(err error) error {
 	if err != nil {
-		topologyRecovery.AllErrors = append(topologyRecovery.AllErrors, err.Error())
+		tre.AllErrors = append(tre.AllErrors, err.Error())
 	}
 	return err
 }
 
-func (topologyRecovery *TopologyRecovery) AddErrors(errs []error) {
+func (tre *TopologyRecoveryEntry) AddErrors(errs []error) {
 	for _, err := range errs {
-		_ = topologyRecovery.AddError(err)
+		_ = tre.AddError(err)
 	}
 }
 
@@ -152,36 +160,36 @@ func initializeTopologyRecoveryPostConfiguration() {
 }
 
 // AuditTopologyRecovery audits a single step in a topology recovery process.
-func AuditTopologyRecovery(topologyRecovery *TopologyRecovery, message string) error {
+func AuditTopologyRecovery(tre *TopologyRecoveryEntry, message string) error {
 	log.Infof("topology_recovery: %s", message)
-	if topologyRecovery == nil {
+	if tre == nil {
 		return nil
 	}
 
-	recoveryStep := NewTopologyRecoveryStep(topologyRecovery.ID, message)
+	recoveryStep := NewTopologyRecoveryStep(tre.ID, message)
 	return writeTopologyRecoveryStep(recoveryStep)
 }
 
-func resolveRecovery(topologyRecovery *TopologyRecovery, successorInstance *inst.Instance) error {
+func resolveRecovery(tre *TopologyRecoveryEntry, successorInstance *inst.Instance) error {
 	if successorInstance != nil {
-		topologyRecovery.SuccessorAlias = successorInstance.InstanceAlias
-		topologyRecovery.IsSuccessful = true
+		tre.SuccessorAlias = successorInstance.InstanceAlias
+		tre.IsSuccessful = true
 	}
-	return writeResolveRecovery(topologyRecovery)
+	return writeResolveRecovery(tre)
 }
 
 // recoverPrimaryHasPrimary resets the replication on the primary instance
-func recoverPrimaryHasPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixPrimaryHasPrimary.", analysisEntry.AnalyzedInstanceAlias))
+func recoverPrimaryHasPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixPrimaryHasPrimary.", analysisEntry.AnalyzedInstanceAlias))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, will fix incorrect primaryship on %+v", analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, nil)
+		_ = resolveRecovery(tre, nil)
 	}()
 
 	// Read the tablet information from the database to find the shard and keyspace of the tablet
@@ -192,21 +200,21 @@ func recoverPrimaryHasPrimary(ctx context.Context, analysisEntry *inst.Replicati
 
 	// Reset replication on current primary.
 	err = resetReplicationParameters(ctx, analyzedTablet)
-	return true, topologyRecovery, err
+	return true, tre, err
 }
 
 // runEmergencyReparentOp runs a recovery for which we have to run ERS. Here waitForAllTablets is a boolean telling ERS whether it should wait for all the tablets
 // or is it okay to skip 1.
-func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.ReplicationAnalysis, recoveryName string, waitForAllTablets bool) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
+func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.ReplicationAnalysis, recoveryName string, waitForAllTablets bool) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
 	// Read the tablet information from the database to find the shard and keyspace of the tablet
 	tablet, err := inst.ReadTablet(analysisEntry.AnalyzedInstanceAlias)
 	if err != nil {
 		return false, nil, err
 	}
 
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another %v.", analysisEntry.AnalyzedInstanceAlias, recoveryName))
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another %v.", analysisEntry.AnalyzedInstanceAlias, recoveryName))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, %v %+v", analysisEntry.Analysis, recoveryName, analysisEntry.AnalyzedInstanceAlias)
@@ -214,7 +222,7 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, promotedReplica)
+		_ = resolveRecovery(tre, promotedReplica)
 	}()
 
 	ev, err := reparentutil.NewEmergencyReparenter(ts, tmc, logutil.NewCallbackLogger(func(event *logutilpb.Event) {
@@ -229,7 +237,7 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 		default:
 			log.Infof("ERS - %s", value)
 		}
-		_ = AuditTopologyRecovery(topologyRecovery, value)
+		_ = AuditTopologyRecovery(tre, value)
 	})).ReparentShard(ctx,
 		tablet.Keyspace,
 		tablet.Shard,
@@ -247,37 +255,37 @@ func runEmergencyReparentOp(ctx context.Context, analysisEntry *inst.Replication
 	if ev != nil && ev.NewPrimary != nil {
 		promotedReplica, _, _ = inst.ReadInstance(topoproto.TabletAliasString(ev.NewPrimary.Alias))
 	}
-	postErsCompletion(topologyRecovery, analysisEntry, recoveryName, promotedReplica)
-	return true, topologyRecovery, err
+	postErsCompletion(tre, analysisEntry, recoveryName, promotedReplica)
+	return true, tre, err
 }
 
 // recoverDeadPrimary checks a given analysis, decides whether to take action, and possibly takes action
 // Returns true when action was taken.
-func recoverDeadPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
+func recoverDeadPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
 	return runEmergencyReparentOp(ctx, analysisEntry, "RecoverDeadPrimary", false)
 }
 
 // recoverPrimaryTabletDeleted tries to run a recovery for the case where the primary tablet has been deleted.
-func recoverPrimaryTabletDeleted(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
+func recoverPrimaryTabletDeleted(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
 	return runEmergencyReparentOp(ctx, analysisEntry, "PrimaryTabletDeleted", true)
 }
 
-func postErsCompletion(topologyRecovery *TopologyRecovery, analysisEntry *inst.ReplicationAnalysis, recoveryName string, promotedReplica *inst.Instance) {
+func postErsCompletion(tre *TopologyRecoveryEntry, analysisEntry *inst.ReplicationAnalysis, recoveryName string, promotedReplica *inst.Instance) {
 	if promotedReplica != nil {
 		message := fmt.Sprintf("promoted replica: %+v", promotedReplica.InstanceAlias)
-		_ = AuditTopologyRecovery(topologyRecovery, message)
+		_ = AuditTopologyRecovery(tre, message)
 		_ = inst.AuditOperation(recoveryName, analysisEntry.AnalyzedInstanceAlias, message)
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("%v: successfully promoted %+v", recoveryName, promotedReplica.InstanceAlias))
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("%v: successfully promoted %+v", recoveryName, promotedReplica.InstanceAlias))
 	}
 }
 
 // checkAndRecoverGenericProblem is a general-purpose recovery function
-func checkAndRecoverLockedSemiSyncPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
+func checkAndRecoverLockedSemiSyncPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
 	return false, nil, nil
 }
 
 // checkAndRecoverGenericProblem is a general-purpose recovery function
-func checkAndRecoverGenericProblem(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (bool, *TopologyRecovery, error) {
+func checkAndRecoverGenericProblem(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (bool, *TopologyRecoveryEntry, error) {
 	return false, nil, nil
 }
 
@@ -367,7 +375,7 @@ func hasActionableRecovery(recoveryFunctionCode recoveryFunction) bool {
 
 // getCheckAndRecoverFunction gets the recovery function for the given code.
 func getCheckAndRecoverFunction(recoveryFunctionCode recoveryFunction) (
-	checkAndRecoverFunction func(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error),
+	checkAndRecoverFunction func(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error),
 ) {
 	switch recoveryFunctionCode {
 	case noRecoveryFunc:
@@ -557,7 +565,7 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	if isActionableRecovery || util.ClearToLog("executeCheckAndRecoverFunction: recovery", analysisEntry.AnalyzedInstanceAlias) {
 		log.Infof("executeCheckAndRecoverFunction: proceeding with %+v recovery on %+v; isRecoverable?: %+v", analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias, isActionableRecovery)
 	}
-	recoveryAttempted, topologyRecovery, err := getCheckAndRecoverFunction(checkAndRecoverFunctionCode)(ctx, analysisEntry)
+	recoveryAttempted, tre, err := getCheckAndRecoverFunction(checkAndRecoverFunctionCode)(ctx, analysisEntry)
 	if !recoveryAttempted {
 		return err
 	}
@@ -568,13 +576,13 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	} else {
 		recoveriesSuccessfulCounter.Add(recoveryName, 1)
 	}
-	if topologyRecovery == nil {
+	if tre == nil {
 		return err
 	}
-	if b, err := json.Marshal(topologyRecovery); err == nil {
+	if b, err := json.Marshal(tre); err == nil {
 		log.Infof("Topology recovery: %+v", string(b))
 	} else {
-		log.Infof("Topology recovery: %+v", topologyRecovery)
+		log.Infof("Topology recovery: %+v", tre)
 	}
 	// If we ran a cluster wide recovery and actually attempted it, then we know that the replication state for all the tablets in this cluster
 	// would have changed. So we can go ahead and pre-emptively refresh them.
@@ -657,20 +665,20 @@ func CheckAndRecover() {
 	}
 }
 
-func postPrsCompletion(topologyRecovery *TopologyRecovery, analysisEntry *inst.ReplicationAnalysis, promotedReplica *inst.Instance) {
+func postPrsCompletion(tre *TopologyRecoveryEntry, analysisEntry *inst.ReplicationAnalysis, promotedReplica *inst.Instance) {
 	if promotedReplica != nil {
 		message := fmt.Sprintf("promoted replica: %+v", promotedReplica.InstanceAlias)
-		_ = AuditTopologyRecovery(topologyRecovery, message)
+		_ = AuditTopologyRecovery(tre, message)
 		_ = inst.AuditOperation(string(analysisEntry.Analysis), analysisEntry.AnalyzedInstanceAlias, message)
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("%+v: successfully promoted %+v", analysisEntry.Analysis, promotedReplica.InstanceAlias))
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("%+v: successfully promoted %+v", analysisEntry.Analysis, promotedReplica.InstanceAlias))
 	}
 }
 
 // electNewPrimary elects a new primary while none were present before.
-func electNewPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil || err != nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another electNewPrimary.", analysisEntry.AnalyzedInstanceAlias))
+func electNewPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil || err != nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another electNewPrimary.", analysisEntry.AnalyzedInstanceAlias))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, will elect a new primary for %v:%v", analysisEntry.Analysis, analysisEntry.ClusterDetails.Keyspace, analysisEntry.ClusterDetails.Shard)
@@ -679,14 +687,14 @@ func electNewPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysi
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, promotedReplica)
+		_ = resolveRecovery(tre, promotedReplica)
 	}()
 
 	analyzedTablet, err := inst.ReadTablet(analysisEntry.AnalyzedInstanceAlias)
 	if err != nil {
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
-	_ = AuditTopologyRecovery(topologyRecovery, "starting PlannedReparentShard for electing new primary.")
+	_ = AuditTopologyRecovery(tre, "starting PlannedReparentShard for electing new primary.")
 
 	ev, err := reparentutil.NewPlannedReparenter(ts, tmc, logutil.NewCallbackLogger(func(event *logutilpb.Event) {
 		level := event.GetLevel()
@@ -698,7 +706,7 @@ func electNewPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysi
 		case logutilpb.Level_ERROR:
 			log.Errorf("PRS - %s", value)
 		}
-		_ = AuditTopologyRecovery(topologyRecovery, value)
+		_ = AuditTopologyRecovery(tre, value)
 	})).ReparentShard(ctx,
 		analyzedTablet.Keyspace,
 		analyzedTablet.Shard,
@@ -711,113 +719,113 @@ func electNewPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysi
 	if ev != nil && ev.NewPrimary != nil {
 		promotedReplica, _, _ = inst.ReadInstance(topoproto.TabletAliasString(ev.NewPrimary.Alias))
 	}
-	postPrsCompletion(topologyRecovery, analysisEntry, promotedReplica)
-	return true, topologyRecovery, err
+	postPrsCompletion(tre, analysisEntry, promotedReplica)
+	return true, tre, err
 }
 
 // fixPrimary sets the primary as read-write.
-func fixPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixPrimary.", analysisEntry.AnalyzedInstanceAlias))
+func fixPrimary(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixPrimary.", analysisEntry.AnalyzedInstanceAlias))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, will fix primary to read-write %+v", analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, nil)
+		_ = resolveRecovery(tre, nil)
 	}()
 
 	analyzedTablet, err := inst.ReadTablet(analysisEntry.AnalyzedInstanceAlias)
 	if err != nil {
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	durabilityPolicy, err := inst.GetDurabilityPolicy(analyzedTablet.Keyspace)
 	if err != nil {
 		log.Info("Could not read the durability policy for %v/%v", analyzedTablet.Keyspace, analyzedTablet.Shard)
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	if err := tabletUndoDemotePrimary(ctx, analyzedTablet, reparentutil.SemiSyncAckers(durabilityPolicy, analyzedTablet) > 0); err != nil {
-		return true, topologyRecovery, err
+		return true, tre, err
 	}
-	return true, topologyRecovery, nil
+	return true, tre, nil
 }
 
 // fixReplica sets the replica as read-only and points it at the current primary.
-func fixReplica(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixReplica.", analysisEntry.AnalyzedInstanceAlias))
+func fixReplica(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another fixReplica.", analysisEntry.AnalyzedInstanceAlias))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, will fix replica %+v", analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, nil)
+		_ = resolveRecovery(tre, nil)
 	}()
 
 	analyzedTablet, err := inst.ReadTablet(analysisEntry.AnalyzedInstanceAlias)
 	if err != nil {
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	primaryTablet, err := shardPrimary(analyzedTablet.Keyspace, analyzedTablet.Shard)
 	if err != nil {
 		log.Info("Could not compute primary for %v/%v", analyzedTablet.Keyspace, analyzedTablet.Shard)
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	durabilityPolicy, err := inst.GetDurabilityPolicy(analyzedTablet.Keyspace)
 	if err != nil {
 		log.Info("Could not read the durability policy for %v/%v", analyzedTablet.Keyspace, analyzedTablet.Shard)
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	err = setReadOnly(ctx, analyzedTablet)
 	if err != nil {
 		log.Info("Could not set the tablet %v to readonly - %v", analysisEntry.AnalyzedInstanceAlias, err)
-		return true, topologyRecovery, err
+		return true, tre, err
 	}
 
 	err = setReplicationSource(ctx, analyzedTablet, primaryTablet, reparentutil.IsReplicaSemiSync(durabilityPolicy, primaryTablet, analyzedTablet), float64(analysisEntry.ReplicaNetTimeout)/2)
-	return true, topologyRecovery, err
+	return true, tre, err
 }
 
 // recoverErrantGTIDDetected changes the tablet type of a replica tablet that has errant GTIDs.
-func recoverErrantGTIDDetected(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, topologyRecovery *TopologyRecovery, err error) {
-	topologyRecovery, err = AttemptRecoveryRegistration(analysisEntry)
-	if topologyRecovery == nil {
-		_ = AuditTopologyRecovery(topologyRecovery, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another recoverErrantGTIDDetected.", analysisEntry.AnalyzedInstanceAlias))
+func recoverErrantGTIDDetected(ctx context.Context, analysisEntry *inst.ReplicationAnalysis) (recoveryAttempted bool, tre *TopologyRecoveryEntry, err error) {
+	tre, err = AttemptRecoveryRegistration(analysisEntry)
+	if tre == nil {
+		_ = AuditTopologyRecovery(tre, fmt.Sprintf("found an active or recent recovery on %+v. Will not issue another recoverErrantGTIDDetected.", analysisEntry.AnalyzedInstanceAlias))
 		return false, nil, err
 	}
 	log.Infof("Analysis: %v, will fix tablet %+v", analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
 	// This has to be done in the end; whether successful or not, we should mark that the recovery is done.
 	// So that after the active period passes, we are able to run other recoveries.
 	defer func() {
-		_ = resolveRecovery(topologyRecovery, nil)
+		_ = resolveRecovery(tre, nil)
 	}()
 
 	analyzedTablet, err := inst.ReadTablet(analysisEntry.AnalyzedInstanceAlias)
 	if err != nil {
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	primaryTablet, err := shardPrimary(analyzedTablet.Keyspace, analyzedTablet.Shard)
 	if err != nil {
 		log.Info("Could not compute primary for %v/%v", analyzedTablet.Keyspace, analyzedTablet.Shard)
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	durabilityPolicy, err := inst.GetDurabilityPolicy(analyzedTablet.Keyspace)
 	if err != nil {
 		log.Info("Could not read the durability policy for %v/%v", analyzedTablet.Keyspace, analyzedTablet.Shard)
-		return false, topologyRecovery, err
+		return false, tre, err
 	}
 
 	err = changeTabletType(ctx, analyzedTablet, topodatapb.TabletType_DRAINED, reparentutil.IsReplicaSemiSync(durabilityPolicy, primaryTablet, analyzedTablet))
-	return true, topologyRecovery, err
+	return true, tre, err
 }
