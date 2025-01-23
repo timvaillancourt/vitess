@@ -57,6 +57,7 @@ const (
 	LockedSemiSyncPrimary                  AnalysisCode = "LockedSemiSyncPrimary"
 	ErrantGTIDDetected                     AnalysisCode = "ErrantGTIDDetected"
 	PrimaryDiskStalled                     AnalysisCode = "PrimaryDiskStalled"
+	PrimaryGrpcUnreachable                 AnalysisCode = "PrimaryGrpcUnreachable"
 )
 
 type StructureAnalysisCode string
@@ -123,6 +124,7 @@ type ReplicationAnalysis struct {
 	CountDistinctMajorVersionsLoggingReplicas uint
 	CountDelayedReplicas                      uint
 	CountLaggingReplicas                      uint
+	CountPrimaryGrpcUnreachableReplicas       uint
 	IsActionableRecovery                      bool
 	RecoveryId                                int64
 	GTIDMode                                  string
@@ -131,6 +133,7 @@ type ReplicationAnalysis struct {
 	MaxReplicaGTIDErrant                      string
 	IsReadOnly                                bool
 	IsDiskStalled                             bool
+	IsPrimaryGrpcUnreachable                  bool
 }
 
 func (replicationAnalysis *ReplicationAnalysis) MarshalJSON() ([]byte, error) {

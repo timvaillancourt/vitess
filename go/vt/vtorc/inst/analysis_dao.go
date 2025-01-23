@@ -356,6 +356,7 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 
 		a.IsReadOnly = m.GetUint("read_only") == 1
 		a.IsDiskStalled = m.GetBool("is_disk_stalled")
+		a.IsPrimaryGrpcUnreachable = m.GetBool("is_primary_grpc_unreachable")
 
 		if !a.LastCheckValid {
 			analysisMessage := fmt.Sprintf("analysis: Alias: %+v, Keyspace: %+v, Shard: %+v, IsPrimary: %+v, LastCheckValid: %+v, LastCheckPartialSuccess: %+v, CountReplicas: %+v, CountValidReplicas: %+v, CountValidReplicatingReplicas: %+v, CountLaggingReplicas: %+v, CountDelayedReplicas: %+v",

@@ -104,7 +104,7 @@ func (m *PrimaryStatus) CloneVT() *PrimaryStatus {
 	r.Position = m.Position
 	r.FilePosition = m.FilePosition
 	r.ServerUuid = m.ServerUuid
-	r.TmserverReachable = m.TmserverReachable
+	r.GrpcUnreachable = m.GrpcUnreachable
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -499,9 +499,9 @@ func (m *PrimaryStatus) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.TmserverReachable {
+	if m.GrpcUnreachable {
 		i--
-		if m.TmserverReachable {
+		if m.GrpcUnreachable {
 			dAtA[i] = 1
 		} else {
 			dAtA[i] = 0
@@ -900,7 +900,7 @@ func (m *PrimaryStatus) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.TmserverReachable {
+	if m.GrpcUnreachable {
 		n += 2
 	}
 	n += len(m.unknownFields)
@@ -1948,7 +1948,7 @@ func (m *PrimaryStatus) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 4:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TmserverReachable", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GrpcUnreachable", wireType)
 			}
 			var v int
 			for shift := uint(0); ; shift += 7 {
@@ -1965,7 +1965,7 @@ func (m *PrimaryStatus) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
-			m.TmserverReachable = bool(v != 0)
+			m.GrpcUnreachable = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
