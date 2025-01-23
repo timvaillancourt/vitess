@@ -234,7 +234,11 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 			DISTINCT case when replica_instance.log_bin
 			AND replica_instance.log_replica_updates then replica_instance.major_version else NULL end
 		) AS count_distinct_logging_major_versions,
-		primary_instance.is_disk_stalled != 0 AS is_disk_stalled
+		primary_instance.is_disk_stalled != 0 AS is_disk_stalled,
+		IFNULL(
+			SUM(replica_instance.is_primary_vttablet_unreachable > 0),
+			0
+		) AS count_primary_vttablet_unreachable_replicas
 	FROM
 		vitess_tablet
 		JOIN vitess_keyspace ON (
@@ -348,6 +352,7 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 		a.CountMixedBasedLoggingReplicas = m.GetUint("count_mixed_based_logging_replicas")
 		a.CountRowBasedLoggingReplicas = m.GetUint("count_row_based_logging_replicas")
 		a.CountDistinctMajorVersionsLoggingReplicas = m.GetUint("count_distinct_logging_major_versions")
+		a.CountPrimaryVttabletUnreachableReplicas = m.GetUint("count_primary_vttablet_unreachable_replicas")
 
 		a.CountDelayedReplicas = m.GetUint("count_delayed_replicas")
 		a.CountLaggingReplicas = m.GetUint("count_lagging_replicas")
@@ -356,7 +361,7 @@ func GetReplicationAnalysis(keyspace string, shard string, hints *ReplicationAna
 
 		a.IsReadOnly = m.GetUint("read_only") == 1
 		a.IsDiskStalled = m.GetBool("is_disk_stalled")
-		a.IsPrimaryGrpcUnreachable = m.GetBool("is_primary_grpc_unreachable")
+		a.IsPrimaryVttabletUnreachable = m.GetBool("is_primary_vttablet_unreachable")
 
 		if !a.LastCheckValid {
 			analysisMessage := fmt.Sprintf("analysis: Alias: %+v, Keyspace: %+v, Shard: %+v, IsPrimary: %+v, LastCheckValid: %+v, LastCheckPartialSuccess: %+v, CountReplicas: %+v, CountValidReplicas: %+v, CountValidReplicatingReplicas: %+v, CountLaggingReplicas: %+v, CountDelayedReplicas: %+v",
