@@ -23,8 +23,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/vttablet/grpctmserver"
 	"vitess.io/vitess/go/vt/vttablet/tmrpctest"
 )

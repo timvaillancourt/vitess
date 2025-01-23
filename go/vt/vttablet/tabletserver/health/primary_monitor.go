@@ -86,11 +86,13 @@ func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topoda
 
 	ctx, cancel := context.WithTimeout(pm.ctx, PrimaryPingTimeout)
 	defer cancel()
+	var reachable uint32
 	if err := tmc.Ping(ctx, primary); err != nil {
 		log.Errorf("Failed to ping primary %s: %+v", topoproto.TabletAliasString(primary.Alias), err)
-		return
+	} else {
+		reachable = 1
 	}
-	atomic.StoreUint32(&pm.reachable, 1)
+	atomic.StoreUint32(&pm.reachable, reachable)
 }
 
 // poll pings the primary periodically and on-demand when the address changes.
