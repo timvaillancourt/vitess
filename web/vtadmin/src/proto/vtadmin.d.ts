@@ -48444,6 +48444,9 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid */
         server_uuid?: (string|null);
+
+        /** PrimaryStatus tmserver_reachable */
+        tmserver_reachable?: (boolean|null);
     }
 
     /** Represents a PrimaryStatus. */
@@ -48463,6 +48466,9 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid. */
         public server_uuid: string;
+
+        /** PrimaryStatus tmserver_reachable. */
+        public tmserver_reachable: boolean;
 
         /**
          * Creates a new PrimaryStatus instance using the specified properties.

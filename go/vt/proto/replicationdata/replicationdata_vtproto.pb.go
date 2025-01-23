@@ -104,6 +104,7 @@ func (m *PrimaryStatus) CloneVT() *PrimaryStatus {
 	r.Position = m.Position
 	r.FilePosition = m.FilePosition
 	r.ServerUuid = m.ServerUuid
+	r.TmserverReachable = m.TmserverReachable
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -498,6 +499,16 @@ func (m *PrimaryStatus) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.TmserverReachable {
+		i--
+		if m.TmserverReachable {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x20
+	}
 	if len(m.ServerUuid) > 0 {
 		i -= len(m.ServerUuid)
 		copy(dAtA[i:], m.ServerUuid)
@@ -888,6 +899,9 @@ func (m *PrimaryStatus) SizeVT() (n int) {
 	l = len(m.ServerUuid)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.TmserverReachable {
+		n += 2
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1932,6 +1946,26 @@ func (m *PrimaryStatus) UnmarshalVT(dAtA []byte) error {
 			}
 			m.ServerUuid = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TmserverReachable", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.TmserverReachable = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

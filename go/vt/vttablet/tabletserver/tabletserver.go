@@ -61,6 +61,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/onlineddl"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/gc"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/health"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/messager"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/planbuilder"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/repltracker"
@@ -119,6 +120,7 @@ type TabletServer struct {
 	hs           *healthStreamer
 	lagThrottler *throttle.Throttler
 	tableGC      *gc.TableGC
+	phm          *health.PrimaryHealthMonitor
 
 	// sm manages state transitions.
 	sm                *stateManager
@@ -188,6 +190,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
 	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, tsv.te.preparedPool.IsEmptyForTable)
+	tsv.phm = health.NewPrimaryHealthMonitor(tsv.config)
 
 	tsv.sm = &stateManager{
 		statelessql: tsv.statelessql,
@@ -206,6 +209,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		ddle:        tsv.onlineDDLExecutor,
 		throttler:   tsv.lagThrottler,
 		tableGC:     tsv.tableGC,
+		phm:         tsv.phm,
 		rw:          newRequestsWaiter(),
 	}
 
