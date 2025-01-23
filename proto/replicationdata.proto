@@ -79,7 +79,6 @@ message PrimaryStatus {
   string position = 1;
   string file_position = 2;
   string server_uuid = 3;
-  bool vttablet_unreachable = 4;
 }
 
 // FullStatus contains the full status of MySQL including the replication information, semi-sync information, GTID information among others
@@ -106,4 +105,5 @@ message FullStatus {
   uint32 semi_sync_wait_for_replica_count = 20;
   bool super_read_only = 21;
   replicationdata.Configuration replication_configuration = 22;
+  bool primary_vttablet_unreachable = 23;
 }

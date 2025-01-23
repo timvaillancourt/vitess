@@ -48444,9 +48444,6 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid */
         server_uuid?: (string|null);
-
-        /** PrimaryStatus vttablet_unreachable */
-        vttablet_unreachable?: (boolean|null);
     }
 
     /** Represents a PrimaryStatus. */
@@ -48466,9 +48463,6 @@ export namespace replicationdata {
 
         /** PrimaryStatus server_uuid. */
         public server_uuid: string;
-
-        /** PrimaryStatus vttablet_unreachable. */
-        public vttablet_unreachable: boolean;
 
         /**
          * Creates a new PrimaryStatus instance using the specified properties.
@@ -48616,6 +48610,9 @@ export namespace replicationdata {
 
         /** FullStatus replication_configuration */
         replication_configuration?: (replicationdata.IConfiguration|null);
+
+        /** FullStatus primary_vttablet_unreachable */
+        primary_vttablet_unreachable?: (boolean|null);
     }
 
     /** Represents a FullStatus. */
@@ -48692,6 +48689,9 @@ export namespace replicationdata {
 
         /** FullStatus replication_configuration. */
         public replication_configuration?: (replicationdata.IConfiguration|null);
+
+        /** FullStatus primary_vttablet_unreachable. */
+        public primary_vttablet_unreachable: boolean;
 
         /**
          * Creates a new FullStatus instance using the specified properties.
