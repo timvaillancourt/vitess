@@ -31,21 +31,23 @@ import (
 )
 
 var (
-	ErrPrimaryHealthMonitorOpen = vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION,
-		"primary health pinger is already open")
+	ErrPrimaryMonitorOpen = vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION,
+		"primary monitor is already open")
 	ErrPrimaryUnreachable = vterrors.New(vtrpcpb.Code_UNAVAILABLE,
 		"primary is unreachable")
 	PrimaryPingTimeout = time.Second * 5
 )
 
-func NewPrimaryHealthMonitor(interval time.Duration) *tmPrimaryHealthMonitor {
-	return &tmPrimaryHealthMonitor{
+// NewPrimaryMonitor creates a TMClientPrimaryMonitor.
+func NewPrimaryMonitor(interval time.Duration) *TMClientPrimaryMonitor {
+	return &TMClientPrimaryMonitor{
 		interval: interval,
 		pingChan: make(chan struct{}, 1),
 	}
 }
 
-type tmPrimaryHealthMonitor struct {
+// TMClientPrimaryMonitor monitors the health of a primary by pinging it using grpctmclient.
+type TMClientPrimaryMonitor struct {
 	cancel    context.CancelFunc
 	ctx       context.Context
 	interval  time.Duration
@@ -57,24 +59,24 @@ type tmPrimaryHealthMonitor struct {
 }
 
 // getPrimary returns the primary to monitor under lock.
-func (phm *tmPrimaryHealthMonitor) getPrimary() *topodatapb.Tablet {
-	phm.mu.Lock()
-	defer phm.mu.Unlock()
-	return phm.primary
+func (pm *TMClientPrimaryMonitor) getPrimary() *topodatapb.Tablet {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.primary
 }
 
 // SetPrimary sets the primary to monitor under lock.
-func (phm *tmPrimaryHealthMonitor) SetPrimary(primary *topodatapb.Tablet) {
-	phm.mu.Lock()
-	defer phm.mu.Unlock()
-	phm.primary = primary
-	if phm.opened {
-		phm.pingChan <- struct{}{}
+func (pm *TMClientPrimaryMonitor) SetPrimary(primary *topodatapb.Tablet) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.primary = primary
+	if pm.opened {
+		pm.pingChan <- struct{}{}
 	}
 }
 
 // ping performs a Ping RPC to the tmserver of a primary.
-func (phm *tmPrimaryHealthMonitor) ping(tmc *grpctmclient.Client, primary *topodatapb.Tablet) {
+func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topodatapb.Tablet) {
 	if tmc == nil {
 		return
 	}
@@ -82,68 +84,68 @@ func (phm *tmPrimaryHealthMonitor) ping(tmc *grpctmclient.Client, primary *topod
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(phm.ctx, PrimaryPingTimeout)
+	ctx, cancel := context.WithTimeout(pm.ctx, PrimaryPingTimeout)
 	defer cancel()
 	if err := tmc.Ping(ctx, primary); err != nil {
 		log.Errorf("Failed to ping primary %s: %+v", topoproto.TabletAliasString(primary.Alias), err)
 		return
 	}
-	atomic.StoreUint32(&phm.reachable, 1)
+	atomic.StoreUint32(&pm.reachable, 1)
 }
 
 // Open opens the primary health monitor. This causes an initial ping, then periodic/on-demand pings in a loop.
-func (phm *tmPrimaryHealthMonitor) Open() error {
-	phm.mu.Lock()
-	defer phm.mu.Unlock()
+func (pm *TMClientPrimaryMonitor) Open() error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 
-	if phm.opened {
-		return ErrPrimaryHealthMonitorOpen
+	if pm.opened {
+		return ErrPrimaryMonitorOpen
 	}
 
 	firstPingChan := make(chan struct{}, 1)
-	phm.ctx, phm.cancel = context.WithCancel(context.Background())
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
 	go func(ctx context.Context) {
 		tmc := grpctmclient.NewClient()
 		defer tmc.Close()
 
 		// initial ping
-		phm.ping(tmc, phm.primary)
+		pm.ping(tmc, pm.primary)
 		close(firstPingChan)
 
 		// periodic/on-demand ping
-		ticker := time.NewTicker(phm.interval)
+		ticker := time.NewTicker(pm.interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-phm.pingChan:
-				phm.ping(tmc, phm.getPrimary())
+			case <-pm.pingChan:
+				pm.ping(tmc, pm.getPrimary())
 			case <-ticker.C:
-				phm.ping(tmc, phm.getPrimary())
+				pm.ping(tmc, pm.getPrimary())
 			}
 		}
-	}(phm.ctx)
+	}(pm.ctx)
 	<-firstPingChan
 
-	phm.opened = true
+	pm.opened = true
 	return nil
 }
 
 // Close stops background pings and closes the primary health monitor.
-func (phm *tmPrimaryHealthMonitor) Close() {
-	phm.mu.Lock()
-	defer phm.mu.Unlock()
-	if phm.cancel != nil {
-		phm.cancel()
+func (pm *TMClientPrimaryMonitor) Close() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.cancel != nil {
+		pm.cancel()
 	}
-	atomic.StoreUint32(&phm.reachable, 0)
-	phm.opened = false
-	phm.primary = nil
+	atomic.StoreUint32(&pm.reachable, 0)
+	pm.opened = false
+	pm.primary = nil
 }
 
-func (phm *tmPrimaryHealthMonitor) IsReachable() error {
-	if atomic.LoadUint32(&phm.reachable) != 1 {
+func (pm *TMClientPrimaryMonitor) IsReachable() error {
+	if atomic.LoadUint32(&pm.reachable) != 1 {
 		return ErrPrimaryUnreachable
 	}
 	return nil

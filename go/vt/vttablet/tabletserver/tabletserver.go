@@ -105,22 +105,22 @@ type TabletServer struct {
 	topoServer             *topo.Server
 
 	// These are sub-components of TabletServer.
-	statelessql  *QueryList
-	statefulql   *QueryList
-	olapql       *QueryList
-	se           *schema.Engine
-	rt           *repltracker.ReplTracker
-	vstreamer    *vstreamer.Engine
-	tracker      *schema.Tracker
-	watcher      *BinlogWatcher
-	qe           *QueryEngine
-	txThrottler  txthrottler.TxThrottler
-	te           *TxEngine
-	messager     *messager.Engine
-	hs           *healthStreamer
-	lagThrottler *throttle.Throttler
-	tableGC      *gc.TableGC
-	phm          *health.PrimaryHealthMonitor
+	statelessql    *QueryList
+	statefulql     *QueryList
+	olapql         *QueryList
+	se             *schema.Engine
+	rt             *repltracker.ReplTracker
+	vstreamer      *vstreamer.Engine
+	tracker        *schema.Tracker
+	watcher        *BinlogWatcher
+	qe             *QueryEngine
+	txThrottler    txthrottler.TxThrottler
+	te             *TxEngine
+	messager       *messager.Engine
+	hs             *healthStreamer
+	lagThrottler   *throttle.Throttler
+	tableGC        *gc.TableGC
+	primaryMonitor *health.TMClientPrimaryMonitor
 
 	// sm manages state transitions.
 	sm                *stateManager
@@ -190,27 +190,28 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 
 	tsv.tableGC = gc.NewTableGC(tsv, topoServer, tsv.lagThrottler)
 	tsv.onlineDDLExecutor = onlineddl.NewExecutor(tsv, alias, topoServer, tsv.lagThrottler, tabletTypeFunc, tsv.onlineDDLExecutorToggleTableBuffer, tsv.tableGC.RequestChecks, tsv.te.preparedPool.IsEmptyForTable)
-	tsv.phm = health.NewPrimaryHealthMonitor(tsv.config)
+	//tsv.primaryMonitor = health.NewPrimaryMonitor(tsv.config)
+	tsv.primaryMonitor = health.NewPrimaryMonitor(time.Second)
 
 	tsv.sm = &stateManager{
-		statelessql: tsv.statelessql,
-		statefulql:  tsv.statefulql,
-		olapql:      tsv.olapql,
-		hs:          tsv.hs,
-		se:          tsv.se,
-		rt:          tsv.rt,
-		vstreamer:   tsv.vstreamer,
-		tracker:     tsv.tracker,
-		watcher:     tsv.watcher,
-		qe:          tsv.qe,
-		txThrottler: tsv.txThrottler,
-		te:          tsv.te,
-		messager:    tsv.messager,
-		ddle:        tsv.onlineDDLExecutor,
-		throttler:   tsv.lagThrottler,
-		tableGC:     tsv.tableGC,
-		phm:         tsv.phm,
-		rw:          newRequestsWaiter(),
+		statelessql:    tsv.statelessql,
+		statefulql:     tsv.statefulql,
+		olapql:         tsv.olapql,
+		hs:             tsv.hs,
+		se:             tsv.se,
+		rt:             tsv.rt,
+		vstreamer:      tsv.vstreamer,
+		tracker:        tsv.tracker,
+		watcher:        tsv.watcher,
+		qe:             tsv.qe,
+		txThrottler:    tsv.txThrottler,
+		te:             tsv.te,
+		messager:       tsv.messager,
+		ddle:           tsv.onlineDDLExecutor,
+		throttler:      tsv.lagThrottler,
+		tableGC:        tsv.tableGC,
+		primaryMonitor: tsv.primaryMonitor,
+		rw:             newRequestsWaiter(),
 	}
 
 	tsv.exporter.NewGaugeFunc("TabletState", "Tablet server state", func() int64 { return int64(tsv.sm.State()) })

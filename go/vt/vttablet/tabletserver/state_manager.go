@@ -111,20 +111,20 @@ type stateManager struct {
 	// Open must be done in forward order.
 	// Close must be done in reverse order.
 	// All Close functions must be called before Open.
-	hs          *healthStreamer
-	se          schemaEngine
-	rt          replTracker
-	vstreamer   subComponent
-	tracker     subComponent
-	watcher     subComponent
-	qe          queryEngine
-	txThrottler txThrottler
-	te          txEngine
-	messager    subComponent
-	ddle        onlineDDLExecutor
-	throttler   lagThrottler
-	tableGC     tableGarbageCollector
-	phm         primaryHealthMonitor
+	hs             *healthStreamer
+	se             schemaEngine
+	rt             replTracker
+	vstreamer      subComponent
+	tracker        subComponent
+	watcher        subComponent
+	qe             queryEngine
+	txThrottler    txThrottler
+	te             txEngine
+	messager       subComponent
+	ddle           onlineDDLExecutor
+	throttler      lagThrottler
+	tableGC        tableGarbageCollector
+	primaryMonitor primaryHealthMonitor
 
 	// hcticks starts on initialization and runs forever.
 	hcticks *timer.Timer
@@ -455,7 +455,7 @@ func (sm *stateManager) verifyTargetLocked(ctx context.Context, target *querypb.
 
 func (sm *stateManager) servePrimary() error {
 	sm.watcher.Close()
-	sm.phm.Close()
+	sm.primaryMonitor.Close()
 
 	if err := sm.connect(topodatapb.TabletType_PRIMARY, true); err != nil {
 		return err
@@ -518,7 +518,7 @@ func (sm *stateManager) serveNonPrimary(wantTabletType topodatapb.TabletType) er
 	sm.rt.MakeNonPrimary()
 	sm.watcher.Open()
 	sm.throttler.Open()
-	sm.phm.Open()
+	sm.primaryMonitor.Open()
 	sm.setState(wantTabletType, StateServing)
 	return nil
 }
@@ -579,7 +579,7 @@ func (sm *stateManager) unserveCommon() {
 	log.Info("Finished Killing all OLAP queries. Started tracker close")
 	sm.tracker.Close()
 	log.Infof("Finished tracker close. Started primary health monitor close")
-	sm.phm.Close()
+	sm.primaryMonitor.Close()
 	log.Infof("Finished primary health monitor close. Started wait for requests")
 	sm.handleShutdownGracePeriod(&wg)
 	log.Infof("Finished handling grace period. Finished execution of unserveCommon")
