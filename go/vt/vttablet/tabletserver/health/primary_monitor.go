@@ -41,21 +41,21 @@ var (
 // NewPrimaryMonitor creates a TMClientPrimaryMonitor.
 func NewPrimaryMonitor(interval time.Duration) *TMClientPrimaryMonitor {
 	return &TMClientPrimaryMonitor{
-		interval: interval,
-		pingChan: make(chan struct{}, 1),
+		interval:    interval,
+		pingNowChan: make(chan struct{}, 1),
 	}
 }
 
 // TMClientPrimaryMonitor monitors the health of a primary by pinging it using grpctmclient.
 type TMClientPrimaryMonitor struct {
-	cancel    context.CancelFunc
-	ctx       context.Context
-	interval  time.Duration
-	mu        sync.Mutex
-	opened    bool
-	pingChan  chan struct{}
-	primary   *topodatapb.Tablet
-	reachable uint32
+	cancel      context.CancelFunc
+	ctx         context.Context
+	interval    time.Duration
+	mu          sync.Mutex
+	opened      bool
+	pingNowChan chan struct{}
+	primary     *topodatapb.Tablet
+	reachable   uint32
 }
 
 // getPrimary returns the primary to monitor under lock.
@@ -71,7 +71,7 @@ func (pm *TMClientPrimaryMonitor) SetPrimary(primary *topodatapb.Tablet) {
 	defer pm.mu.Unlock()
 	pm.primary = primary
 	if pm.opened {
-		pm.pingChan <- struct{}{}
+		pm.pingNowChan <- struct{}{}
 	}
 }
 
@@ -93,6 +93,30 @@ func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topoda
 	atomic.StoreUint32(&pm.reachable, 1)
 }
 
+// poll pings the primary periodically and on-demand when the address changes.
+func (pm *TMClientPrimaryMonitor) poll(firstPingChan chan struct{}) {
+	tmc := grpctmclient.NewClient()
+	defer tmc.Close()
+
+	// initial ping
+	pm.ping(tmc, pm.primary)
+	close(firstPingChan)
+
+	// periodic/on-demand ping
+	ticker := time.NewTicker(pm.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-pm.ctx.Done():
+			return
+		case <-pm.pingNowChan:
+			pm.ping(tmc, pm.getPrimary())
+		case <-ticker.C:
+			pm.ping(tmc, pm.getPrimary())
+		}
+	}
+}
+
 // Open opens the primary health monitor. This causes an initial ping, then periodic/on-demand pings in a loop.
 func (pm *TMClientPrimaryMonitor) Open() error {
 	pm.mu.Lock()
@@ -102,32 +126,10 @@ func (pm *TMClientPrimaryMonitor) Open() error {
 		return ErrPrimaryMonitorOpen
 	}
 
-	firstPingChan := make(chan struct{}, 1)
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
-	go func(ctx context.Context) {
-		tmc := grpctmclient.NewClient()
-		defer tmc.Close()
-
-		// initial ping
-		pm.ping(tmc, pm.primary)
-		close(firstPingChan)
-
-		// periodic/on-demand ping
-		ticker := time.NewTicker(pm.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-pm.pingChan:
-				pm.ping(tmc, pm.getPrimary())
-			case <-ticker.C:
-				pm.ping(tmc, pm.getPrimary())
-			}
-		}
-	}(pm.ctx)
+	firstPingChan := make(chan struct{}, 1)
+	go pm.poll(firstPingChan)
 	<-firstPingChan
-
 	pm.opened = true
 	return nil
 }
@@ -136,6 +138,7 @@ func (pm *TMClientPrimaryMonitor) Open() error {
 func (pm *TMClientPrimaryMonitor) Close() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
+
 	if pm.cancel != nil {
 		pm.cancel()
 	}
@@ -144,6 +147,7 @@ func (pm *TMClientPrimaryMonitor) Close() {
 	pm.primary = nil
 }
 
+// IsReachable returns nil if the primary is reachable or an error.
 func (pm *TMClientPrimaryMonitor) IsReachable() error {
 	if atomic.LoadUint32(&pm.reachable) != 1 {
 		return ErrPrimaryUnreachable
