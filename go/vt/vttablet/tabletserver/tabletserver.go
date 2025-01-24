@@ -767,6 +767,10 @@ func (tsv *TabletServer) SetDemotePrimaryStalled() {
 	tsv.BroadcastHealth()
 }
 
+func (tsv *TabletServer) IsPrimaryVttabletUnreachable() bool {
+	return tsv.sm.tabletMonitor.IsReachable()
+}
+
 // CreateTransaction creates the metadata for a 2PC transaction.
 func (tsv *TabletServer) CreateTransaction(ctx context.Context, target *querypb.Target, dtid string, participants []*querypb.Target) (err error) {
 	return tsv.execRequest(

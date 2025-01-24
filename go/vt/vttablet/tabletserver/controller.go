@@ -122,6 +122,9 @@ type Controller interface {
 
 	// SetDemotePrimaryStalled marks that demote primary is stalled in the state manager.
 	SetDemotePrimaryStalled()
+
+	// IsPrimaryVttabletUnreachable returns true if the primary vttablet is unreachable.
+	IsPrimaryVttabletUnreachable() bool
 }
 
 // Ensure TabletServer satisfies Controller interface.

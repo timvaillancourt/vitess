@@ -32,6 +32,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/health"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 )
 
@@ -111,19 +112,20 @@ type stateManager struct {
 	// Open must be done in forward order.
 	// Close must be done in reverse order.
 	// All Close functions must be called before Open.
-	hs          *healthStreamer
-	se          schemaEngine
-	rt          replTracker
-	vstreamer   subComponent
-	tracker     subComponent
-	watcher     subComponent
-	qe          queryEngine
-	txThrottler txThrottler
-	te          txEngine
-	messager    subComponent
-	ddle        onlineDDLExecutor
-	throttler   lagThrottler
-	tableGC     tableGarbageCollector
+	hs            *healthStreamer
+	se            schemaEngine
+	rt            replTracker
+	vstreamer     subComponent
+	tracker       subComponent
+	watcher       subComponent
+	qe            queryEngine
+	txThrottler   txThrottler
+	te            txEngine
+	messager      subComponent
+	ddle          onlineDDLExecutor
+	throttler     lagThrottler
+	tableGC       tableGarbageCollector
+	tabletMonitor health.TabletMonitor
 
 	// hcticks starts on initialization and runs forever.
 	hcticks *timer.Timer

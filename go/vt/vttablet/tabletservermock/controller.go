@@ -279,6 +279,12 @@ func (tqsc *Controller) SetDemotePrimaryStalled() {
 	tqsc.MethodCalled["SetDemotePrimaryStalled"] = true
 }
 
+// IsPrimaryVttabletUnreachable is part of the tabletserver.Controller interface
+func (tqsc *Controller) IsPrimaryVttabletUnreachable() bool {
+	tqsc.MethodCalled["IsPrimaryVttabletUnreachable"] = true
+	return false
+}
+
 // EnterLameduck implements tabletserver.Controller.
 func (tqsc *Controller) EnterLameduck() {
 	tqsc.mu.Lock()

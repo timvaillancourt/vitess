@@ -73,10 +73,10 @@ import (
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/tabletmanager/health"
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/vdiff"
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/vreplication"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver/health"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
@@ -166,7 +166,6 @@ type TabletManager struct {
 	VDiffEngine         *vdiff.Engine
 	Env                 *vtenv.Environment
 	dhMonitor           health.DiskMonitor
-	primaryMonitor      health.PrimaryMonitor
 
 	// tmc is used to run an RPC against other vttablets.
 	tmc tmclient.TabletManagerClient
@@ -376,7 +375,6 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	tm.tmState = newTMState(tm, tablet)
 	tm.actionSema = semaphore.NewWeighted(1)
 	tm.dhMonitor = health.NewDiskMonitor(tm.BatchCtx)
-	tm.primaryMonitor = health.NewPrimaryMonitor(tm.tmc)
 	tm._waitForGrantsComplete = make(chan struct{})
 
 	tm.baseTabletType = tablet.Type

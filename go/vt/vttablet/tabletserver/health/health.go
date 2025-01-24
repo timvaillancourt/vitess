@@ -22,5 +22,5 @@ func init() {
 	for _, daemon := range []string{"vtcombo", "vttablet"} {
 		servenv.OnParseFor(daemon, registerDiskMonitorFlags)
 	}
-	servenv.OnParseFor("vttablet", registerPrimaryMonitorFlags)
+	servenv.OnParseFor("vttablet", registerTabletMonitorFlags)
 }
