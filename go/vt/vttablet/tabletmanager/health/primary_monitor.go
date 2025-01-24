@@ -37,6 +37,7 @@ var (
 		"primary monitor is already open")
 	ErrPrimaryUnreachable = vterrors.New(vtrpcpb.Code_UNAVAILABLE,
 		"primary is unreachable")
+
 	primaryMonitorInterval = time.Second * 5
 	primaryMonitorTimeout  = time.Second * 3
 )
@@ -46,6 +47,7 @@ func registerPrimaryMonitorFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&primaryMonitorTimeout, "primary-monitor-timeout", primaryMonitorTimeout, "timeout for pings when monitoring the primary")
 }
 
+// PrimaryMonitor is an interface for monitoring a primary.
 type PrimaryMonitor interface {
 	Open() error
 	Close()
@@ -101,6 +103,7 @@ func (pm *TMClientPrimaryMonitor) ping(primary *topodatapb.Tablet) {
 
 	ctx, cancel := context.WithTimeout(pm.ctx, primaryMonitorTimeout)
 	defer cancel()
+
 	var reachable uint32
 	if err := pm.tmc.Ping(ctx, primary); err != nil {
 		log.Errorf("Failed to ping primary %s: %+v", topoproto.TabletAliasString(primary.Alias), err)
@@ -111,6 +114,7 @@ func (pm *TMClientPrimaryMonitor) ping(primary *topodatapb.Tablet) {
 }
 
 // poll pings the primary periodically and on-demand when the address changes.
+// The provided firstPingChan channel is closed after the initial ping.
 func (pm *TMClientPrimaryMonitor) poll(firstPingChan chan struct{}) {
 	// initial ping
 	pm.ping(pm.primary)
