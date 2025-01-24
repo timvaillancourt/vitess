@@ -27,7 +27,7 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vterrors"
-	"vitess.io/vitess/go/vt/vttablet/grpctmclient"
+	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
 var (
@@ -38,11 +38,19 @@ var (
 	PrimaryPingTimeout = time.Second * 5
 )
 
+type PrimaryMonitor interface {
+	Open() error
+	Close()
+	IsReachable() error
+	SetPrimary(*topodatapb.Tablet)
+}
+
 // NewPrimaryMonitor creates a TMClientPrimaryMonitor.
-func NewPrimaryMonitor(interval time.Duration) *TMClientPrimaryMonitor {
+func NewPrimaryMonitor(tmc tmclient.TabletManagerClient, interval time.Duration) PrimaryMonitor {
 	return &TMClientPrimaryMonitor{
 		interval:    interval,
 		pingNowChan: make(chan struct{}, 1),
+		tmc:         tmc,
 	}
 }
 
@@ -56,6 +64,7 @@ type TMClientPrimaryMonitor struct {
 	pingNowChan chan struct{}
 	primary     *topodatapb.Tablet
 	reachable   uint32
+	tmc         tmclient.TabletManagerClient
 }
 
 // getPrimary returns the primary to monitor under lock.
@@ -76,8 +85,8 @@ func (pm *TMClientPrimaryMonitor) SetPrimary(primary *topodatapb.Tablet) {
 }
 
 // ping performs a Ping RPC to the tmserver of a primary.
-func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topodatapb.Tablet) {
-	if tmc == nil {
+func (pm *TMClientPrimaryMonitor) ping(primary *topodatapb.Tablet) {
+	if pm.tmc == nil {
 		return
 	}
 	if primary == nil {
@@ -87,7 +96,7 @@ func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topoda
 	ctx, cancel := context.WithTimeout(pm.ctx, PrimaryPingTimeout)
 	defer cancel()
 	var reachable uint32
-	if err := tmc.Ping(ctx, primary); err != nil {
+	if err := pm.tmc.Ping(ctx, primary); err != nil {
 		log.Errorf("Failed to ping primary %s: %+v", topoproto.TabletAliasString(primary.Alias), err)
 	} else {
 		reachable = 1
@@ -97,11 +106,8 @@ func (pm *TMClientPrimaryMonitor) ping(tmc *grpctmclient.Client, primary *topoda
 
 // poll pings the primary periodically and on-demand when the address changes.
 func (pm *TMClientPrimaryMonitor) poll(firstPingChan chan struct{}) {
-	tmc := grpctmclient.NewClient()
-	defer tmc.Close()
-
 	// initial ping
-	pm.ping(tmc, pm.primary)
+	pm.ping(pm.primary)
 	close(firstPingChan)
 
 	// periodic/on-demand ping
@@ -112,9 +118,9 @@ func (pm *TMClientPrimaryMonitor) poll(firstPingChan chan struct{}) {
 		case <-pm.ctx.Done():
 			return
 		case <-pm.pingNowChan:
-			pm.ping(tmc, pm.getPrimary())
+			pm.ping(pm.getPrimary())
 		case <-ticker.C:
-			pm.ping(tmc, pm.getPrimary())
+			pm.ping(pm.getPrimary())
 		}
 	}
 }

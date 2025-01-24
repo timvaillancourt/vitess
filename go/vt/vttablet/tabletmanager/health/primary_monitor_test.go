@@ -25,24 +25,11 @@ import (
 	"google.golang.org/grpc"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
-	"vitess.io/vitess/go/vt/vttablet/grpctmserver"
-	"vitess.io/vitess/go/vt/vttablet/tmrpctest"
+	"vitess.io/vitess/go/vt/vttablet/tabletmanager/testutils"
 )
 
 func TestPrimaryHealthMonitor(t *testing.T) {
-	// Listen on a random port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Cannot listen: %v", err)
-	}
-	host := listener.Addr().(*net.TCPAddr).IP.String()
-	port := int32(listener.Addr().(*net.TCPAddr).Port)
-
-	// Create a gRPC server and listen on the port.
-	s := grpc.NewServer()
-	fakeTM := tmrpctest.NewFakeRPCTM(t)
-	grpctmserver.RegisterForTest(s, fakeTM)
-	go s.Serve(listener)
+	s, listener := testutils.InitTestTMServer(t)
 	defer listener.Close()
 
 	interval := time.Millisecond * 5
