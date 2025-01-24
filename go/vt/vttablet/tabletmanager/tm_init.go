@@ -376,7 +376,7 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	tm.tmState = newTMState(tm, tablet)
 	tm.actionSema = semaphore.NewWeighted(1)
 	tm.dhMonitor = health.NewDiskMonitor(tm.BatchCtx)
-	tm.primaryMonitor = health.NewPrimaryMonitor(tm.tmc, time.Second)
+	tm.primaryMonitor = health.NewPrimaryMonitor(tm.tmc)
 	tm._waitForGrantsComplete = make(chan struct{})
 
 	tm.baseTabletType = tablet.Type

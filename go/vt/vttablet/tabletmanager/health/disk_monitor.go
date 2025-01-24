@@ -25,8 +25,6 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-
-	"vitess.io/vitess/go/vt/servenv"
 )
 
 var (
@@ -39,11 +37,6 @@ func registerDiskMonitorFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&stalledDiskWriteDir, "disk-write-dir", stalledDiskWriteDir, "if provided, tablet will attempt to write a file to this directory to check if the disk is stalled")
 	fs.DurationVar(&stalledDiskWriteTimeout, "disk-write-timeout", stalledDiskWriteTimeout, "if writes exceed this duration, the disk is considered stalled")
 	fs.DurationVar(&stalledDiskWriteInterval, "disk-write-interval", stalledDiskWriteInterval, "how often to write to the disk to check whether it is stalled")
-}
-
-func init() {
-	servenv.OnParseFor("vtcombo", registerDiskMonitorFlags)
-	servenv.OnParseFor("vttablet", registerDiskMonitorFlags)
 }
 
 type DiskMonitor interface {

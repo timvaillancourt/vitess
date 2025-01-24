@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"vitess.io/vitess/go/vt/log"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -35,8 +37,14 @@ var (
 		"primary monitor is already open")
 	ErrPrimaryUnreachable = vterrors.New(vtrpcpb.Code_UNAVAILABLE,
 		"primary is unreachable")
-	PrimaryPingTimeout = time.Second * 5
+	primaryMonitorInterval = time.Second * 5
+	primaryMonitorTimeout  = time.Second * 3
 )
+
+func registerPrimaryMonitorFlags(fs *pflag.FlagSet) {
+	fs.DurationVar(&primaryMonitorInterval, "primary-monitor-interval", primaryMonitorInterval, "interval for non-primaries to monitor the primary")
+	fs.DurationVar(&primaryMonitorTimeout, "primary-monitor-timeout", primaryMonitorTimeout, "timeout for pings when monitoring the primary")
+}
 
 type PrimaryMonitor interface {
 	Open() error
@@ -46,9 +54,8 @@ type PrimaryMonitor interface {
 }
 
 // NewPrimaryMonitor creates a TMClientPrimaryMonitor.
-func NewPrimaryMonitor(tmc tmclient.TabletManagerClient, interval time.Duration) PrimaryMonitor {
+func NewPrimaryMonitor(tmc tmclient.TabletManagerClient) PrimaryMonitor {
 	return &TMClientPrimaryMonitor{
-		interval:    interval,
 		pingNowChan: make(chan struct{}, 1),
 		tmc:         tmc,
 	}
@@ -58,7 +65,6 @@ func NewPrimaryMonitor(tmc tmclient.TabletManagerClient, interval time.Duration)
 type TMClientPrimaryMonitor struct {
 	cancel      context.CancelFunc
 	ctx         context.Context
-	interval    time.Duration
 	mu          sync.Mutex
 	opened      bool
 	pingNowChan chan struct{}
@@ -93,7 +99,7 @@ func (pm *TMClientPrimaryMonitor) ping(primary *topodatapb.Tablet) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(pm.ctx, PrimaryPingTimeout)
+	ctx, cancel := context.WithTimeout(pm.ctx, primaryMonitorTimeout)
 	defer cancel()
 	var reachable uint32
 	if err := pm.tmc.Ping(ctx, primary); err != nil {
@@ -111,7 +117,7 @@ func (pm *TMClientPrimaryMonitor) poll(firstPingChan chan struct{}) {
 	close(firstPingChan)
 
 	// periodic/on-demand ping
-	ticker := time.NewTicker(pm.interval)
+	ticker := time.NewTicker(primaryMonitorInterval)
 	defer ticker.Stop()
 	for {
 		select {
