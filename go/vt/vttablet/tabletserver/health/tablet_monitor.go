@@ -35,9 +35,8 @@ import (
 var (
 	ErrTabletMonitorOpen = vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION,
 		"tablet monitor is already open")
-
-	tabletMonitorInterval = time.Second * 5
-	tabletMonitorTimeout  = time.Second * 3
+	tabletMonitorInterval = time.Millisecond * 3000
+	tabletMonitorTimeout  = time.Millisecond * 2500
 )
 
 func registerTabletMonitorFlags(fs *pflag.FlagSet) {
@@ -57,34 +56,35 @@ type TabletMonitor interface {
 func NewTabletMonitor(tmc tmclient.TabletManagerClient) TabletMonitor {
 	return &TMClientTabletMonitor{
 		pingNowChan: make(chan *topodatapb.Tablet, 1),
+		tablet:      atomic.Value{},
 		tmc:         tmc,
 	}
 }
 
 // TMClientTabletMonitor monitors the health of a tablet by pinging it using grpctmclient.
 type TMClientTabletMonitor struct {
-	cancel      context.CancelFunc
-	ctx         context.Context
-	mu          sync.Mutex
+	cancel context.CancelFunc
+	ctx    context.Context
+	mu     sync.Mutex
+	tmc    tmclient.TabletManagerClient
+
 	opened      bool
 	pingNowChan chan *topodatapb.Tablet
-	tablet      *topodatapb.Tablet
 	reachable   uint32
-	tmc         tmclient.TabletManagerClient
+	tablet      atomic.Value
 }
 
 // getTablet returns the tablet to monitor under lock.
 func (pm *TMClientTabletMonitor) getTablet() *topodatapb.Tablet {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.tablet
+	if tablet, ok := pm.tablet.Load().(*topodatapb.Tablet); ok {
+		return tablet
+	}
+	return nil
 }
 
 // SetTablet sets the tablet to monitor under lock.
 func (pm *TMClientTabletMonitor) SetTablet(tablet *topodatapb.Tablet) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	pm.tablet = tablet
+	pm.tablet.Store(tablet)
 	if pm.opened {
 		pm.pingNowChan <- tablet
 	}
@@ -137,7 +137,7 @@ func (pm *TMClientTabletMonitor) Open() error {
 	}
 
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
-	pm.ping(pm.tablet)
+	pm.ping(pm.getTablet())
 	go pm.poll()
 	pm.opened = true
 	return nil
@@ -152,8 +152,8 @@ func (pm *TMClientTabletMonitor) Close() {
 		pm.cancel()
 	}
 	atomic.StoreUint32(&pm.reachable, 0)
+	pm.tablet.Store(nil)
 	pm.opened = false
-	pm.tablet = nil
 }
 
 // IsReachable returns true if the tablet is reachable.

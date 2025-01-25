@@ -767,8 +767,9 @@ func (tsv *TabletServer) SetDemotePrimaryStalled() {
 	tsv.BroadcastHealth()
 }
 
+// IsPrimaryVttabletUnreachable returns true if the vttablet of the shard primary is unreachable.
 func (tsv *TabletServer) IsPrimaryVttabletUnreachable() bool {
-	return tsv.sm.tabletMonitor.IsReachable()
+	return !tsv.sm.tabletMonitor.IsReachable()
 }
 
 // CreateTransaction creates the metadata for a 2PC transaction.
