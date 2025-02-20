@@ -17,6 +17,7 @@
 package inst
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/patrickmn/go-cache"
 	"github.com/sjmudd/stopwatch"
+	"golang.org/x/sync/semaphore"
 
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/stats"
@@ -47,13 +49,9 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
-const (
-	backendDBConcurrency = 20
-)
-
 var (
-	instanceReadChan  = make(chan bool, backendDBConcurrency)
-	instanceWriteChan = make(chan bool, backendDBConcurrency)
+	instanceReadSem  = semaphore.NewWeighted(config.GetBackendDBConcurrency())
+	instanceWriteSem = semaphore.NewWeighted(config.GetBackendDBConcurrency())
 )
 
 var forgetAliases *cache.Cache
@@ -88,7 +86,9 @@ func initializeInstanceDao() {
 func ExecDBWriteFunc(f func() error) error {
 	m := query.NewMetric()
 
-	instanceWriteChan <- true
+	if err := instanceWriteSem.Acquire(context.Background(), 1); err != nil {
+		return err
+	}
 	m.WaitLatency = time.Since(m.Timestamp)
 
 	// catch the exec time and error if there is one
@@ -106,7 +106,7 @@ func ExecDBWriteFunc(f func() error) error {
 		}
 		m.ExecuteLatency = time.Since(m.Timestamp.Add(m.WaitLatency))
 		_ = backendWrites.Append(m)
-		<-instanceWriteChan // assume this takes no time
+		instanceWriteSem.Release(1)
 	}()
 	res := f()
 	return res
@@ -646,10 +646,11 @@ func readInstancesByCondition(condition string, args []any, sort string) ([](*In
 		}
 		return instances, err
 	}
-	instanceReadChan <- true
-	instances, err := readFunc()
-	<-instanceReadChan
-	return instances, err
+	if err := instanceReadSem.Acquire(context.Background(), 1); err != nil {
+		return nil, err
+	}
+	defer instanceReadSem.Release(1)
+	return readFunc()
 }
 
 // ReadInstance reads an instance from the vtorc backend database

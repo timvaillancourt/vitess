@@ -121,6 +121,15 @@ var (
 		},
 	)
 
+	backendDBConcurrency = viperutil.Configure(
+		"backend-db-concurrency",
+		viperutil.Options[int64]{
+			FlagName: "backend-db-concurrency",
+			Default:  20,
+			Dynamic:  true,
+		},
+	)
+
 	waitReplicasTimeout = viperutil.Configure(
 		"wait-replicas-timeout",
 		viperutil.Options[time.Duration]{
@@ -199,6 +208,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("audit-to-backend", auditToBackend.Default(), "Whether to store the audit log in the VTOrc database")
 	fs.Bool("audit-to-syslog", auditToSyslog.Default(), "Whether to store the audit log in the syslog")
 	fs.Duration("audit-purge-duration", auditPurgeDuration.Default(), "Duration for which audit logs are held before being purged. Should be in multiples of days")
+	fs.Int64("backend-db-concurrency", backendDBConcurrency.Default(), "Maximum concurrency for reads and writes to the backend (separately)")
 	fs.Bool("prevent-cross-cell-failover", preventCrossCellFailover.Default(), "Prevent VTOrc from promoting a primary in a different cell than the current primary in case of a failover")
 	fs.Duration("wait-replicas-timeout", waitReplicasTimeout.Default(), "Duration for which to wait for replica's to respond when issuing RPCs")
 	fs.Duration("tolerable-replication-lag", tolerableReplicationLag.Default(), "Amount of replication lag that is considered acceptable for a tablet to be eligible for promotion when Vitess makes the choice of a new primary in PRS")
@@ -218,6 +228,7 @@ func registerFlags(fs *pflag.FlagSet) {
 		auditToBackend,
 		auditToSyslog,
 		auditPurgeDuration,
+		backendDBConcurrency,
 		waitReplicasTimeout,
 		tolerableReplicationLag,
 		topoInformationRefreshDuration,
@@ -301,6 +312,16 @@ func GetAuditPurgeDays() int64 {
 // SetAuditPurgeDays sets the audit purge duration.
 func SetAuditPurgeDays(days int64) {
 	auditPurgeDuration.Set(time.Duration(days) * 24 * time.Hour)
+}
+
+// GetBackendDBConcurrency returns the max backend db concurrency.
+func GetBackendDBConcurrency() int64 {
+	return backendDBConcurrency.Get()
+}
+
+// SetBackendDBConcurrency sets the max backend db concurrency.
+func SetBackendDBConcurrency(max int64) {
+	backendDBConcurrency.Set(max)
 }
 
 // GetWaitReplicasTimeout is a getter function.
