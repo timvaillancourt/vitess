@@ -319,11 +319,6 @@ func GetBackendDBConcurrency() int64 {
 	return backendDBConcurrency.Get()
 }
 
-// SetBackendDBConcurrency sets the max backend db concurrency.
-func SetBackendDBConcurrency(max int64) {
-	backendDBConcurrency.Set(max)
-}
-
 // GetWaitReplicasTimeout is a getter function.
 func GetWaitReplicasTimeout() time.Duration {
 	return waitReplicasTimeout.Get()
