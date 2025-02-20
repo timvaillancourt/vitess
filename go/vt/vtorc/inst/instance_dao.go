@@ -52,8 +52,8 @@ import (
 const maxBackendOpTime = time.Second * 5
 
 var (
-	instanceReadSem  = semaphore.NewWeighted(config.GetBackendDBConcurrency())
-	instanceWriteSem = semaphore.NewWeighted(config.GetBackendDBConcurrency())
+	instanceReadSem  = semaphore.NewWeighted(config.GetBackendReadConcurrency())
+	instanceWriteSem = semaphore.NewWeighted(config.GetBackendWriteConcurrency())
 )
 
 var forgetAliases *cache.Cache
