@@ -49,6 +49,8 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
+const maxBackendOpTime = time.Second * 5
+
 var (
 	instanceReadSem  = semaphore.NewWeighted(config.GetBackendDBConcurrency())
 	instanceWriteSem = semaphore.NewWeighted(config.GetBackendDBConcurrency())
@@ -86,7 +88,10 @@ func initializeInstanceDao() {
 func ExecDBWriteFunc(f func() error) error {
 	m := query.NewMetric()
 
-	if err := instanceWriteSem.Acquire(context.Background(), 1); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), maxBackendOpTime)
+	defer cancel()
+
+	if err := instanceWriteSem.Acquire(ctx, 1); err != nil {
 		return err
 	}
 	m.WaitLatency = time.Since(m.Timestamp)
@@ -646,10 +651,15 @@ func readInstancesByCondition(condition string, args []any, sort string) ([](*In
 		}
 		return instances, err
 	}
-	if err := instanceReadSem.Acquire(context.Background(), 1); err != nil {
+
+	ctx, cancel := context.WithTimeout(context.Background(), maxBackendOpTime)
+	defer cancel()
+
+	if err := instanceReadSem.Acquire(ctx, 1); err != nil {
 		return nil, err
 	}
 	defer instanceReadSem.Release(1)
+
 	return readFunc()
 }
 
