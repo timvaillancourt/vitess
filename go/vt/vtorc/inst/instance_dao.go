@@ -299,9 +299,9 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 		instance.SourceUUID = fs.ReplicationStatus.SourceUuid
 		instance.HasReplicationFilters = fs.ReplicationStatus.HasReplicationFilters
 
+		instance.SourceAlias = topoproto.TabletAliasString(fs.SourceAlias)
 		instance.SourceHost = fs.ReplicationStatus.SourceHost
 		instance.SourcePort = int(fs.ReplicationStatus.SourcePort)
-		instance.SourceAlias = topoproto.TabletAliasString(fs.SourceAlias)
 
 		if fs.ReplicationStatus.ReplicationLagUnknown {
 			instance.SecondsBehindPrimary.Valid = false
@@ -483,6 +483,7 @@ func ReadInstanceClusterAttributes(instance *Instance) (err error) {
 	primaryHostname := instance.SourceHost
 	primaryPort := instance.SourcePort
 
+	// Using alias is a primary-key read
 	whereCond := `alias = ?`
 	args := sqlutils.Args(primaryAlias)
 
