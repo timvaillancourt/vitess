@@ -125,7 +125,7 @@ var (
 		"backend-read-concurrency",
 		viperutil.Options[int64]{
 			FlagName: "backend-read-concurrency",
-			Default:  24,
+			Default:  32,
 			Dynamic:  true,
 		},
 	)
@@ -134,7 +134,7 @@ var (
 		"backend-write-concurrency",
 		viperutil.Options[int64]{
 			FlagName: "backend-write-concurrency",
-			Default:  12,
+			Default:  24,
 			Dynamic:  true,
 		},
 	)
