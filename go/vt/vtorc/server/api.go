@@ -27,7 +27,6 @@ import (
 	"vitess.io/vitess/go/acl"
 	"vitess.io/vitess/go/viperutil/debug"
 	"vitess.io/vitess/go/vt/servenv"
-	"vitess.io/vitess/go/vt/vtorc/collection"
 	"vitess.io/vitess/go/vt/vtorc/discovery"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	"vitess.io/vitess/go/vt/vtorc/logic"

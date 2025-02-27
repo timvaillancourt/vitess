@@ -29,17 +29,12 @@ import (
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
-	"vitess.io/vitess/go/vt/vtorc/collection"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/discovery"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	ometrics "vitess.io/vitess/go/vt/vtorc/metrics"
 	"vitess.io/vitess/go/vt/vtorc/process"
 	"vitess.io/vitess/go/vt/vtorc/util"
-)
-
-const (
-	DiscoveryMetricsName = "DISCOVERY_METRICS"
 )
 
 // discoveryQueue is a channel of deduplicated instanceKey-s
@@ -55,7 +50,7 @@ var failedDiscoveriesCounter = stats.NewCounter("DiscoveriesFail", "Number of fa
 var instancePollSecondsExceededCounter = stats.NewCounter("DiscoveriesInstancePollSecondsExceeded", "Number of instances that took longer than InstancePollSeconds to poll")
 var discoveryQueueLengthGauge = stats.NewGauge("DiscoveriesQueueLength", "Length of the discovery queue")
 var discoveryRecentCountGauge = stats.NewGauge("DiscoveriesRecentCount", "Number of recent discoveries")
-var discoveryMetrics = collection.CreateOrReturnCollection(DiscoveryMetricsName)
+var tabletDiscoveryTimings = stats.NewTimings("TabletDiscoveryTimings", "Tablet discovery timings", "phase")
 
 var recentDiscoveryOperationKeys *cache.Cache
 
@@ -131,16 +126,9 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	}
 
 	// create stopwatch entries
-	latency := stopwatch.NewNamedStopwatch()
-	_ = latency.AddMany([]string{
-		"backend",
-		"instance",
-		"total"})
-	latency.Start("total") // start the total stopwatch (not changed anywhere else)
-	var metric *discovery.Metric
+	totalStartTime := time.Now()
 	defer func() {
-		latency.Stop("total")
-		discoveryTime := latency.Elapsed("total")
+		discoveryTime := time.Since(totalStartTime)
 		if discoveryTime > config.GetInstancePollTime() {
 			instancePollSecondsExceededCounter.Add(1)
 			log.Warningf("discoverInstance exceeded InstancePollSeconds for %+v, took %.4fs", tabletAlias, discoveryTime.Seconds())
@@ -162,9 +150,10 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 		return
 	}
 
-	latency.Start("backend")
+	startTime := time.Now()
+	backendStartTime := startTime
 	instance, found, _ := inst.ReadInstance(tabletAlias)
-	latency.Stop("backend")
+	tabletDiscoveryTimings.Record("ReadInstance", startTime)
 	if !forceDiscovery && found && instance.IsUpToDate && instance.IsLastCheckValid {
 		// we've already discovered this one. Skip!
 		return
@@ -173,12 +162,11 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	discoveriesCounter.Add(1)
 
 	// First we've ever heard of this instance. Continue investigation:
-	instance, err := inst.ReadTopologyInstanceBufferable(tabletAlias, latency)
+	startTime = time.Now()
+	instance, err := inst.ReadTopologyInstanceBufferable(tabletAlias)
+	tabletDiscoveryTimings.Record("ReadTopologyInstanceBufferable", startTime)
 	// panic can occur (IO stuff). Therefore it may happen
 	// that instance is nil. Check it, but first get the timing metrics.
-	totalLatency := latency.Elapsed("total")
-	backendLatency := latency.Elapsed("backend")
-	instanceLatency := latency.Elapsed("instance")
 
 	if forceDiscovery {
 		log.Infof("Force discovered - %+v, err - %v", instance, err)
@@ -186,35 +174,15 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 
 	if instance == nil {
 		failedDiscoveriesCounter.Add(1)
-		metric = &discovery.Metric{
-			Timestamp:       time.Now(),
-			TabletAlias:     tabletAlias,
-			TotalLatency:    totalLatency,
-			BackendLatency:  backendLatency,
-			InstanceLatency: instanceLatency,
-			Err:             err,
-		}
-		_ = discoveryMetrics.Append(metric)
 		if util.ClearToLog("discoverInstance", tabletAlias) {
-			log.Warningf(" DiscoverInstance(%+v) instance is nil in %.3fs (Backend: %.3fs, Instance: %.3fs), error=%+v",
+			log.Warningf("DiscoverInstance(%+v) instance is nil in %.3fs (Backend: %.3fs), error=%+v",
 				tabletAlias,
-				totalLatency.Seconds(),
-				backendLatency.Seconds(),
-				instanceLatency.Seconds(),
+				time.Since(totalStartTime).Seconds(),
+				time.Since(backendStartTime).Seconds(),
 				err)
 		}
 		return
 	}
-
-	metric = &discovery.Metric{
-		Timestamp:       time.Now(),
-		TabletAlias:     tabletAlias,
-		TotalLatency:    totalLatency,
-		BackendLatency:  backendLatency,
-		InstanceLatency: instanceLatency,
-		Err:             nil,
-	}
-	_ = discoveryMetrics.Append(metric)
 }
 
 // onHealthTick handles the actions to take to discover/poll instances
