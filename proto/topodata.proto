@@ -298,6 +298,9 @@ message Keyspace {
   // used for various system metadata that is stored in each
   // tablet's mysqld instance.
   string sidecar_db_name = 10;
+
+  // VtorcConfig is the keyspace config for Vtorc.
+  VtorcConfig vtorc_config = 11;
 }
 
 // ShardReplication describes the MySQL replication relationships
@@ -394,6 +397,17 @@ message ThrottlerConfig {
 
   // MetricThresholds maps metric names to the threshold values that should be used for that metric
   map <string, double> metric_thresholds = 7;
+}
+
+// VtorcConfig stores per-keyspace/shard configuration for Vtorc.
+message VtorcConfig {
+  // AllowEmergencyReparent reflects if EmergencyReparentShard
+  // can be used to reparent in Vtorc recoveries.
+  bool allow_emergency_reparent = 1;
+
+  // WatchTags is a map of tag-name/key-range pairs that can be
+  // used for Vtorc to determine what to watch via the topo.
+  map <string, KeyRange> watch_tags = 2;
 }
 
 // SrvKeyspace is a rollup node for the keyspace itself.
