@@ -217,9 +217,12 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	_ = discoveryMetrics.Append(metric)
 }
 
-// onHealthTick handles the actions to take to discover/poll instances
+// onHealthTick handles the actions to take to discover/poll instances.
 func onHealthTick() {
-	tabletAliases, err := inst.ReadOutdatedInstanceKeys()
+	// Push outdated tabletAliases to discovery queue.
+	err := inst.ReadOutdatedInstances(func(tabletAlias string) {
+		discoveryQueue.Push(tabletAlias)
+	})
 	if err != nil {
 		log.Error(err)
 	}
@@ -232,17 +235,9 @@ func onHealthTick() {
 
 		countSnapshotKeys := len(snapshotDiscoveryKeys)
 		for i := 0; i < countSnapshotKeys; i++ {
-			tabletAliases = append(tabletAliases, <-snapshotDiscoveryKeys)
+			discoveryQueue.Push(<-snapshotDiscoveryKeys)
 		}
 	}()
-	// avoid any logging unless there's something to be done
-	if len(tabletAliases) > 0 {
-		for _, tabletAlias := range tabletAliases {
-			if tabletAlias != "" {
-				discoveryQueue.Push(tabletAlias)
-			}
-		}
-	}
 }
 
 // ContinuousDiscovery starts an asynchronous infinite discovery process where instances are

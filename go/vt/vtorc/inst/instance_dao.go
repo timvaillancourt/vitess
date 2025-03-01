@@ -711,38 +711,17 @@ func ReadInstancesWithErrantGTIds(keyspace string, shard string) ([]*Instance, e
 	return readInstancesByCondition(condition, args, "")
 }
 
-// GetKeyspaceShardName gets the keyspace shard name for the given instance key
-func GetKeyspaceShardName(tabletAlias string) (keyspace string, shard string, err error) {
-	query := `SELECT
-		keyspace,
-		shard
-	FROM
-		vitess_tablet
-	WHERE
-		alias = ?
-	`
-	err = db.QueryVTOrc(query, sqlutils.Args(tabletAlias), func(m sqlutils.RowMap) error {
-		keyspace = m.GetString("keyspace")
-		shard = m.GetString("shard")
-		return nil
-	})
-	if err != nil {
-		log.Error(err)
-	}
-	return keyspace, shard, err
-}
-
-// ReadOutdatedInstanceKeys reads and returns keys for all instances that are not up to date (i.e.
-// pre-configured time has passed since they were last checked) or the ones whose tablet information was read
-// but not the mysql information. This could happen if the durability policy of the keyspace wasn't
-// available at the time it was discovered. This would lead to not having the record of the tablet in the
-// database_instance table.
+// ReadOutdatedInstances reads all instances that are not up to date (i.e. pre-configured time has passed
+// since they were last checked) or the ones whose tablet information was read but not the mysql
+// information. This could happen if the durability policy of the keyspace wasn't available at the time
+// it was discovered. This would lead to not having the record of the tablet in the database_instance
+// table. The tabletAlias of the instances read are passed to the provided onTabletAliasFunc.
+//
 // We also check for the case where an attempt at instance checking has been made, that hasn't
 // resulted in an actual check! This can happen when TCP/IP connections are hung, in which case the "check"
 // never returns. In such case we multiply interval by a factor, so as not to open too many connections on
 // the instance.
-func ReadOutdatedInstanceKeys() ([]string, error) {
-	var res []string
+func ReadOutdatedInstances(onTabletAliasFunc func(tabletAlias string)) error {
 	query := `SELECT
 		alias
 	FROM
@@ -765,19 +744,15 @@ func ReadOutdatedInstanceKeys() ([]string, error) {
 	`
 	args := sqlutils.Args(config.GetInstancePollSeconds(), 2*config.GetInstancePollSeconds())
 
-	err := db.QueryVTOrc(query, args, func(m sqlutils.RowMap) error {
+	return db.QueryVTOrc(query, args, func(m sqlutils.RowMap) error {
 		tabletAlias := m.GetString("alias")
 		if !InstanceIsForgotten(tabletAlias) {
-			// only if not in "forget" cache
-			res = append(res, tabletAlias)
+			// Only if not in "forget" cache.
+			onTabletAliasFunc(tabletAlias)
 		}
-		// We don;t return an error because we want to keep filling the outdated instances list.
+		// We don't return an error because we want to keep filling the outdated instances list.
 		return nil
 	})
-	if err != nil {
-		log.Error(err)
-	}
-	return res, err
 }
 
 func mkInsert(table string, columns []string, values []string, nrRows int, insertIgnore bool) (string, error) {
