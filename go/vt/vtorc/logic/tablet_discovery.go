@@ -179,7 +179,7 @@ func getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[strin
 // refreshAllTablets reloads the tablets from topo and discovers the ones which haven't been refreshed in a while
 func refreshAllTablets(ctx context.Context) error {
 	return refreshTabletsUsing(ctx, func(tabletAlias string) {
-		DiscoverInstance(tabletAlias, false /* forceDiscovery */)
+		DiscoverInstance(ctx, tabletAlias, false /* forceDiscovery */)
 	}, false /* forceRefresh */)
 }
 
@@ -234,7 +234,7 @@ func forceRefreshAllTabletsInShard(ctx context.Context, keyspace, shard string, 
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
 	refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
-		DiscoverInstance(tabletAlias, true)
+		DiscoverInstance(ctx, tabletAlias, true)
 	}, true, tabletsToIgnore)
 }
 

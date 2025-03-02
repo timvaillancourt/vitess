@@ -25,7 +25,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,18 +51,15 @@ import (
 const maxBackendOpTime = time.Second * 5
 
 var (
-	instanceReadSem  = semaphore.NewWeighted(config.GetBackendReadConcurrency())
-	instanceWriteSem = semaphore.NewWeighted(config.GetBackendWriteConcurrency())
-)
+	readTopologyInstanceCounter *stats.Counter
+	readInstanceCounter         *stats.Counter
+	currentErrantGTIDCount      *stats.GaugesWithSingleLabel
 
-var forgetAliases *cache.Cache
-
-var (
-	readTopologyInstanceCounter = stats.NewCounter("InstanceReadTopology", "Number of times an instance was read from the topology")
-	readInstanceCounter         = stats.NewCounter("InstanceRead", "Number of times an instance was read")
-	currentErrantGTIDCount      = stats.NewGaugesWithSingleLabel("CurrentErrantGTIDCount", "Number of errant GTIDs a vttablet currently has", "TabletAlias")
-	backendWrites               = collection.CreateOrReturnCollection("BACKEND_WRITES")
-	writeBufferLatency          = stopwatch.NewNamedStopwatch()
+	forgetAliases      *cache.Cache
+	instanceReadSem    = semaphore.NewWeighted(config.GetBackendReadConcurrency())
+	instanceWriteSem   = semaphore.NewWeighted(config.GetBackendWriteConcurrency())
+	backendWrites      = collection.CreateOrReturnCollection("BACKEND_WRITES")
+	writeBufferLatency = stopwatch.NewNamedStopwatch()
 )
 
 var (
@@ -156,8 +152,11 @@ func logReadTopologyInstanceError(tabletAlias string, hint string, err error) er
 	return errors.New(msg)
 }
 
-// RegisterStats registers stats from the inst package
+// RegisterStats registers stats from the inst package.
 func RegisterStats() {
+	currentErrantGTIDCount = stats.NewGaugesWithSingleLabel("CurrentErrantGTIDCount", "Number of errant GTIDs a vttablet currently has", "TabletAlias")
+	readTopologyInstanceCounter = stats.NewCounter("InstanceReadTopology", "Number of times an instance was read from the topology")
+	readInstanceCounter = stats.NewCounter("InstanceRead", "Number of times an instance was read")
 	stats.NewGaugeFunc("ErrantGtidTabletCount", "Number of tablets with errant GTIDs", func() int64 {
 		instances, _ := ReadInstancesWithErrantGTIds("", "")
 		return int64(len(instances))
@@ -169,14 +168,13 @@ func RegisterStats() {
 // It writes the information retrieved into vtorc's backend.
 // - writes are optionally buffered.
 // - timing information can be collected for the stages performed.
-func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.NamedStopwatch) (inst *Instance, err error) {
+func ReadTopologyInstanceBufferable(ctx context.Context, tabletAlias string, latency *stopwatch.NamedStopwatch) (inst *Instance, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = logReadTopologyInstanceError(tabletAlias, "Unexpected, aborting", tb.Errorf("%+v", r))
 		}
 	}()
 
-	var waitGroup sync.WaitGroup
 	var tablet *topodatapb.Tablet
 	var fs *replicationdatapb.FullStatus
 	readingStartTime := time.Now()
@@ -209,7 +207,7 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 		goto Cleanup
 	}
 
-	fs, err = fullStatus(tablet)
+	fs, err = fullStatus(ctx, tablet)
 	if err != nil {
 		goto Cleanup
 	}
@@ -347,7 +345,6 @@ func ReadTopologyInstanceBufferable(tabletAlias string, latency *stopwatch.Named
 	}
 
 Cleanup:
-	waitGroup.Wait()
 	close(errorChan)
 	err = func() error {
 		if err != nil {
@@ -459,7 +456,7 @@ func detectErrantGTIDs(instance *Instance, tablet *topodatapb.Tablet) (err error
 
 // getKeyspaceShardName returns a single string having both the keyspace and shard
 func getKeyspaceShardName(keyspace, shard string) string {
-	return fmt.Sprintf("%v:%v", keyspace, shard)
+	return topoproto.KeyspaceShardString(keyspace, shard)
 }
 
 func getBinlogCoordinatesFromPositionString(position string) (BinlogCoordinates, error) {
@@ -490,7 +487,8 @@ func ReadInstanceClusterAttributes(instance *Instance) (err error) {
 		source_port,
 		ancestry_uuid,
 		executed_gtid_set
-	FROM database_instance
+	FROM
+		database_instance
 	WHERE
 		hostname = ?
 		AND port = ?`
@@ -743,7 +741,6 @@ func ReadOutdatedInstances(onTabletAliasFunc func(tabletAlias string)) error {
 		database_instance.alias IS NULL
 	`
 	args := sqlutils.Args(config.GetInstancePollSeconds(), 2*config.GetInstancePollSeconds())
-
 	return db.QueryVTOrc(query, args, func(m sqlutils.RowMap) error {
 		tabletAlias := m.GetString("alias")
 		if !InstanceIsForgotten(tabletAlias) {
@@ -1044,6 +1041,7 @@ func UpdateInstanceLastAttemptedCheck(tabletAlias string) error {
 	return ExecDBWriteFunc(writeFunc)
 }
 
+// InstanceIsForgotten returns true if an instance was recently forgotten.
 func InstanceIsForgotten(tabletAlias string) bool {
 	_, found := forgetAliases.Get(tabletAlias)
 	return found
