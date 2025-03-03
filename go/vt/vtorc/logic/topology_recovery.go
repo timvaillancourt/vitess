@@ -517,7 +517,7 @@ func executeCheckAndRecoverFunction(ctx context.Context, analysisEntry *inst.Rep
 		// If they have, then recoveries like ReplicaSemiSyncMustNotBeSet, etc won't be valid anymore.
 		// Similarly, a new primary could have been elected in the mean-time that can cause
 		// a change in the recovery we run.
-		err = RefreshKeyspaceAndShard(analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
+		err = RefreshKeyspaceAndShard(ctx, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
 		if err != nil {
 			logger.Errorf("Failed to refresh keyspace and shard, aborting recovery: %v", err)
 			return err

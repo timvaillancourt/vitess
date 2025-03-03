@@ -116,6 +116,8 @@ func fmtArgs(args []any) string {
 
 // TestReadInstance is used to test the functionality of ReadInstance and verify its failure modes and successes.
 func TestReadInstance(t *testing.T) {
+	RegisterStats()
+
 	tests := []struct {
 		name              string
 		tabletAliasToRead string
@@ -143,7 +145,6 @@ func TestReadInstance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			got, found, err := ReadInstance(tt.tabletAliasToRead)
 			require.NoError(t, err)
 			require.Equal(t, tt.instanceFound, found)
@@ -590,7 +591,7 @@ func TestForgetInstanceAndInstanceIsForgotten(t *testing.T) {
 		{
 			name:              "Unknown tablet",
 			tabletAlias:       "unknown-tablet",
-			errExpected:       "ForgetInstance(): tablet unknown-tablet not found",
+			errExpected:       ErrTabletNotFound.Error(),
 			instanceForgotten: true,
 			tabletsExpected:   []string{"zone1-0000000100", "zone1-0000000101", "zone1-0000000112", "zone2-0000000200"},
 		}, {

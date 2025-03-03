@@ -1095,7 +1095,7 @@ func ForgetInstance(tabletAlias string) error {
 	if rows == 0 {
 		errMsg := fmt.Sprintf("ForgetInstance(): tablet %+v not found", tabletAlias)
 		log.Error(errMsg)
-		return errors.New(errMsg)
+		return ErrTabletNotFound
 	}
 	_ = AuditOperation("forget", tabletAlias, "")
 	return nil
