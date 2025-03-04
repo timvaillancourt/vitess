@@ -132,11 +132,11 @@ func shouldWatchTablet(tablet *topodatapb.Tablet) bool {
 
 // OpenTabletDiscovery opens the vitess topo if enables and returns a ticker
 // channel for polling.
-func OpenTabletDiscovery() <-chan time.Time {
+func OpenTabletDiscovery(ctx context.Context) <-chan time.Time {
 	ts = topo.Open()
 	tmc = inst.InitializeTMC()
 	// Clear existing cache and perform a new refresh.
-	if _, err := db.ExecVTOrc("DELETE FROM vitess_tablet"); err != nil {
+	if err := inst.DeleteAllTablets(); err != nil {
 		log.Error(err)
 	}
 	// Parse --clusters_to_watch into a filter.
@@ -146,7 +146,7 @@ func OpenTabletDiscovery() <-chan time.Time {
 	}
 	// We refresh all information from the topo once before we start the ticks to do
 	// it on a timer.
-	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+	ctx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer cancel()
 	if err := refreshAllInformation(ctx); err != nil {
 		log.Errorf("failed to initialize topo information: %+v", err)

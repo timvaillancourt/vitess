@@ -90,3 +90,10 @@ func SaveTablet(tablet *topodatapb.Tablet) error {
 	)
 	return err
 }
+
+// DeleteAllTablets deletes all rows in the vitess_tablet table,
+// clearing the local cache.
+func DeleteAllTablets() error {
+	_, err := db.ExecVTOrc("DELETE FROM vitess_tablet")
+	return err
+}

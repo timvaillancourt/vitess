@@ -454,23 +454,6 @@ func detectErrantGTIDs(instance *Instance, tablet *topodatapb.Tablet) (err error
 	return err
 }
 
-// getKeyspaceShardName returns a single string having both the keyspace and shard
-func getKeyspaceShardName(keyspace, shard string) string {
-	return topoproto.KeyspaceShardString(keyspace, shard)
-}
-
-func getBinlogCoordinatesFromPositionString(position string) (BinlogCoordinates, error) {
-	pos, err := replication.DecodePosition(position)
-	if err != nil || pos.GTIDSet == nil {
-		return BinlogCoordinates{}, err
-	}
-	binLogCoordinates, err := ParseBinlogCoordinates(pos.String())
-	if err != nil {
-		return BinlogCoordinates{}, err
-	}
-	return *binLogCoordinates, nil
-}
-
 // ReadInstanceClusterAttributes will return the cluster name for a given instance by looking at its primary
 // and getting it from there.
 // It is a non-recursive function and so-called-recursion is performed upon periodic reading of
