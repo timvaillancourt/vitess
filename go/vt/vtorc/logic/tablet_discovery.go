@@ -28,6 +28,7 @@ import (
 
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 
@@ -53,6 +54,9 @@ var (
 	// We store the key range for all the shards that we want to watch.
 	// This is populated by parsing `--clusters_to_watch` flag.
 	shardsToWatch map[string][]*topodatapb.KeyRange
+
+	// topoSingleFlightGroup deduplicates concurrent requests to the topo.
+	topoSingleFlightGroup singleflight.Group
 
 	// ErrNoPrimaryTablet is a fixed error message.
 	ErrNoPrimaryTablet = errors.New("no primary tablet found")
@@ -160,20 +164,35 @@ func getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[strin
 	eg, ctx := errgroup.WithContext(ctx)
 	for _, cell := range cells {
 		eg.Go(func() error {
-			tablets, err := ts.GetTabletsByCell(ctx, cell, nil)
+			tablets, err, _ := topoSingleFlightGroup.Do("GetTabletsByCell:"+cell, func() (interface{}, error) {
+				return ts.GetTabletsByCell(ctx, cell, nil)
+			})
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
 				log.Errorf("Failed to load tablets from cell %s: %+v", cell, err)
 				failedCells = append(failedCells, cell)
 			} else {
-				tabletsByCell[cell] = tablets
+				tabletsByCell[cell] = tablets.([]*topo.TabletInfo)
 			}
 			return nil
 		})
 	}
 	_ = eg.Wait() // always nil
 	return tabletsByCell, failedCells
+}
+
+// getKnownCells returns all known cells in the topo.
+func getKnownCells(ctx context.Context) ([]string, error) {
+	cells, err, _ := topoSingleFlightGroup.Do("GetKnownCells", func() (interface{}, error) {
+		cellsCtx, cellsCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+		defer cellsCancel()
+		return ts.GetKnownCells(cellsCtx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cells.([]string), err
 }
 
 // refreshAllTablets reloads the tablets from topo and discovers the ones which haven't been refreshed in a while
@@ -186,9 +205,7 @@ func refreshAllTablets(ctx context.Context) error {
 // refreshTabletsUsing refreshes tablets using a provided loader.
 func refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), forceRefresh bool) error {
 	// Get all cells.
-	cellsCtx, cellsCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
-	defer cellsCancel()
-	cells, err := ts.GetKnownCells(cellsCtx)
+	cells, err := getKnownCells(ctx)
 	if err != nil {
 		return err
 	}
@@ -304,7 +321,8 @@ func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader
 		log.Error(err)
 	}
 	for _, tabletAlias := range toForget {
-		if err := inst.ForgetInstance(tabletAlias); err != nil {
+		err := inst.ForgetInstance(tabletAlias)
+		if err != nil && !errors.Is(err, inst.ErrTabletNotFound) {
 			log.Error(err)
 		}
 	}
