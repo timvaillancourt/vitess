@@ -297,6 +297,7 @@ CREATE TABLE vitess_keyspace (
 	keyspace varchar(128) NOT NULL,
 	keyspace_type smallint(5) NOT NULL,
 	durability_policy varchar(512) NOT NULL,
+	vtorc_config varchar(512) NOT NULL,
 	PRIMARY KEY (keyspace)
 )`,
 	`

@@ -19,6 +19,8 @@ package inst
 import (
 	"errors"
 
+	"google.golang.org/protobuf/encoding/prototext"
+
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
@@ -38,20 +40,26 @@ func ReadKeyspace(keyspaceName string) (*topo.KeyspaceInfo, error) {
 	query := `
 		select
 			keyspace_type,
-			durability_policy
+			durability_policy,
+			vtorc_config
 		from
 			vitess_keyspace
 		where keyspace=?
 		`
+
 	args := sqlutils.Args(keyspaceName)
 	keyspace := &topo.KeyspaceInfo{
-		Keyspace: &topodatapb.Keyspace{},
+		Keyspace: &topodatapb.Keyspace{
+			VtorcConfig: &topodatapb.VtorcConfig{},
+		},
 	}
 	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) error {
 		keyspace.KeyspaceType = topodatapb.KeyspaceType(row.GetInt32("keyspace_type"))
 		keyspace.DurabilityPolicy = row.GetString("durability_policy")
 		keyspace.SetKeyspaceName(keyspaceName)
-		return nil
+
+		opts := prototext.UnmarshalOptions{DiscardUnknown: true}
+		return opts.Unmarshal([]byte(row.GetString("vtorc_config")), keyspace.Keyspace.VtorcConfig)
 	})
 	if err != nil {
 		return nil, err
@@ -64,17 +72,20 @@ func ReadKeyspace(keyspaceName string) (*topo.KeyspaceInfo, error) {
 
 // SaveKeyspace saves the keyspace record against the keyspace name.
 func SaveKeyspace(keyspace *topo.KeyspaceInfo) error {
-	_, err := db.ExecVTOrc(`
-		replace
-			into vitess_keyspace (
-				keyspace, keyspace_type, durability_policy
-			) values (
-				?, ?, ?
-			)
-		`,
+	vtorcConfigProto, err := prototext.Marshal(keyspace.VtorcConfig)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecVTOrc(`
+		replace	into vitess_keyspace (
+			keyspace, keyspace_type, durability_policy, vtorc_config
+		) values (
+			?, ?, ?, ?
+		)`,
 		keyspace.KeyspaceName(),
 		int(keyspace.KeyspaceType),
 		keyspace.GetDurabilityPolicy(),
+		vtorcConfigProto,
 	)
 	return err
 }

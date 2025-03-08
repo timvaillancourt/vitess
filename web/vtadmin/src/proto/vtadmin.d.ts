@@ -19922,9 +19922,6 @@ export namespace topodata {
 
         /** VtorcConfig allow_emergency_reparent */
         allow_emergency_reparent?: (boolean|null);
-
-        /** VtorcConfig range_tags */
-        range_tags?: ({ [k: string]: topodata.IKeyRange }|null);
     }
 
     /** Represents a VtorcConfig. */
@@ -19938,9 +19935,6 @@ export namespace topodata {
 
         /** VtorcConfig allow_emergency_reparent. */
         public allow_emergency_reparent: boolean;
-
-        /** VtorcConfig range_tags. */
-        public range_tags: { [k: string]: topodata.IKeyRange };
 
         /**
          * Creates a new VtorcConfig instance using the specified properties.

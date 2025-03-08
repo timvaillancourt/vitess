@@ -404,10 +404,6 @@ message VtorcConfig {
   // AllowEmergencyReparent reflects if EmergencyReparentShard
   // can be used to reparent in Vtorc recoveries.
   bool allow_emergency_reparent = 1;
-
-  // WatchTags is a map of tag-name/key-range pairs that can be
-  // used for Vtorc to determine what to watch via the topo.
-  map <string, KeyRange> watch_tags = 2;
 }
 
 // SrvKeyspace is a rollup node for the keyspace itself.

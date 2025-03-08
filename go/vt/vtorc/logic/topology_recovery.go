@@ -289,60 +289,86 @@ func checkAndRecoverGenericProblem(ctx context.Context, analysisEntry *inst.Repl
 	return false, nil, nil
 }
 
+// checkERSEnabled returns true if the keyspace can use ERS. An error is returned if this cannot be determined.
+func checkERSEnabled(analysisCode inst.AnalysisCode, keyspace string) (bool, error) {
+	// If ERS is disabled, we have no way of repairing the cluster.
+	if !config.ERSEnabled() {
+		log.Infof("VTOrc not configured to run ERS, skipping recovering %v", analysisCode)
+		return false, nil
+	}
+
+	// Check if ERS is enabled on the keyspace.
+	ks, err := inst.ReadKeyspace(keyspace)
+	if err != nil {
+		return false, err
+	} else if ks.VtorcConfig == nil {
+		return true, nil
+	}
+	if !ks.VtorcConfig.AllowEmergencyReparent {
+		log.Infof("ERS is disabled on keyspace %s, skipping recovering %v", keyspace, analysisCode)
+		return false, nil
+	}
+	return true, nil
+}
+
 // getCheckAndRecoverFunctionCode gets the recovery function code to use for the given analysis.
-func getCheckAndRecoverFunctionCode(analysisCode inst.AnalysisCode, tabletAlias string) recoveryFunction {
+func getCheckAndRecoverFunctionCode(analysisCode inst.AnalysisCode, tabletAlias, keyspace string) (recoveryFunction, error) {
 	switch analysisCode {
 	// primary
 	case inst.DeadPrimary, inst.DeadPrimaryAndSomeReplicas, inst.PrimaryDiskStalled, inst.PrimarySemiSyncBlocked:
-		// If ERS is disabled, we have no way of repairing the cluster.
-		if !config.ERSEnabled() {
-			log.Infof("VTOrc not configured to run ERS, skipping recovering %v", analysisCode)
-			return noRecoveryFunc
+		// If ERS is disabled globally or on the keyspace, skip recovery.
+		isERSEnabled, err := checkERSEnabled(analysisCode, keyspace)
+		if err != nil {
+			return noRecoveryFunc, err
+		} else if !isERSEnabled {
+			return noRecoveryFunc, nil
 		}
-		return recoverDeadPrimaryFunc
+		return recoverDeadPrimaryFunc, nil
 	case inst.PrimaryTabletDeleted:
-		// If ERS is disabled, we have no way of repairing the cluster.
-		if !config.ERSEnabled() {
-			log.Infof("VTOrc not configured to run ERS, skipping recovering %v", analysisCode)
-			return noRecoveryFunc
+		// If ERS is disabled globally or on the keyspace, skip recovery.
+		isERSEnabled, err := checkERSEnabled(analysisCode, keyspace)
+		if err != nil {
+			return noRecoveryFunc, err
+		} else if !isERSEnabled {
+			return noRecoveryFunc, nil
 		}
-		return recoverPrimaryTabletDeletedFunc
+		return recoverPrimaryTabletDeletedFunc, nil
 	case inst.ErrantGTIDDetected:
 		if !config.ConvertTabletWithErrantGTIDs() {
 			log.Infof("VTOrc not configured to do anything on detecting errant GTIDs, skipping recovering %v", analysisCode)
-			return noRecoveryFunc
+			return noRecoveryFunc, nil
 		}
-		return recoverErrantGTIDDetectedFunc
+		return recoverErrantGTIDDetectedFunc, nil
 	case inst.PrimaryHasPrimary:
-		return recoverPrimaryHasPrimaryFunc
+		return recoverPrimaryHasPrimaryFunc, nil
 	case inst.LockedSemiSyncPrimary:
-		return recoverLockedSemiSyncPrimaryFunc
+		return recoverLockedSemiSyncPrimaryFunc, nil
 	case inst.ClusterHasNoPrimary:
-		return electNewPrimaryFunc
+		return electNewPrimaryFunc, nil
 	case inst.PrimaryIsReadOnly, inst.PrimarySemiSyncMustBeSet, inst.PrimarySemiSyncMustNotBeSet:
-		return fixPrimaryFunc
+		return fixPrimaryFunc, nil
 	// replica
 	case inst.NotConnectedToPrimary, inst.ConnectedToWrongPrimary, inst.ReplicationStopped, inst.ReplicaIsWritable,
 		inst.ReplicaSemiSyncMustBeSet, inst.ReplicaSemiSyncMustNotBeSet, inst.ReplicaMisconfigured:
-		return fixReplicaFunc
+		return fixReplicaFunc, nil
 	// primary, non actionable
 	case inst.DeadPrimaryAndReplicas:
-		return recoverGenericProblemFunc
+		return recoverGenericProblemFunc, nil
 	case inst.UnreachablePrimary:
-		return recoverGenericProblemFunc
+		return recoverGenericProblemFunc, nil
 	case inst.UnreachablePrimaryWithLaggingReplicas:
-		return recoverGenericProblemFunc
+		return recoverGenericProblemFunc, nil
 	case inst.AllPrimaryReplicasNotReplicating:
-		return recoverGenericProblemFunc
+		return recoverGenericProblemFunc, nil
 	case inst.AllPrimaryReplicasNotReplicatingOrDead:
-		return recoverGenericProblemFunc
+		return recoverGenericProblemFunc, nil
 	}
 	// Right now this is mostly causing noise with no clear action.
 	// Will revisit this in the future.
 	// case inst.AllPrimaryReplicasStale:
 	//   return recoverGenericProblemFunc
 
-	return noRecoveryFunc
+	return noRecoveryFunc, nil
 }
 
 // hasActionableRecovery tells if a recoveryFunction has an actionable recovery or not
@@ -443,10 +469,16 @@ func isClusterWideRecovery(recoveryFunctionCode recoveryFunction) bool {
 }
 
 // analysisEntriesHaveSameRecovery tells whether the two analysis entries have the same recovery function or not
-func analysisEntriesHaveSameRecovery(prevAnalysis, newAnalysis *inst.ReplicationAnalysis) bool {
-	prevRecoveryFunctionCode := getCheckAndRecoverFunctionCode(prevAnalysis.Analysis, prevAnalysis.AnalyzedInstanceAlias)
-	newRecoveryFunctionCode := getCheckAndRecoverFunctionCode(newAnalysis.Analysis, newAnalysis.AnalyzedInstanceAlias)
-	return prevRecoveryFunctionCode == newRecoveryFunctionCode
+func analysisEntriesHaveSameRecovery(prevAnalysis, newAnalysis *inst.ReplicationAnalysis) (bool, error) {
+	prevRecoveryFunctionCode, err := getCheckAndRecoverFunctionCode(prevAnalysis.Analysis, prevAnalysis.AnalyzedInstanceAlias, prevAnalysis.AnalyzedKeyspace)
+	if err != nil {
+		return false, err
+	}
+	newRecoveryFunctionCode, err := getCheckAndRecoverFunctionCode(newAnalysis.Analysis, newAnalysis.AnalyzedInstanceAlias, newAnalysis.AnalyzedKeyspace)
+	if err != nil {
+		return false, err
+	}
+	return prevRecoveryFunctionCode == newRecoveryFunctionCode, nil
 }
 
 // executeCheckAndRecoverFunction will choose the correct check & recovery function based on analysis.
@@ -458,7 +490,10 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	logger := log.NewPrefixedLogger(fmt.Sprintf("Recovery for %s on %s/%s", analysisEntry.Analysis, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard))
 	logger.Info("Starting checkAndRecover")
 
-	checkAndRecoverFunctionCode := getCheckAndRecoverFunctionCode(analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
+	checkAndRecoverFunctionCode, err := getCheckAndRecoverFunctionCode(analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias, analysisEntry.AnalyzedKeyspace)
+	if err != nil {
+		return err
+	}
 	isActionableRecovery := hasActionableRecovery(checkAndRecoverFunctionCode)
 	analysisEntry.IsActionableRecovery = isActionableRecovery
 
@@ -625,8 +660,12 @@ func checkIfAlreadyFixed(analysisEntry *inst.ReplicationAnalysis) (bool, error) 
 	}
 
 	for _, entry := range analysisEntries {
+		entriesHaveSameRecoveries, err := analysisEntriesHaveSameRecovery(analysisEntry, entry)
+		if err != nil {
+			return false, err
+		}
 		// If there is a analysis which has the same recovery required, then we should proceed with the recovery
-		if entry.AnalyzedInstanceAlias == analysisEntry.AnalyzedInstanceAlias && analysisEntriesHaveSameRecovery(analysisEntry, entry) {
+		if entry.AnalyzedInstanceAlias == analysisEntry.AnalyzedInstanceAlias && entriesHaveSameRecoveries {
 			return false, nil
 		}
 	}
