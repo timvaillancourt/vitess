@@ -318,19 +318,15 @@ func getCheckAndRecoverFunctionCode(analysisCode inst.AnalysisCode, tabletAlias,
 	case inst.DeadPrimary, inst.DeadPrimaryAndSomeReplicas, inst.PrimaryDiskStalled, inst.PrimarySemiSyncBlocked:
 		// If ERS is disabled globally or on the keyspace, skip recovery.
 		isERSEnabled, err := checkERSEnabled(analysisCode, keyspace)
-		if err != nil {
+		if err != nil || !isERSEnabled {
 			return noRecoveryFunc, err
-		} else if !isERSEnabled {
-			return noRecoveryFunc, nil
 		}
 		return recoverDeadPrimaryFunc, nil
 	case inst.PrimaryTabletDeleted:
 		// If ERS is disabled globally or on the keyspace, skip recovery.
 		isERSEnabled, err := checkERSEnabled(analysisCode, keyspace)
-		if err != nil {
+		if err != nil || !isERSEnabled {
 			return noRecoveryFunc, err
-		} else if !isERSEnabled {
-			return noRecoveryFunc, nil
 		}
 		return recoverPrimaryTabletDeletedFunc, nil
 	case inst.ErrantGTIDDetected:
