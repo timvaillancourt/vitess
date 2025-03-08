@@ -301,13 +301,12 @@ func checkERSEnabled(analysisCode inst.AnalysisCode, keyspace string) (bool, err
 	ks, err := inst.ReadKeyspace(keyspace)
 	if err != nil {
 		return false, err
-	} else if ks.VtorcConfig == nil {
-		return true, nil
 	}
-	if !ks.VtorcConfig.AllowEmergencyReparent {
+	if ks.VtorcConfig != nil && !ks.VtorcConfig.AllowEmergencyReparent {
 		log.Infof("ERS is disabled on keyspace %s, skipping recovering %v", keyspace, analysisCode)
 		return false, nil
 	}
+
 	return true, nil
 }
 
