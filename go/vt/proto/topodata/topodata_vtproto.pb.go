@@ -399,7 +399,7 @@ func (m *VtorcConfig) CloneVT() *VtorcConfig {
 		return (*VtorcConfig)(nil)
 	}
 	r := new(VtorcConfig)
-	r.AllowEmergencyReparent = m.AllowEmergencyReparent
+	r.DisableEmergencyReparent = m.DisableEmergencyReparent
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -1642,9 +1642,9 @@ func (m *VtorcConfig) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.AllowEmergencyReparent {
+	if m.DisableEmergencyReparent {
 		i--
-		if m.AllowEmergencyReparent {
+		if m.DisableEmergencyReparent {
 			dAtA[i] = 1
 		} else {
 			dAtA[i] = 0
@@ -2427,7 +2427,7 @@ func (m *VtorcConfig) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	if m.AllowEmergencyReparent {
+	if m.DisableEmergencyReparent {
 		n += 2
 	}
 	n += len(m.unknownFields)
@@ -5577,7 +5577,7 @@ func (m *VtorcConfig) UnmarshalVT(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AllowEmergencyReparent", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DisableEmergencyReparent", wireType)
 			}
 			var v int
 			for shift := uint(0); ; shift += 7 {
@@ -5594,7 +5594,7 @@ func (m *VtorcConfig) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
-			m.AllowEmergencyReparent = bool(v != 0)
+			m.DisableEmergencyReparent = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

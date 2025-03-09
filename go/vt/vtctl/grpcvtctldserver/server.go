@@ -921,12 +921,19 @@ func (s *VtctldServer) CreateKeyspace(ctx context.Context, req *vtctldatapb.Crea
 		return nil, fmt.Errorf("unknown keyspace type %v", req.Type)
 	}
 
+	if req.VtorcConfig == nil {
+		req.VtorcConfig = &topodatapb.VtorcConfig{
+			DisableEmergencyReparent: false,
+		}
+	}
+
 	ki := &topodatapb.Keyspace{
 		KeyspaceType:     req.Type,
 		BaseKeyspace:     req.BaseKeyspace,
 		SnapshotTime:     req.SnapshotTime,
 		DurabilityPolicy: req.DurabilityPolicy,
 		SidecarDbName:    req.SidecarDbName,
+		VtorcConfig:      req.VtorcConfig,
 	}
 
 	err = s.ts.CreateKeyspace(ctx, req.Name, ki)

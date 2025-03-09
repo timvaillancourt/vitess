@@ -19920,8 +19920,8 @@ export namespace topodata {
     /** Properties of a VtorcConfig. */
     interface IVtorcConfig {
 
-        /** VtorcConfig allow_emergency_reparent */
-        allow_emergency_reparent?: (boolean|null);
+        /** VtorcConfig disable_emergency_reparent */
+        disable_emergency_reparent?: (boolean|null);
     }
 
     /** Represents a VtorcConfig. */
@@ -19933,8 +19933,8 @@ export namespace topodata {
          */
         constructor(properties?: topodata.IVtorcConfig);
 
-        /** VtorcConfig allow_emergency_reparent. */
-        public allow_emergency_reparent: boolean;
+        /** VtorcConfig disable_emergency_reparent. */
+        public disable_emergency_reparent: boolean;
 
         /**
          * Creates a new VtorcConfig instance using the specified properties.
@@ -56531,6 +56531,9 @@ export namespace vtctldata {
 
         /** CreateKeyspaceRequest sidecar_db_name */
         sidecar_db_name?: (string|null);
+
+        /** CreateKeyspaceRequest vtorc_config */
+        vtorc_config?: (topodata.IVtorcConfig|null);
     }
 
     /** Represents a CreateKeyspaceRequest. */
@@ -56565,6 +56568,9 @@ export namespace vtctldata {
 
         /** CreateKeyspaceRequest sidecar_db_name. */
         public sidecar_db_name: string;
+
+        /** CreateKeyspaceRequest vtorc_config. */
+        public vtorc_config?: (topodata.IVtorcConfig|null);
 
         /**
          * Creates a new CreateKeyspaceRequest instance using the specified properties.

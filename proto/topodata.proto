@@ -401,9 +401,9 @@ message ThrottlerConfig {
 
 // VtorcConfig stores per-keyspace/shard configuration for Vtorc.
 message VtorcConfig {
-  // AllowEmergencyReparent reflects if EmergencyReparentShard
+  // DisableEmergencyReparent reflects if EmergencyReparentShard
   // can be used to reparent in Vtorc recoveries.
-  bool allow_emergency_reparent = 1;
+  bool disable_emergency_reparent = 1;
 }
 
 // SrvKeyspace is a rollup node for the keyspace itself.
