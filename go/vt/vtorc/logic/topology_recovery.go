@@ -291,7 +291,7 @@ func checkAndRecoverGenericProblem(ctx context.Context, analysisEntry *inst.Repl
 
 // checkERSEnabled returns true if the keyspace can use ERS. An error is returned if this cannot be determined.
 func checkERSEnabled(analysisCode inst.AnalysisCode, keyspace string) (bool, error) {
-	// If ERS is disabled, we have no way of repairing the cluster.
+	// If ERS is disabled globally we have no way of repairing the cluster.
 	if !config.ERSEnabled() {
 		log.Infof("VTOrc not configured to run ERS, skipping recovering %v", analysisCode)
 		return false, nil
@@ -655,12 +655,12 @@ func checkIfAlreadyFixed(analysisEntry *inst.ReplicationAnalysis) (bool, error) 
 	}
 
 	for _, entry := range analysisEntries {
-		entriesHaveSameRecoveries, err := analysisEntriesHaveSameRecovery(analysisEntry, entry)
+		hasSameRecoveries, err := analysisEntriesHaveSameRecovery(analysisEntry, entry)
 		if err != nil {
 			return false, err
 		}
 		// If there is a analysis which has the same recovery required, then we should proceed with the recovery
-		if entry.AnalyzedInstanceAlias == analysisEntry.AnalyzedInstanceAlias && entriesHaveSameRecoveries {
+		if entry.AnalyzedInstanceAlias == analysisEntry.AnalyzedInstanceAlias && hasSameRecoveries {
 			return false, nil
 		}
 	}

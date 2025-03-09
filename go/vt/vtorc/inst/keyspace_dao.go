@@ -37,17 +37,16 @@ func ReadKeyspace(keyspaceName string) (*topo.KeyspaceInfo, error) {
 		return nil, err
 	}
 
-	query := `
-		select
+	query := `select
 			keyspace_type,
 			durability_policy,
 			vtorc_config
 		from
 			vitess_keyspace
-		where keyspace=?
-		`
-
+		where
+			keyspace = ?`
 	args := sqlutils.Args(keyspaceName)
+
 	keyspace := &topo.KeyspaceInfo{
 		Keyspace: &topodatapb.Keyspace{
 			VtorcConfig: &topodatapb.VtorcConfig{},

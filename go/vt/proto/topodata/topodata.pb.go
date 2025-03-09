@@ -1149,7 +1149,7 @@ func (x *ThrottlerConfig) GetMetricThresholds() map[string]float64 {
 	return nil
 }
 
-// VtorcConfig stores per-keyspace/shard configuration for Vtorc.
+// VtorcConfig stores configuration for Vtorc.
 type VtorcConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// DisableEmergencyReparent reflects if EmergencyReparentShard
