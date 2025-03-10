@@ -399,7 +399,7 @@ message ThrottlerConfig {
   map <string, double> metric_thresholds = 7;
 }
 
-// VtorcConfig stores per-keyspace/shard configuration for Vtorc.
+// VtorcConfig stores configuration for Vtorc.
 message VtorcConfig {
   // DisableEmergencyReparent reflects if EmergencyReparentShard
   // can be used to reparent in Vtorc recoveries.
