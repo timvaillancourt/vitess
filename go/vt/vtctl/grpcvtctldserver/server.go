@@ -78,6 +78,7 @@ import (
 	"vitess.io/vitess/go/vt/vtenv"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtgate/vindexes"
+	vtorcConfig "vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/throttle/base"
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
@@ -922,9 +923,7 @@ func (s *VtctldServer) CreateKeyspace(ctx context.Context, req *vtctldatapb.Crea
 	}
 
 	if req.VtorcConfig == nil {
-		req.VtorcConfig = &topodatapb.VtorcConfig{
-			DisableEmergencyReparent: false,
-		}
+		req.VtorcConfig = vtorcConfig.DefaultKeyspaceVtorcConfig
 	}
 
 	ki := &topodatapb.Keyspace{

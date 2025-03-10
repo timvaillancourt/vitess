@@ -74,10 +74,16 @@ func TestSaveAndReadKeyspace(t *testing.T) {
 				KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
 				DurabilityPolicy: policy.DurabilityNone,
 				BaseKeyspace:     "baseKeyspace",
+				VtorcConfig: &topodatapb.VtorcConfig{
+					DisableEmergencyReparent: true,
+				},
 			},
 			keyspaceWanted: &topodatapb.Keyspace{
 				KeyspaceType:     topodatapb.KeyspaceType_NORMAL,
 				DurabilityPolicy: policy.DurabilityNone,
+				VtorcConfig: &topodatapb.VtorcConfig{
+					DisableEmergencyReparent: false,
+				},
 			},
 			semiSyncAckersWanted: 0,
 		}, {

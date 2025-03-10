@@ -22,8 +22,14 @@ import (
 	"github.com/spf13/pflag"
 
 	"vitess.io/vitess/go/viperutil"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/servenv"
 )
+
+// DefaultKeyspaceVtorcConfig is the default vtorc config for a keyspace.
+var DefaultKeyspaceVtorcConfig = &topodatapb.VtorcConfig{
+	DisableEmergencyReparent: false,
+}
 
 var configurationLoaded = make(chan bool)
 

@@ -25,6 +25,7 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
+	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/db"
 )
 
@@ -71,7 +72,10 @@ func ReadKeyspace(keyspaceName string) (*topo.KeyspaceInfo, error) {
 
 // SaveKeyspace saves the keyspace record against the keyspace name.
 func SaveKeyspace(keyspace *topo.KeyspaceInfo) error {
-	vtorcConfigProto, err := prototext.Marshal(keyspace.VtorcConfig)
+	if keyspace.Keyspace.VtorcConfig == nil {
+		keyspace.Keyspace.VtorcConfig = config.DefaultKeyspaceVtorcConfig
+	}
+	vtorcConfigProto, err := prototext.Marshal(keyspace.Keyspace.VtorcConfig)
 	if err != nil {
 		return err
 	}
