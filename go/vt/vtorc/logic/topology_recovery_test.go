@@ -309,7 +309,9 @@ func TestGetCheckAndRecoverFunctionCode(t *testing.T) {
 			config.SetConvertTabletWithErrantGTIDs(tt.convertTabletWithErrantGTIDs)
 			defer config.SetConvertTabletWithErrantGTIDs(convertErrantVal)
 
-			gotFunc := getCheckAndRecoverFunctionCode(tt.analysisCode, "")
+			gotFunc := getCheckAndRecoverFunctionCode(&inst.ReplicationAnalysis{
+				Analysis: tt.analysisCode,
+			})
 			require.EqualValues(t, tt.wantRecoveryFunction, gotFunc)
 		})
 	}

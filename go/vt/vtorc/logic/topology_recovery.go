@@ -343,7 +343,9 @@ func checkAndRecoverGenericProblem(ctx context.Context, analysisEntry *inst.Repl
 }
 
 // getCheckAndRecoverFunctionCode gets the recovery function code to use for the given analysis.
-func getCheckAndRecoverFunctionCode(analysisCode inst.AnalysisCode, tabletAlias string) recoveryFunction {
+func getCheckAndRecoverFunctionCode(analysisEntry *inst.ReplicationAnalysis) recoveryFunction {
+	analysisCode := analysisEntry.Analysis
+
 	switch analysisCode {
 	// primary
 	case inst.DeadPrimary, inst.DeadPrimaryAndSomeReplicas, inst.PrimaryDiskStalled, inst.PrimarySemiSyncBlocked:
@@ -352,6 +354,14 @@ func getCheckAndRecoverFunctionCode(analysisCode inst.AnalysisCode, tabletAlias 
 			log.Infof("VTOrc not configured to run ERS, skipping recovering %v", analysisCode)
 			return noRecoveryFunc
 		}
+
+		// Skip recovery if the shard recently reparented and we have a block period defined.
+		shardBlockPeriod := time.Minute * 3 // TODO: make this a flag
+		if time.Since(analysisEntry.ShardPrimaryTermTimestamp) <= shardBlockPeriod {
+			log.Infof("VTOrc is configured to skip ERS for %s after a recent reparent, skipping recovering %v", analysisCode)
+			return noRecoveryFunc
+		}
+
 		return recoverDeadPrimaryFunc
 	case inst.PrimaryTabletDeleted:
 		// If ERS is disabled, we have no way of repairing the cluster.
@@ -497,8 +507,8 @@ func isClusterWideRecovery(recoveryFunctionCode recoveryFunction) bool {
 
 // analysisEntriesHaveSameRecovery tells whether the two analysis entries have the same recovery function or not
 func analysisEntriesHaveSameRecovery(prevAnalysis, newAnalysis *inst.ReplicationAnalysis) bool {
-	prevRecoveryFunctionCode := getCheckAndRecoverFunctionCode(prevAnalysis.Analysis, prevAnalysis.AnalyzedInstanceAlias)
-	newRecoveryFunctionCode := getCheckAndRecoverFunctionCode(newAnalysis.Analysis, newAnalysis.AnalyzedInstanceAlias)
+	prevRecoveryFunctionCode := getCheckAndRecoverFunctionCode(prevAnalysis)
+	newRecoveryFunctionCode := getCheckAndRecoverFunctionCode(newAnalysis)
 	return prevRecoveryFunctionCode == newRecoveryFunctionCode
 }
 
@@ -511,7 +521,7 @@ func executeCheckAndRecoverFunction(analysisEntry *inst.ReplicationAnalysis) (er
 	logger := log.NewPrefixedLogger(fmt.Sprintf("Recovery for %s on %s/%s", analysisEntry.Analysis, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard))
 	logger.Info("Starting checkAndRecover")
 
-	checkAndRecoverFunctionCode := getCheckAndRecoverFunctionCode(analysisEntry.Analysis, analysisEntry.AnalyzedInstanceAlias)
+	checkAndRecoverFunctionCode := getCheckAndRecoverFunctionCode(analysisEntry)
 	isActionableRecovery := hasActionableRecovery(checkAndRecoverFunctionCode)
 	analysisEntry.IsActionableRecovery = isActionableRecovery
 
