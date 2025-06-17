@@ -19,12 +19,12 @@ package logic
 import (
 	"context"
 	"testing"
-
-	"vitess.io/vitess/go/vt/log"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/vt/external/golib/sqlutils"
+	"vitess.io/vitess/go/vt/log"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
@@ -221,81 +221,125 @@ func TestGetCheckAndRecoverFunctionCode(t *testing.T) {
 		name                         string
 		ersEnabled                   bool
 		convertTabletWithErrantGTIDs bool
-		analysisCode                 inst.AnalysisCode
+		analysisEntry                *inst.ReplicationAnalysis
 		wantRecoveryFunction         recoveryFunction
 	}{
 		{
-			name:                 "DeadPrimary with ERS enabled",
-			ersEnabled:           true,
-			analysisCode:         inst.DeadPrimary,
+			name:       "DeadPrimary with ERS enabled",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.DeadPrimary,
+			},
 			wantRecoveryFunction: recoverDeadPrimaryFunc,
 		}, {
-			name:                 "DeadPrimary with ERS disabled",
-			ersEnabled:           false,
-			analysisCode:         inst.DeadPrimary,
+			name:       "DeadPrimary with ERS disabled",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.DeadPrimary,
+			},
 			wantRecoveryFunction: noRecoveryFunc,
 		}, {
-			name:                 "StalledDiskPrimary with ERS enabled",
-			ersEnabled:           true,
-			analysisCode:         inst.PrimaryDiskStalled,
+			name:       "DeadPrimary after recent ERS",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis:                  inst.DeadPrimary,
+				ShardPrimaryTermTimestamp: time.Now().Add(-time.Second),
+			},
+			wantRecoveryFunction: noRecoveryFunc,
+		}, {
+			name:       "DeadPrimary after acceptable shard block period",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis:                  inst.DeadPrimary,
+				ShardPrimaryTermTimestamp: time.Now().Add(-time.Hour),
+			},
 			wantRecoveryFunction: recoverDeadPrimaryFunc,
 		}, {
-			name:                 "StalledDiskPrimary with ERS disabled",
-			ersEnabled:           false,
-			analysisCode:         inst.PrimaryDiskStalled,
-			wantRecoveryFunction: noRecoveryFunc,
-		}, {
-			name:                 "PrimarySemiSyncBlocked with ERS enabled",
-			ersEnabled:           true,
-			analysisCode:         inst.PrimarySemiSyncBlocked,
+			name:       "StalledDiskPrimary with ERS enabled",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimaryDiskStalled,
+			},
 			wantRecoveryFunction: recoverDeadPrimaryFunc,
 		}, {
-			name:                 "PrimarySemiSyncBlocked with ERS disabled",
-			ersEnabled:           false,
-			analysisCode:         inst.PrimarySemiSyncBlocked,
+			name:       "StalledDiskPrimary with ERS disabled",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimaryDiskStalled,
+			},
 			wantRecoveryFunction: noRecoveryFunc,
 		}, {
-			name:                 "PrimaryTabletDeleted with ERS enabled",
-			ersEnabled:           true,
-			analysisCode:         inst.PrimaryTabletDeleted,
+			name:       "PrimarySemiSyncBlocked with ERS enabled",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimarySemiSyncBlocked,
+			},
+			wantRecoveryFunction: recoverDeadPrimaryFunc,
+		}, {
+			name:       "PrimarySemiSyncBlocked with ERS disabled",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimarySemiSyncBlocked,
+			},
+			wantRecoveryFunction: noRecoveryFunc,
+		}, {
+			name:       "PrimaryTabletDeleted with ERS enabled",
+			ersEnabled: true,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimaryTabletDeleted,
+			},
 			wantRecoveryFunction: recoverPrimaryTabletDeletedFunc,
 		}, {
-			name:                 "PrimaryTabletDeleted with ERS disabled",
-			ersEnabled:           false,
-			analysisCode:         inst.PrimaryTabletDeleted,
+			name:       "PrimaryTabletDeleted with ERS disabled",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimaryTabletDeleted,
+			},
 			wantRecoveryFunction: noRecoveryFunc,
 		}, {
-			name:                 "PrimaryHasPrimary",
-			ersEnabled:           false,
-			analysisCode:         inst.PrimaryHasPrimary,
+			name:       "PrimaryHasPrimary",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimaryHasPrimary,
+			},
 			wantRecoveryFunction: recoverPrimaryHasPrimaryFunc,
 		}, {
-			name:                 "ClusterHasNoPrimary",
-			ersEnabled:           false,
-			analysisCode:         inst.ClusterHasNoPrimary,
+			name:       "ClusterHasNoPrimary",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.ClusterHasNoPrimary,
+			},
 			wantRecoveryFunction: electNewPrimaryFunc,
 		}, {
-			name:                 "ReplicationStopped",
-			ersEnabled:           false,
-			analysisCode:         inst.ReplicationStopped,
+			name:       "ReplicationStopped",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.ReplicationStopped,
+			},
 			wantRecoveryFunction: fixReplicaFunc,
 		}, {
-			name:                 "PrimarySemiSyncMustBeSet",
-			ersEnabled:           false,
-			analysisCode:         inst.PrimarySemiSyncMustBeSet,
+			name:       "PrimarySemiSyncMustBeSet",
+			ersEnabled: false,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.PrimarySemiSyncMustBeSet,
+			},
 			wantRecoveryFunction: fixPrimaryFunc,
 		}, {
 			name:                         "ErrantGTIDDetected",
 			ersEnabled:                   false,
 			convertTabletWithErrantGTIDs: true,
-			analysisCode:                 inst.ErrantGTIDDetected,
-			wantRecoveryFunction:         recoverErrantGTIDDetectedFunc,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.ErrantGTIDDetected,
+			},
+			wantRecoveryFunction: recoverErrantGTIDDetectedFunc,
 		}, {
 			name:                         "ErrantGTIDDetected with --change-tablets-with-errant-gtid-to-drained false",
 			ersEnabled:                   false,
 			convertTabletWithErrantGTIDs: false,
-			analysisCode:                 inst.ErrantGTIDDetected,
-			wantRecoveryFunction:         noRecoveryFunc,
+			analysisEntry: &inst.ReplicationAnalysis{
+				Analysis: inst.ErrantGTIDDetected,
+			},
+			wantRecoveryFunction: noRecoveryFunc,
 		},
 	}
 
@@ -309,9 +353,7 @@ func TestGetCheckAndRecoverFunctionCode(t *testing.T) {
 			config.SetConvertTabletWithErrantGTIDs(tt.convertTabletWithErrantGTIDs)
 			defer config.SetConvertTabletWithErrantGTIDs(convertErrantVal)
 
-			gotFunc := getCheckAndRecoverFunctionCode(&inst.ReplicationAnalysis{
-				Analysis: tt.analysisCode,
-			})
+			gotFunc := getCheckAndRecoverFunctionCode(tt.analysisEntry)
 			require.EqualValues(t, tt.wantRecoveryFunction, gotFunc)
 		})
 	}

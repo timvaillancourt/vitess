@@ -357,9 +357,11 @@ func getCheckAndRecoverFunctionCode(analysisEntry *inst.ReplicationAnalysis) rec
 
 		// Skip recovery if the shard recently reparented and we have a block period defined.
 		shardBlockPeriod := time.Minute * 3 // TODO: make this a flag
-		if time.Since(analysisEntry.ShardPrimaryTermTimestamp) <= shardBlockPeriod {
-			log.Infof("VTOrc is configured to skip ERS for %s after a recent reparent, skipping recovering %v", analysisCode)
-			return noRecoveryFunc
+		if !analysisEntry.ShardPrimaryTermTimestamp.IsZero() {
+			if time.Since(analysisEntry.ShardPrimaryTermTimestamp) <= shardBlockPeriod {
+				log.Infof("VTOrc is configured to skip ERS for %s after a recent reparent, skipping recovering %v", analysisCode)
+				return noRecoveryFunc
+			}
 		}
 
 		return recoverDeadPrimaryFunc
