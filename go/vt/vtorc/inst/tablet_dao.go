@@ -51,7 +51,7 @@ func fullStatus(tablet *topodatapb.Tablet) (*replicationdatapb.FullStatus, error
 }
 
 // ReadTablet reads the vitess tablet record.
-func ReadTablet(tabletAlias string) (*topodatapb.Tablet, error) {
+func ReadTablet(tabletAlias *topodatapb.TabletAlias) (*topodatapb.Tablet, error) {
 	query := `SELECT
 		info
 	FROM
@@ -59,7 +59,7 @@ func ReadTablet(tabletAlias string) (*topodatapb.Tablet, error) {
 	WHERE
 		alias = ?
 	`
-	args := sqlutils.Args(tabletAlias)
+	args := sqlutils.Args(topoproto.TabletAliasString(tabletAlias))
 	tablet := &topodatapb.Tablet{}
 	opts := prototext.UnmarshalOptions{DiscardUnknown: true}
 	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) error {
