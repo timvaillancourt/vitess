@@ -58,13 +58,13 @@ func NewQueue() *Queue {
 
 // setKeyCheckEnqueued returns true if a key is already enqueued, if
 // not the key will be marked as enqueued and false is returned.
-func (q *Queue) setKeyCheckEnqueued(alias *topodatapb.TabletAlias) (alreadyEnqueued bool) {
+func (q *Queue) setKeyCheckEnqueued(tabletAlias *topodatapb.TabletAlias) (alreadyEnqueued bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	_, alreadyEnqueued = q.enqueued[alias]
+	_, alreadyEnqueued = q.enqueued[tabletAlias]
 	if !alreadyEnqueued {
-		q.enqueued[alias] = struct{}{}
+		q.enqueued[tabletAlias] = struct{}{}
 	}
 	return alreadyEnqueued
 }
