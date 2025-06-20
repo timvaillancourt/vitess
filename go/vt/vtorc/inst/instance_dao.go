@@ -676,7 +676,7 @@ func readInstancesByCondition(condition string, args []any, sort string) ([](*In
 // ReadInstance reads an instance from the vtorc backend database
 func ReadInstance(tabletAlias *topodatapb.TabletAlias) (*Instance, bool, error) {
 	condition := `alias = ?`
-	instances, err := readInstancesByCondition(condition, sqlutils.Args(tabletAlias), "")
+	instances, err := readInstancesByCondition(condition, sqlutils.Args(topoproto.TabletAliasString(tabletAlias)), "")
 	// We know there will be at most one (alias is the PK).
 	// And we expect to find one.
 	readInstanceCounter.Add(1)
@@ -923,7 +923,7 @@ func mkInsertForInstances(instances []*Instance, instanceWasActuallyFound bool, 
 	for _, instance := range instances {
 		// number of columns minus 2 as last_checked and last_attempted_check
 		// updated with NOW()
-		args = append(args, instance.InstanceAlias)
+		args = append(args, topoproto.TabletAliasString(instance.InstanceAlias))
 		args = append(args, instance.Hostname)
 		args = append(args, instance.Port)
 		args = append(args, int(instance.TabletType))

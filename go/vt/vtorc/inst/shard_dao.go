@@ -90,7 +90,8 @@ func SaveShard(shard *topo.ShardInfo) error {
 		`,
 		shard.Keyspace(),
 		shard.ShardName(),
-		getShardPrimaryAliasString(shard),
+		//getShardPrimaryAliasString(shard),
+		topoproto.TabletAliasString(shard.PrimaryAlias),
 		getShardPrimaryTermStartTimeString(shard),
 	)
 	return err
