@@ -92,7 +92,7 @@ func TestAuditOperation(t *testing.T) {
 		require.EqualValues(t, 1, audits[0].AuditID)
 		require.EqualValues(t, auditType, audits[0].AuditType)
 		require.EqualValues(t, message, audits[0].Message)
-		require.EqualValues(t, tab100.Alias, audits[0].AuditTabletAlias)
+		require.True(t, topoproto.TabletAliasEqual(tab100.Alias, audits[0].AuditTabletAlias))
 
 		// Check the same for no-filtering
 		audits, err = readRecentAudit(nil, 0)
@@ -101,7 +101,7 @@ func TestAuditOperation(t *testing.T) {
 		require.EqualValues(t, 1, audits[0].AuditID)
 		require.EqualValues(t, auditType, audits[0].AuditType)
 		require.EqualValues(t, message, audits[0].Message)
-		require.EqualValues(t, tab100.Alias, audits[0].AuditTabletAlias)
+		require.True(t, topoproto.TabletAliasEqual(tab100.Alias, audits[0].AuditTabletAlias))
 	})
 
 	t.Run("audit to File", func(t *testing.T) {
