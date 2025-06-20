@@ -16,6 +16,7 @@ import (
 	"vitess.io/vitess/go/vt/log"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/db"
 )
@@ -94,9 +95,9 @@ func TestMkInsertThree(t *testing.T) {
 				(?, ?, ?, DATETIME('now'), DATETIME('now'), 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
        `
 	a3 := `
-		zone1-i710, i710, 3306, 1, 710, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 10, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false ,false, 0, false,
-		zone1-i720, i720, 3306, 2, 720, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 20, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false, false, 0, false,
-		zone1-i730, i730, 3306, 2, 730, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 30, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false, false, 0, false,
+		zone1-0000000710, i710, 3306, 1, 710, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 10, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false ,false, 0, false,
+		zone1-0000000720, i720, 3306, 2, 720, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 20, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false, false, 0, false,
+		zone1-0000000730, i730, 3306, 2, 730, , 5.6.7, 5.6, MySQL, false, false, STATEMENT, FULL, false, false, , 0, , 0, 0, 0, false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 30, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false, false, 0, false,
 		`
 
 	sql3, args3, err := mkInsertForInstances(instances[:3], true, true)
@@ -520,11 +521,9 @@ func TestReadInstancesByCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			instances, err := readInstancesByCondition(tt.condition, tt.args, tt.sort)
 			require.NoError(t, err)
-			var tabletAliases []*topodatapb.TabletAlias
-			for _, instance := range instances {
-				tabletAliases = append(tabletAliases, instance.InstanceAlias)
+			for i, instance := range instances {
+				require.Equal(t, tt.instancesRequired[i], topoproto.TabletAliasString(instance.InstanceAlias))
 			}
-			require.EqualValues(t, tt.instancesRequired, tabletAliases)
 		})
 	}
 }
@@ -562,7 +561,7 @@ func TestReadOutdatedInstanceAliases(t *testing.T) {
 				"update database_instance set last_checked = DATETIME('now', '-1 hour') where alias = 'zone1-0000000100'",
 				`INSERT INTO vitess_tablet VALUES('zone1-0000000103','localhost',7706,'ks','0','zone1',2,'0001-01-01 00:00:00+00:00','');`,
 			},
-			instancesRequired: []string{"zone1-0000000103", "zone1-0000000100"},
+			instancesRequired: []string{"zone1-0000000100", "zone1-0000000103"},
 		},
 	}
 
@@ -606,7 +605,9 @@ from database_instance`, func(rowMap sqlutils.RowMap) error {
 			})
 			require.NoError(t, errInDataCollection)
 			require.NoError(t, err)
-			require.ElementsMatch(t, tabletAliases, tt.instancesRequired)
+			for i, tabletAlias := range tabletAliases {
+				require.Equal(t, tt.instancesRequired[i], topoproto.TabletAliasString(tabletAlias))
+			}
 		})
 	}
 }
