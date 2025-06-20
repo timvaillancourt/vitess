@@ -69,7 +69,7 @@ func TestMkInsertSingle(t *testing.T) {
 		VALUES
 				(?, ?, ?, DATETIME('now'), DATETIME('now'), 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
        `
-	a1 := `zone1-i710, i710, 3306, 1, 710, , 5.6.7, 5.6, MySQL, false, false, STATEMENT,
+	a1 := `zone1-0000000710, i710, 3306, 1, 710, , 5.6.7, 5.6, MySQL, false, false, STATEMENT,
 	FULL, false, false, , 0, , 0, 0, 0,
 	false, false, 0, 0, false, false, false, , , , , , , , 0, mysql.000007, 10, , 0, , , {0 false}, {0 false}, 0, , , , 0, false, false, false, false, false, 0, 0, false, false, 0, false, false, 0, false,`
 
@@ -262,9 +262,9 @@ func TestReadProblemInstances(t *testing.T) {
 
 			instances, err := ReadProblemInstances("ks", "0")
 			require.NoError(t, err)
-			var tabletAliases []*topodatapb.TabletAlias
+			var tabletAliases []string
 			for _, instance := range instances {
-				tabletAliases = append(tabletAliases, instance.InstanceAlias)
+				tabletAliases = append(tabletAliases, topoproto.TabletAliasString(instance.InstanceAlias))
 			}
 			require.ElementsMatch(t, tabletAliases, tt.instancesRequired)
 		})
@@ -346,9 +346,9 @@ func TestReadInstancesWithErrantGTIds(t *testing.T) {
 
 			instances, err := ReadInstancesWithErrantGTIds(tt.keyspace, tt.shard)
 			require.NoError(t, err)
-			var tabletAliases []*topodatapb.TabletAlias
+			var tabletAliases []string
 			for _, instance := range instances {
-				tabletAliases = append(tabletAliases, instance.InstanceAlias)
+				tabletAliases = append(tabletAliases, topoproto.TabletAliasString(instance.InstanceAlias))
 			}
 			require.ElementsMatch(t, tabletAliases, tt.instancesRequired)
 		})
@@ -521,9 +521,11 @@ func TestReadInstancesByCondition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			instances, err := readInstancesByCondition(tt.condition, tt.args, tt.sort)
 			require.NoError(t, err)
-			for i, instance := range instances {
-				require.Equal(t, tt.instancesRequired[i], topoproto.TabletAliasString(instance.InstanceAlias))
+			var tabletAliases []string
+			for _, instance := range instances {
+				tabletAliases = append(tabletAliases, topoproto.TabletAliasString(instance.InstanceAlias))
 			}
+			require.EqualValues(t, tt.instancesRequired, tabletAliases)
 		})
 	}
 }
@@ -605,9 +607,11 @@ from database_instance`, func(rowMap sqlutils.RowMap) error {
 			})
 			require.NoError(t, errInDataCollection)
 			require.NoError(t, err)
-			for i, tabletAlias := range tabletAliases {
-				require.Equal(t, tt.instancesRequired[i], topoproto.TabletAliasString(tabletAlias))
+			var tabletAliasStrings []string
+			for _, tabletAlias := range tabletAliases {
+				tabletAliasStrings = append(tabletAliasStrings, topoproto.TabletAliasString(tabletAlias))
 			}
+			require.EqualValues(t, tt.instancesRequired, tabletAliasStrings)
 		})
 	}
 }

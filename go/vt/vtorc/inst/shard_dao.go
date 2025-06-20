@@ -62,9 +62,11 @@ func ReadShardPrimaryInformation(keyspaceName, shardName string) (primaryAlias *
 	shardFound := false
 	err = db.QueryVTOrc(query, args, func(row sqlutils.RowMap) (err error) {
 		shardFound = true
-		primaryAlias, err = topoproto.ParseTabletAlias(row.GetString("primary_alias"))
-		if err != nil {
-			return err
+		if primaryAliasStr := row.GetString("primary_alias"); primaryAliasStr != "" {
+			primaryAlias, err = topoproto.ParseTabletAlias(primaryAliasStr)
+			if err != nil {
+				return err
+			}
 		}
 		primaryTimestamp = row.GetString("primary_timestamp")
 		return nil
@@ -90,8 +92,7 @@ func SaveShard(shard *topo.ShardInfo) error {
 		`,
 		shard.Keyspace(),
 		shard.ShardName(),
-		//getShardPrimaryAliasString(shard),
-		topoproto.TabletAliasString(shard.PrimaryAlias),
+		getShardPrimaryAliasString(shard),
 		getShardPrimaryTermStartTimeString(shard),
 	)
 	return err
