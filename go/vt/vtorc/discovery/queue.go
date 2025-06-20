@@ -56,8 +56,8 @@ func NewQueue() *Queue {
 	}
 }
 
-// setKeyCheckEnqueued returns true if a key is already enqueued, if
-// not the key will be marked as enqueued and false is returned.
+// setKeyCheckEnqueued returns true if a tablet alias is already enqueued, if
+// not the tablet alias will be marked as enqueued and false is returned.
 func (q *Queue) setKeyCheckEnqueued(tabletAlias *topodatapb.TabletAlias) (alreadyEnqueued bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -77,7 +77,7 @@ func (q *Queue) QueueLen() int {
 	return len(q.enqueued)
 }
 
-// Push enqueues a key if it is not on a queue and is not being
+// Push enqueues a tablet alias if it is not on a queue and is not being
 // processed; silently returns otherwise.
 func (q *Queue) Push(tabletAlias *topodatapb.TabletAlias) {
 	if q.setKeyCheckEnqueued(tabletAlias) {
@@ -89,7 +89,7 @@ func (q *Queue) Push(tabletAlias *topodatapb.TabletAlias) {
 	}
 }
 
-// Consume fetches a key to process; blocks if queue is empty.
+// Consume fetches a tablet alias to process; blocks if queue is empty.
 // Release must be called once after Consume.
 func (q *Queue) Consume() *topodatapb.TabletAlias {
 	item := <-q.queue
@@ -105,8 +105,8 @@ func (q *Queue) Consume() *topodatapb.TabletAlias {
 	return item.TabletAlias
 }
 
-// Release removes a key from a list of being processed keys
-// which allows that key to be pushed into the queue again.
+// Release removes a tablet alias from a list of being processed aliases
+// which allows that tablet to be pushed into the queue again.
 func (q *Queue) Release(tabletAlias *topodatapb.TabletAlias) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
