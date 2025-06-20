@@ -729,7 +729,8 @@ func GetKeyspaceShardName(tabletAlias *topodatapb.TabletAlias) (keyspace, shard 
 	WHERE
 		alias = ?
 	`
-	err = db.QueryVTOrc(query, sqlutils.Args(tabletAlias), func(m sqlutils.RowMap) error {
+	args := sqlutils.Args(topoproto.TabletAliasString(tabletAlias))
+	err = db.QueryVTOrc(query, args, func(m sqlutils.RowMap) error {
 		keyspace = m.GetString("keyspace")
 		shard = m.GetString("shard")
 		return nil

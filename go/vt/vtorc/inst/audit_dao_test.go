@@ -157,7 +157,7 @@ func readRecentAudit(tabletAlias *topodatapb.TabletAlias, page int) ([]audit, er
 		ORDER BY
 			audit_timestamp DESC
 		LIMIT ?
-		offset ?`,
+		OFFSET ?`,
 		whereCondition,
 	)
 	args = append(args, config.AuditPageSize, page*config.AuditPageSize)
