@@ -37,6 +37,7 @@ import (
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/faketopo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
+	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/vtctl/grpcvtctldserver/testutil"
 	"vitess.io/vitess/go/vt/vtorc/db"
 	"vitess.io/vitess/go/vt/vtorc/inst"
@@ -544,7 +545,7 @@ func verifyTabletInfo(t *testing.T, tabletWanted *topodatapb.Tablet, errString s
 		assert.EqualError(t, err, errString)
 	} else {
 		assert.NoError(t, err)
-		assert.EqualValues(t, tabletWanted.Alias, tablet.Alias)
+		assert.Equal(t, topoproto.TabletAliasString(tabletWanted.Alias), topoproto.TabletAliasString(tablet.Alias))
 		diff := cmp.Diff(tablet, tabletWanted, cmp.Comparer(proto.Equal))
 		assert.Empty(t, diff)
 	}

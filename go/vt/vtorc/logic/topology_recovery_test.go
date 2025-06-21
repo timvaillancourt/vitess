@@ -404,7 +404,7 @@ func TestRecheckPrimaryHealth(t *testing.T) {
 				Analysis:              inst.ReplicationStopped,
 				AnalyzedKeyspace:      "ks",
 				AnalyzedShard:         "0",
-			}, func(tabletAlias *topodatapb.TabletAlias, b bool) {
+			}, func(*topodatapb.TabletAlias, bool) {
 				// the implementation for DiscoverInstance is not required because we are mocking the db response.
 			})
 

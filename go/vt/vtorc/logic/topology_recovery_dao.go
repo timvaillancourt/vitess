@@ -188,17 +188,21 @@ func readRecoveries(whereCondition string, limit string, args []any) ([]*Topolog
 		topologyRecovery.RecoveryEndTimestamp = m.GetString("end_recovery")
 		topologyRecovery.IsSuccessful = m.GetBool("is_successful")
 
-		topologyRecovery.AnalysisEntry.AnalyzedInstanceAlias, err = topoproto.ParseTabletAlias(m.GetString("alias"))
-		if err != nil {
-			return err
+		if instanceAlias := m.GetString("alias"); instanceAlias != "" {
+			topologyRecovery.AnalysisEntry.AnalyzedInstanceAlias, err = topoproto.ParseTabletAlias(instanceAlias)
+			if err != nil {
+				return err
+			}
 		}
 		topologyRecovery.AnalysisEntry.Analysis = inst.AnalysisCode(m.GetString("analysis"))
 		topologyRecovery.AnalysisEntry.ClusterDetails.Keyspace = m.GetString("keyspace")
 		topologyRecovery.AnalysisEntry.ClusterDetails.Shard = m.GetString("shard")
 
-		topologyRecovery.SuccessorAlias, err = topoproto.ParseTabletAlias(m.GetString("successor_alias"))
-		if err != nil {
-			return err
+		if successorAlias := m.GetString("successor_alias"); successorAlias != "" {
+			topologyRecovery.SuccessorAlias, err = topoproto.ParseTabletAlias(successorAlias)
+			if err != nil {
+				return err
+			}
 		}
 
 		topologyRecovery.AllErrors = strings.Split(m.GetString("all_errors"), "\n")
