@@ -329,10 +329,13 @@ func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader
 
 	// Forget tablets that were removed.
 	toForget := make([]*topodatapb.TabletAlias, 0)
-	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) error {
-		tabletAlias, err := topoproto.ParseTabletAlias(row.GetString("alias"))
-		if err != nil {
-			return err
+	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) (err error) {
+		var tabletAlias *topodatapb.TabletAlias
+		if tabletAliasString := row.GetString("alias"); tabletAliasString != "" {
+			tabletAlias, err = topoproto.ParseTabletAlias(tabletAliasString)
+			if err != nil {
+				return err
+			}
 		}
 		if !latestInstances[tabletAlias] {
 			toForget = append(toForget, tabletAlias)
