@@ -80,6 +80,10 @@ func init() {
 
 func initializeInstanceDao() {
 	config.WaitForConfigurationToBeLoaded()
+	InitializeForgetAliasesCache()
+}
+
+func InitializeForgetAliasesCache() {
 	forgetAliases = cache.New(config.GetInstancePollTime()*3, time.Second)
 	cacheInitializationCompleted.Store(true)
 }

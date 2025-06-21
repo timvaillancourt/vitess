@@ -87,7 +87,7 @@ func TestSaveAndReadTablet(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, topotools.TabletEquality(tt.tabletWanted, readTable))
-			require.True(t, topoproto.TabletAliasEqual(tt.tabletAlias, readTable.Alias))
+			require.Equal(t, topoproto.TabletAliasString(tt.tabletAlias), topoproto.TabletAliasString(readTable.Alias))
 		})
 	}
 }

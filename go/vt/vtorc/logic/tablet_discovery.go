@@ -298,7 +298,7 @@ func refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, 
 
 func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader func(*topodatapb.TabletAlias), forceRefresh bool, tabletsToIgnore []*topodatapb.TabletAlias) {
 	// Discover new tablets.
-	latestInstances := make(map[*topodatapb.TabletAlias]bool)
+	latestInstances := make(map[*topodatapb.TabletAlias]bool, len(tablets))
 	var wg sync.WaitGroup
 	for _, tabletInfo := range tablets {
 		tablet := tabletInfo.Tablet
@@ -329,13 +329,14 @@ func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader
 
 	// Forget tablets that were removed.
 	toForget := make([]*topodatapb.TabletAlias, 0)
-	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) (err error) {
-		var tabletAlias *topodatapb.TabletAlias
-		if tabletAliasString := row.GetString("alias"); tabletAliasString != "" {
-			tabletAlias, err = topoproto.ParseTabletAlias(tabletAliasString)
-			if err != nil {
-				return err
-			}
+	err := db.QueryVTOrc(query, args, func(row sqlutils.RowMap) error {
+		tabletAliasString := row.GetString("alias")
+		if tabletAliasString == "" {
+			return nil
+		}
+		tabletAlias, err := topoproto.ParseTabletAlias(tabletAliasString)
+		if err != nil {
+			return err
 		}
 		if !latestInstances[tabletAlias] {
 			toForget = append(toForget, tabletAlias)

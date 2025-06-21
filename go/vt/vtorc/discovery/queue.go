@@ -56,9 +56,9 @@ func NewQueue() *Queue {
 	}
 }
 
-// setCheckAlreadyEnqueued returns true if a tablet alias is already enqueued, if
+// checkAndSetEnqueued returns true if a tablet alias is already enqueued, if
 // not the tablet alias will be marked as enqueued and false is returned.
-func (q *Queue) setCheckAlreadyEnqueued(tabletAlias *topodatapb.TabletAlias) (alreadyEnqueued bool) {
+func (q *Queue) checkAndSetEnqueued(tabletAlias *topodatapb.TabletAlias) (alreadyEnqueued bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -80,7 +80,7 @@ func (q *Queue) QueueLen() int {
 // Push enqueues a tablet alias if it is not on a queue and is not being
 // processed; silently returns otherwise.
 func (q *Queue) Push(tabletAlias *topodatapb.TabletAlias) {
-	if q.setCheckAlreadyEnqueued(tabletAlias) {
+	if q.checkAndSetEnqueued(tabletAlias) || tabletAlias == nil {
 		return
 	}
 	q.queue <- queueItem{

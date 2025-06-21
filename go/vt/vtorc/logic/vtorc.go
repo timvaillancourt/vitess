@@ -259,13 +259,9 @@ func onHealthTick() {
 			tabletAliases = append(tabletAliases, <-snapshotDiscoveryAliases)
 		}
 	}()
-	// avoid any logging unless there's something to be done
-	if len(tabletAliases) > 0 {
-		for _, tabletAlias := range tabletAliases {
-			if tabletAlias != nil {
-				discoveryQueue.Push(tabletAlias)
-			}
-		}
+
+	for _, tabletAlias := range tabletAliases {
+		discoveryQueue.Push(tabletAlias)
 	}
 }
 

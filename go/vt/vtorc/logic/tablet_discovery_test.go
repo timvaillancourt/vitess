@@ -332,6 +332,9 @@ func TestRefreshTabletsInKeyspaceShard(t *testing.T) {
 		db.ClearVTOrcDatabase()
 	}()
 
+	// Init forgetAliases cache in go/vt/vtorc/inst
+	inst.InitializeForgetAliasesCache()
+
 	// Create a memory topo-server and create the keyspace and shard records
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
