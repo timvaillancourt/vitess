@@ -92,7 +92,7 @@ func TestAuditOperation(t *testing.T) {
 		require.EqualValues(t, 1, audits[0].AuditID)
 		require.EqualValues(t, auditType, audits[0].AuditType)
 		require.EqualValues(t, message, audits[0].Message)
-		require.True(t, topoproto.TabletAliasEqual(tab100.Alias, audits[0].AuditTabletAlias))
+		require.Equal(t, topoproto.TabletAliasString(tab100.Alias), topoproto.TabletAliasString(audits[0].AuditTabletAlias))
 
 		// Check the same for no-filtering
 		audits, err = readRecentAudit(nil, 0)
@@ -101,7 +101,7 @@ func TestAuditOperation(t *testing.T) {
 		require.EqualValues(t, 1, audits[0].AuditID)
 		require.EqualValues(t, auditType, audits[0].AuditType)
 		require.EqualValues(t, message, audits[0].Message)
-		require.True(t, topoproto.TabletAliasEqual(tab100.Alias, audits[0].AuditTabletAlias))
+		require.Equal(t, topoproto.TabletAliasString(tab100.Alias), topoproto.TabletAliasString(audits[0].AuditTabletAlias))
 	})
 
 	t.Run("audit to File", func(t *testing.T) {
@@ -167,9 +167,11 @@ func readRecentAudit(tabletAlias *topodatapb.TabletAlias, page int) ([]audit, er
 		a.AuditTimestamp = m.GetString("audit_timestamp")
 		a.AuditType = m.GetString("audit_type")
 		a.Message = m.GetString("message")
-		a.AuditTabletAlias, err = topoproto.ParseTabletAlias(m.GetString("alias"))
-		if err != nil {
-			return err
+		if tabletAlias := m.GetString("alias"); tabletAlias != "" {
+			a.AuditTabletAlias, err = topoproto.ParseTabletAlias(tabletAlias)
+			if err != nil {
+				return err
+			}
 		}
 
 		res = append(res, a)

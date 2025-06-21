@@ -597,10 +597,12 @@ func readInstanceRow(m sqlutils.RowMap) (*Instance, error) {
 	instance.AllowTLS = m.GetBool("allow_tls")
 	instance.LastDiscoveryLatency = time.Duration(m.GetInt64("last_discovery_latency")) * time.Nanosecond
 
-	var err error
-	instance.InstanceAlias, err = topoproto.ParseTabletAlias(m.GetString("alias"))
-	if err != nil {
-		return instance, err
+	if instanceAlias := m.GetString("alias"); instanceAlias != "" {
+		var err error
+		instance.InstanceAlias, err = topoproto.ParseTabletAlias(instanceAlias)
+		if err != nil {
+			return instance, err
+		}
 	}
 
 	instance.applyFlavorName()
@@ -676,7 +678,8 @@ func readInstancesByCondition(condition string, args []any, sort string) ([](*In
 // ReadInstance reads an instance from the vtorc backend database
 func ReadInstance(tabletAlias *topodatapb.TabletAlias) (*Instance, bool, error) {
 	condition := `alias = ?`
-	instances, err := readInstancesByCondition(condition, sqlutils.Args(topoproto.TabletAliasString(tabletAlias)), "")
+	args := sqlutils.Args(topoproto.TabletAliasString(tabletAlias))
+	instances, err := readInstancesByCondition(condition, args, "")
 	// We know there will be at most one (alias is the PK).
 	// And we expect to find one.
 	readInstanceCounter.Add(1)
@@ -774,15 +777,17 @@ func ReadOutdatedInstanceAliases() ([]*topodatapb.TabletAlias, error) {
 	args := sqlutils.Args(config.GetInstancePollSeconds(), 2*config.GetInstancePollSeconds())
 
 	err := db.QueryVTOrc(query, args, func(m sqlutils.RowMap) error {
-		tabletAlias, err := topoproto.ParseTabletAlias(m.GetString("alias"))
-		if err != nil {
-			return err
+		if tabletAliasStr := m.GetString("alias"); tabletAliasStr != "" {
+			tabletAlias, err := topoproto.ParseTabletAlias(tabletAliasStr)
+			if err != nil {
+				return err
+			}
+			if !InstanceIsForgotten(tabletAlias) {
+				// only if not in "forget" cache
+				res = append(res, tabletAlias)
+			}
 		}
-		if !InstanceIsForgotten(tabletAlias) {
-			// only if not in "forget" cache
-			res = append(res, tabletAlias)
-		}
-		// We don;t return an error because we want to keep filling the outdated instances list.
+		// We don't return an error because we want to keep filling the outdated instances list.
 		return nil
 	})
 	if err != nil {
@@ -1080,6 +1085,7 @@ func UpdateInstanceLastAttemptedCheck(tabletAlias *topodatapb.TabletAlias) error
 	return ExecDBWriteFunc(writeFunc)
 }
 
+// InstanceIsForgotten returns true if an instance was forgotten.
 func InstanceIsForgotten(tabletAlias *topodatapb.TabletAlias) bool {
 	tabletAliasString := topoproto.TabletAliasString(tabletAlias)
 	_, found := forgetAliases.Get(tabletAliasString)
