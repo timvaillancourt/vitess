@@ -421,39 +421,31 @@ func GetProblemAnalysis(keyspace string, shard string, hints *ProblemAnalysisHin
 			a.Analysis = DeadPrimaryWithoutReplicas
 			a.Description = "Primary cannot be reached by vtorc and has no replica"
 			ca.hasClusterwideAction = true
-			//
 		case a.IsClusterPrimary && !a.LastCheckValid && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = DeadPrimary
 			a.Description = "Primary cannot be reached by vtorc and none of its replicas is replicating"
 			ca.hasClusterwideAction = true
-			//
 		case a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas > 0 && a.CountValidReplicas == 0 && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = DeadPrimaryAndReplicas
 			a.Description = "Primary cannot be reached by vtorc and none of its replicas is replicating"
 			ca.hasClusterwideAction = true
-			//
 		case a.IsClusterPrimary && !a.LastCheckValid && a.CountValidReplicas < a.CountReplicas && a.CountValidReplicas > 0 && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = DeadPrimaryAndSomeReplicas
 			a.Description = "Primary cannot be reached by vtorc; some of its replicas are unreachable and none of its reachable replicas is replicating"
 			ca.hasClusterwideAction = true
-			//
 		case a.IsClusterPrimary && !a.IsPrimary:
 			a.Analysis = PrimaryHasPrimary
 			a.Description = "Primary is replicating from somewhere else"
 			ca.hasClusterwideAction = true
-			//
 		case a.IsClusterPrimary && a.IsReadOnly:
 			a.Analysis = PrimaryIsReadOnly
 			a.Description = "Primary is read-only"
-			//
 		case a.IsClusterPrimary && policy.SemiSyncAckers(ca.durability, tablet) != 0 && !a.SemiSyncPrimaryEnabled:
 			a.Analysis = PrimarySemiSyncMustBeSet
 			a.Description = "Primary semi-sync must be set"
-			//
 		case a.IsClusterPrimary && policy.SemiSyncAckers(ca.durability, tablet) == 0 && a.SemiSyncPrimaryEnabled:
 			a.Analysis = PrimarySemiSyncMustNotBeSet
 			a.Description = "Primary semi-sync must not be set"
-			//
 		case a.IsClusterPrimary && a.CurrentTabletType != topodatapb.TabletType_UNKNOWN && a.CurrentTabletType != topodatapb.TabletType_PRIMARY:
 			a.Analysis = PrimaryCurrentTypeMismatch
 			a.Description = "Primary tablet's current type is not PRIMARY"
@@ -481,27 +473,21 @@ func GetProblemAnalysis(keyspace string, shard string, hints *ProblemAnalysisHin
 		case topo.IsReplicaType(a.TabletType) && !a.IsReadOnly:
 			a.Analysis = ReplicaIsWritable
 			a.Description = "Replica is writable"
-			//
 		case topo.IsReplicaType(a.TabletType) && a.IsPrimary:
 			a.Analysis = NotConnectedToPrimary
 			a.Description = "Not connected to the primary"
-			//
 		case topo.IsReplicaType(a.TabletType) && !a.IsPrimary && math.Round(a.HeartbeatInterval*2) != float64(a.ReplicaNetTimeout):
 			a.Analysis = ReplicaMisconfigured
 			a.Description = "Replica has been misconfigured"
-			//
 		case topo.IsReplicaType(a.TabletType) && !a.IsPrimary && ca.primaryAlias != "" && a.AnalyzedInstancePrimaryAlias != ca.primaryAlias:
 			a.Analysis = ConnectedToWrongPrimary
 			a.Description = "Connected to wrong primary"
-			//
 		case topo.IsReplicaType(a.TabletType) && !a.IsPrimary && a.ReplicationStopped:
 			a.Analysis = ReplicationStopped
 			a.Description = "Replication is stopped"
-			//
 		case topo.IsReplicaType(a.TabletType) && !a.IsPrimary && policy.IsReplicaSemiSync(ca.durability, primaryTablet, tablet) && !a.SemiSyncReplicaEnabled:
 			a.Analysis = ReplicaSemiSyncMustBeSet
 			a.Description = "Replica semi-sync must be set"
-			//
 		case topo.IsReplicaType(a.TabletType) && !a.IsPrimary && !policy.IsReplicaSemiSync(ca.durability, primaryTablet, tablet) && a.SemiSyncReplicaEnabled:
 			a.Analysis = ReplicaSemiSyncMustNotBeSet
 			a.Description = "Replica semi-sync must not be set"
@@ -510,12 +496,10 @@ func GetProblemAnalysis(keyspace string, shard string, hints *ProblemAnalysisHin
 		case a.IsPrimary && !a.LastCheckValid && a.CountLaggingReplicas == a.CountReplicas && a.CountDelayedReplicas < a.CountReplicas && a.CountValidReplicatingReplicas > 0:
 			a.Analysis = UnreachablePrimaryWithLaggingReplicas
 			a.Description = "Primary cannot be reached by vtorc and all of its replicas are lagging"
-			//
 		case a.IsPrimary && !a.LastCheckValid && !a.LastCheckPartialSuccess && a.CountValidReplicas > 0 && a.CountValidReplicatingReplicas > 0:
 			// partial success is here to reduce noise
 			a.Analysis = UnreachablePrimary
 			a.Description = "Primary cannot be reached by vtorc but it has replicating replicas; possibly a network/host issue"
-			//
 		case a.IsPrimary && a.SemiSyncPrimaryEnabled && a.SemiSyncPrimaryStatus && a.SemiSyncPrimaryWaitForReplicaCount > 0 && a.SemiSyncPrimaryClients < a.SemiSyncPrimaryWaitForReplicaCount:
 			if isStaleBinlogCoordinates {
 				a.Analysis = LockedSemiSyncPrimary
@@ -524,25 +508,24 @@ func GetProblemAnalysis(keyspace string, shard string, hints *ProblemAnalysisHin
 				a.Analysis = LockedSemiSyncPrimaryHypothesis
 				a.Description = "Semi sync primary seems to be locked, more samplings needed to validate"
 			}
-			//
 		case a.IsPrimary && a.LastCheckValid && a.CountReplicas == 1 && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = PrimarySingleReplicaNotReplicating
 			a.Description = "Primary is reachable but its single replica is not replicating"
 		case a.IsPrimary && a.LastCheckValid && a.CountReplicas == 1 && a.CountValidReplicas == 0:
 			a.Analysis = PrimarySingleReplicaDead
 			a.Description = "Primary is reachable but its single replica is dead"
-			//
 		case a.IsPrimary && a.LastCheckValid && a.CountReplicas > 1 && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = AllPrimaryReplicasNotReplicating
 			a.Description = "Primary is reachable but none of its replicas is replicating"
-			//
 		case a.IsPrimary && a.LastCheckValid && a.CountReplicas > 1 && a.CountValidReplicas < a.CountReplicas && a.CountValidReplicas > 0 && a.CountValidReplicatingReplicas == 0:
 			a.Analysis = AllPrimaryReplicasNotReplicatingOrDead
 			a.Description = "Primary is reachable but none of its replicas is replicating"
 		// case a.IsPrimary && a.CountReplicas == 0:
 		//	a.Analysis = PrimaryWithoutReplicas
 		//	a.Description = "Primary has no replicas"
-		default:
+		}
+
+		{
 			// Moving on to structure analysis
 			// We also do structural checks. See if there's potential danger in promotions
 			if a.IsPrimary && a.CountLoggingReplicas == 0 && a.CountReplicas > 1 {
