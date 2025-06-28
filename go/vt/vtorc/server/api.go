@@ -46,7 +46,7 @@ const (
 	disableGlobalRecoveriesAPI    = "/api/disable-global-recoveries"
 	enableGlobalRecoveriesAPI     = "/api/enable-global-recoveries"
 	replicationAnalysisAPI        = "/api/replication-analysis"
-	problemAnalysisAPI = "/api/problem-analysis"
+	problemAnalysisAPI            = "/api/problem-analysis"
 	databaseStateAPI              = "/api/database-state"
 	configAPI                     = "/api/config"
 	healthAPI                     = "/debug/health"
