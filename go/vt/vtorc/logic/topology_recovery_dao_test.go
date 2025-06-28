@@ -39,7 +39,7 @@ func TestTopologyRecovery(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	replicationAnalysis := inst.ReplicationAnalysis{
+	replicationAnalysis := inst.ProblemAnalysis{
 		AnalyzedInstanceAlias: "zone1-0000000101",
 		TabletType:            tab101.Type,
 		ClusterDetails: inst.ClusterInfo{
@@ -142,7 +142,7 @@ func TestInsertRecoveryDetection(t *testing.T) {
 	defer func() {
 		db.ClearVTOrcDatabase()
 	}()
-	ra := &inst.ReplicationAnalysis{
+	ra := &inst.ProblemAnalysis{
 		AnalyzedInstanceAlias: "alias-1",
 		Analysis:              inst.ClusterHasNoPrimary,
 		ClusterDetails: inst.ClusterInfo{

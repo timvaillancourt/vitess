@@ -47,10 +47,10 @@ var (
 	}
 )
 
-// TestGetReplicationAnalysisDecision tests the code of GetReplicationAnalysis decision-making. It doesn't check the SQL query
+// TestGetProblemAnalysisDecision tests the code of GetProblemAnalysis decision-making. It doesn't check the SQL query
 // run by it. It only checks the analysis part after the rows have been read. This tests fakes the db and explicitly returns the
 // rows that are specified in the test.
-func TestGetReplicationAnalysisDecision(t *testing.T) {
+func TestGetProblemAnalysisDecision(t *testing.T) {
 	tests := []struct {
 		name           string
 		info           []*test.InfoForRecoveryAnalysis
@@ -975,7 +975,7 @@ func TestGetReplicationAnalysisDecision(t *testing.T) {
 			}
 			db.Db = test.NewTestDB([][]sqlutils.RowMap{rowMaps})
 
-			got, err := GetReplicationAnalysis("", "", &ReplicationAnalysisHints{})
+			got, err := GetProblemAnalysis("", "", &ProblemAnalysisHints{})
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
@@ -993,11 +993,11 @@ func TestGetReplicationAnalysisDecision(t *testing.T) {
 	}
 }
 
-// TestGetReplicationAnalysis tests the entire GetReplicationAnalysis. It inserts data into the database and runs the function.
-// The database is not faked. This is intended to give more test coverage. This test is more comprehensive but more expensive than TestGetReplicationAnalysisDecision.
+// TestGetProblemAnalysis tests the entire GetProblemAnalysis. It inserts data into the database and runs the function.
+// The database is not faked. This is intended to give more test coverage. This test is more comprehensive but more expensive than TestGetProblemAnalysisDecision.
 // This test is somewhere between a unit test, and an end-to-end test. It is specifically useful for testing situations which are hard to come by in end-to-end test, but require
 // real-world data to test specifically.
-func TestGetReplicationAnalysis(t *testing.T) {
+func TestGetProblemAnalysis(t *testing.T) {
 	// The test is intended to be used as follows. The initial data is stored into the database. Following this, some specific queries are run that each individual test specifies to get the desired state.
 	tests := []struct {
 		name           string
@@ -1059,7 +1059,7 @@ func TestGetReplicationAnalysis(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			got, err := GetReplicationAnalysis("", "", &ReplicationAnalysisHints{})
+			got, err := GetProblemAnalysis("", "", &ProblemAnalysisHints{})
 			require.NoError(t, err)
 			if tt.codeWanted == NoProblem {
 				require.Len(t, got, 0)
@@ -1166,12 +1166,12 @@ func TestPostProcessAnalyses(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		analyses []*ReplicationAnalysis
-		want     []*ReplicationAnalysis
+		analyses []*ProblemAnalysis
+		want     []*ProblemAnalysis
 	}{
 		{
 			name: "No processing needed",
-			analyses: []*ReplicationAnalysis{
+			analyses: []*ProblemAnalysis{
 				{
 					Analysis:       ReplicationStopped,
 					TabletType:     topodatapb.TabletType_REPLICA,
@@ -1191,7 +1191,7 @@ func TestPostProcessAnalyses(t *testing.T) {
 			},
 		}, {
 			name: "Conversion of InvalidPrimary to DeadPrimary",
-			analyses: []*ReplicationAnalysis{
+			analyses: []*ProblemAnalysis{
 				{
 					Analysis:              InvalidPrimary,
 					AnalyzedInstanceAlias: "zone1-100",
@@ -1231,7 +1231,7 @@ func TestPostProcessAnalyses(t *testing.T) {
 					ClusterDetails:        ks80,
 				},
 			},
-			want: []*ReplicationAnalysis{
+			want: []*ProblemAnalysis{
 				{
 					Analysis:              DeadPrimary,
 					AnalyzedInstanceAlias: "zone1-100",
@@ -1254,7 +1254,7 @@ func TestPostProcessAnalyses(t *testing.T) {
 		},
 		{
 			name: "Unable to convert InvalidPrimary to DeadPrimary",
-			analyses: []*ReplicationAnalysis{
+			analyses: []*ProblemAnalysis{
 				{
 					Analysis:              InvalidPrimary,
 					AnalyzedInstanceAlias: "zone1-100",

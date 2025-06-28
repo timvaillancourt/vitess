@@ -46,6 +46,7 @@ const (
 	disableGlobalRecoveriesAPI    = "/api/disable-global-recoveries"
 	enableGlobalRecoveriesAPI     = "/api/enable-global-recoveries"
 	replicationAnalysisAPI        = "/api/replication-analysis"
+	problemAnalysisAPI = "/api/problem-analysis"
 	databaseStateAPI              = "/api/database-state"
 	configAPI                     = "/api/config"
 	healthAPI                     = "/debug/health"
@@ -63,6 +64,7 @@ var (
 		disableGlobalRecoveriesAPI,
 		enableGlobalRecoveriesAPI,
 		replicationAnalysisAPI,
+		problemAnalysisAPI,
 		databaseStateAPI,
 		configAPI,
 		healthAPI,
@@ -89,8 +91,8 @@ func (v *vtorcAPI) ServeHTTP(response http.ResponseWriter, request *http.Request
 		problemsAPIHandler(response, request)
 	case errantGTIDsAPI:
 		errantGTIDsAPIHandler(response, request)
-	case replicationAnalysisAPI:
-		replicationAnalysisAPIHandler(response, request)
+	case problemAnalysisAPI, replicationAnalysisAPI:
+		problemAnalysisAPIHandler(response, request)
 	case databaseStateAPI:
 		databaseStateAPIHandler(response)
 	case configAPI:
@@ -241,8 +243,8 @@ func enableGlobalRecoveriesAPIHandler(response http.ResponseWriter) {
 	writePlainTextResponse(response, "Global recoveries enabled", http.StatusOK)
 }
 
-// replicationAnalysisAPIHandler is the handler for the replicationAnalysisAPI endpoint
-func replicationAnalysisAPIHandler(response http.ResponseWriter, request *http.Request) {
+// problemAnalysisAPIHandler is the handler for the replicationAnalysisAPI endpoint
+func problemAnalysisAPIHandler(response http.ResponseWriter, request *http.Request) {
 	// This api also supports filtering by shard and keyspace provided.
 	shard := request.URL.Query().Get("shard")
 	keyspace := request.URL.Query().Get("keyspace")
@@ -250,14 +252,14 @@ func replicationAnalysisAPIHandler(response http.ResponseWriter, request *http.R
 		http.Error(response, shardWithoutKeyspaceFilteringErrorStr, http.StatusBadRequest)
 		return
 	}
-	analysis, err := inst.GetReplicationAnalysis(keyspace, shard, &inst.ReplicationAnalysisHints{})
+	analysis, err := inst.GetProblemAnalysis(keyspace, shard, &inst.ProblemAnalysisHints{})
 	if err != nil {
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// TODO: We can also add filtering for a specific instance too based on the tablet alias.
-	// Currently inst.ReplicationAnalysis doesn't store the tablet alias, but once it does we can filter on that too
+	// Currently inst.ProblemAnalysis doesn't store the tablet alias, but once it does we can filter on that too
 	returnAsJSON(response, http.StatusOK, analysis)
 }
 
