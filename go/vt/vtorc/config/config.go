@@ -17,6 +17,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -39,6 +40,15 @@ const (
 )
 
 var (
+	cell = viperutil.Configure(
+		"cell",
+		viperutil.Options[string]{
+			FlagName: "cell",
+			Default:  "",
+			Dynamic: false,
+		},
+	)
+
 	instancePollTime = viperutil.Configure(
 		"instance-poll-time",
 		viperutil.Options[time.Duration]{
@@ -209,6 +219,33 @@ var (
 			Dynamic:  true,
 		},
 	)
+
+	concensusPeers = viperutil.Configure(
+		"concensus-peers",
+		viperutil.Options[string]{
+			FlagName: "concensus-peers",
+			Default: "",
+			Dynamic: false,
+		},
+	)
+
+	concensusQuorumCells = viperutil.Configure(
+                "concensus-quorum-cells",
+                viperutil.Options[string]{
+                        FlagName: "concensus-quorum-cells",
+                        Default: "2",
+                        Dynamic: true,
+                },
+        )
+
+	concensusQuorumPeerTimeout = viperutil.Configure(
+                "concensus-quorum-peer-timeout",
+                viperutil.Options[time.Duration]{
+                        FlagName: "concensus-quorum-peer-timeout",
+                        Default: 3 * time.Second,
+                        Dynamic: true,
+                },
+        )
 )
 
 func init() {
@@ -217,6 +254,7 @@ func init() {
 
 // registerFlags registers the flags required by VTOrc
 func registerFlags(fs *pflag.FlagSet) {
+	fs.String("cell", cell.Default(), "The cell the VTOrc instance is located within. Required for concencus mode")
 	fs.Int("discovery-workers", discoveryWorkers.Default(), "Number of workers used for tablet discovery")
 	fs.String("sqlite-data-file", sqliteDataFile.Default(), "SQLite Datafile to use as VTOrc's database")
 	fs.Duration("instance-poll-time", instancePollTime.Default(), "Timer duration on which VTOrc refreshes MySQL information")
@@ -236,10 +274,14 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-emergency-reparent", ersEnabled.Default(), "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
+	fs.String("concensus-peers", concensusPeers.Default(), "List of VTOrc host:ports to use for quorum. This enables the concensus feature")
+	fs.String("concensus-quorum-cells", concensusQuorumCells.Default(), "The number or list of cells to use for quorum")
+	fs.Duration("concensus-quorum-peer-timeout", concensusQuorumPeerTimeout.Default(), "The timeout for seeking quorum")
 
 	viperutil.BindFlags(fs,
 		instancePollTime,
 		preventCrossCellFailover,
+		cell,
 		discoveryWorkers,
 		sqliteDataFile,
 		snapshotTopologyInterval,
@@ -257,6 +299,9 @@ func registerFlags(fs *pflag.FlagSet) {
 		ersEnabled,
 		convertTabletsWithErrantGTIDs,
 		enablePrimaryDiskStalledRecovery,
+		concensusPeers,
+		concensusQuorumCells,
+		concensusQuorumPeerTimeout,
 	)
 }
 
@@ -278,6 +323,11 @@ func GetInstancePollSeconds() uint {
 // GetPreventCrossCellFailover is a getter function.
 func GetPreventCrossCellFailover() bool {
 	return preventCrossCellFailover.Get()
+}
+
+// GetCell is a getter function.
+func GetCell() string {
+	return cell.Get()
 }
 
 // GetDiscoveryWorkers is a getter function.
@@ -393,6 +443,21 @@ func SetConvertTabletWithErrantGTIDs(val bool) {
 // GetStalledDiskPrimaryRecovery reports whether VTOrc is allowed to check for and recovery stalled disk problems.
 func GetStalledDiskPrimaryRecovery() bool {
 	return enablePrimaryDiskStalledRecovery.Get()
+}
+
+// GetConcensusPeers is a getter function.
+func GetConcensusPeers() []string {
+	return strings.Split(concensusPeers.Get(), ",")
+}
+
+// GetConcensusQuorumCells is a getter function.
+func GetConcensusQuorumCells() string {
+	return concensusQuorumCells.Get()
+}
+
+// GetConcensusQuorumPeerTimeout is a getter function.
+func GetConcensusQuorumPeerTimeout() time.Duration {
+	return concensusQuorumPeerTimeout.Get()
 }
 
 // MarkConfigurationLoaded is called once configuration has first been loaded.

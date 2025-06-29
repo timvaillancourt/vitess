@@ -17,6 +17,8 @@ limitations under the License.
 package cli
 
 import (
+	"errors"
+
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/acl"
@@ -49,6 +51,13 @@ var (
 	}
 )
 
+func validateConcensusConfig() error {
+	if len(config.GetConcensusPeers()) > 0 && config.GetCell() == "" {
+		return errors.New("--cell is required when concencus mode is enabled")
+	}
+	return nil
+}
+
 func run(cmd *cobra.Command, args []string) {
 	servenv.Init()
 	inst.RegisterStats()
@@ -58,6 +67,11 @@ func run(cmd *cobra.Command, args []string) {
 		inst.EnableAuditSyslog()
 	}
 	config.MarkConfigurationLoaded()
+
+	// validate concensus mode
+	if err := validateConcensusConfig(); err != nil {
+		log.Fatal(err)
+	}
 
 	// Log final config values to debug if something goes wrong.
 	log.Infof("Running with Configuration - %v", debug.AllSettings())

@@ -25,8 +25,12 @@ Flags:
       --backend-write-concurrency int                               Maximum concurrency for writes to the backend (default 24)
       --bind-address string                                         Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.
       --catch-sigpipe                                               catch and ignore SIGPIPE on stdout and stderr if specified
+      --cell string                                                 The cell the VTOrc instance is located within. Required for concencus mode
       --change-tablets-with-errant-gtid-to-drained                  Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED
       --clusters_to_watch strings                                   Comma-separated list of keyspaces or keyspace/keyranges that this instance will monitor and repair. Defaults to all clusters in the topology. Example: "ks1,ks2/-80"
+      --concensus-peers string                                      List of VTOrc host:ports to use for quorum. This enables the concensus feature
+      --concensus-quorum-cells string                               The number or list of cells to use for quorum (default "2")
+      --concensus-quorum-peer-timeout duration                      The timeout for seeking quorum (default 3s)
       --config-file string                                          Full path of the config file (with extension) to use. If set, --config-path, --config-type, and --config-name are ignored.
       --config-file-not-found-handling ConfigFileNotFoundHandling   Behavior when a config file is not found. (Options: error, exit, ignore, warn) (default warn)
       --config-name string                                          Name of the config file (without extension) to search for. (default "vtconfig")
