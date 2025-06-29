@@ -17,7 +17,6 @@
 package config
 
 import (
-	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -45,7 +44,7 @@ var (
 		viperutil.Options[string]{
 			FlagName: "cell",
 			Default:  "",
-			Dynamic: false,
+			Dynamic:  false,
 		},
 	)
 
@@ -222,30 +221,30 @@ var (
 
 	concensusPeers = viperutil.Configure(
 		"concensus-peers",
-		viperutil.Options[string]{
+		viperutil.Options[[]string]{
 			FlagName: "concensus-peers",
-			Default: "",
-			Dynamic: false,
+			Default:  nil,
+			Dynamic:  false,
 		},
 	)
 
 	concensusQuorumCells = viperutil.Configure(
-                "concensus-quorum-cells",
-                viperutil.Options[string]{
-                        FlagName: "concensus-quorum-cells",
-                        Default: "2",
-                        Dynamic: true,
-                },
-        )
+		"concensus-quorum-cells",
+		viperutil.Options[string]{
+			FlagName: "concensus-quorum-cells",
+			Default:  "2",
+			Dynamic:  true,
+		},
+	)
 
 	concensusQuorumPeerTimeout = viperutil.Configure(
-                "concensus-quorum-peer-timeout",
-                viperutil.Options[time.Duration]{
-                        FlagName: "concensus-quorum-peer-timeout",
-                        Default: 3 * time.Second,
-                        Dynamic: true,
-                },
-        )
+		"concensus-quorum-peer-timeout",
+		viperutil.Options[time.Duration]{
+			FlagName: "concensus-quorum-peer-timeout",
+			Default:  3 * time.Second,
+			Dynamic:  true,
+		},
+	)
 )
 
 func init() {
@@ -274,7 +273,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-emergency-reparent", ersEnabled.Default(), "Whether VTOrc should be allowed to run emergency reparent operation when it detects a dead primary")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
-	fs.String("concensus-peers", concensusPeers.Default(), "List of VTOrc host:ports to use for quorum. This enables the concensus feature")
+	fs.StringSlice("concensus-peers", concensusPeers.Default(), "List of VTOrc addresses in host:port format to use for quorum. This enables the concensus feature")
 	fs.String("concensus-quorum-cells", concensusQuorumCells.Default(), "The number or list of cells to use for quorum")
 	fs.Duration("concensus-quorum-peer-timeout", concensusQuorumPeerTimeout.Default(), "The timeout for seeking quorum")
 
@@ -447,7 +446,7 @@ func GetStalledDiskPrimaryRecovery() bool {
 
 // GetConcensusPeers is a getter function.
 func GetConcensusPeers() []string {
-	return strings.Split(concensusPeers.Get(), ",")
+	return concensusPeers.Get()
 }
 
 // GetConcensusQuorumCells is a getter function.
