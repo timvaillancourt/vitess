@@ -18,12 +18,10 @@ package replication
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestPositionEqual(t *testing.T) {
