@@ -19,6 +19,7 @@ package reparentutil
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -1500,5 +1501,51 @@ func TestWaitForRelayLogsToApply(t *testing.T) {
 
 			assert.NoError(t, err)
 		})
+	}
+}
+
+func TestCompareRelayLogPositionsSortStable(t *testing.T) {
+	positions := []RelayLogPositions{
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5"),
+		},
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-3"),
+		},
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5"),
+		},
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2"),
+		},
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5"),
+		},
+		{
+			Combined: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6"),
+			Executed: replication.MustParsePosition(replication.Mysql56FlavorID, "3e11fa47-71ca-11e1-9e33-c80aa9429562:1-4"),
+		},
+	}
+
+	wantedCombinedStrings := []string{
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-7",
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-6",
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-5",
+		"3e11fa47-71ca-11e1-9e33-c80aa9429562:1-2",
+	}
+
+	slices.SortStableFunc(positions, func(a, b RelayLogPositions) int {
+		return CompareRelayLogPositions(a, b)
+	})
+
+	for i, wanted := range wantedCombinedStrings {
+		require.Equal(t, wanted, positions[i].Combined.String())
 	}
 }

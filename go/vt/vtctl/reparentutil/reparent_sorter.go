@@ -31,13 +31,13 @@ import (
 // candidate for intermediate promotion in emergency reparent shard, and the new primary in planned reparent shard
 type reparentSorter struct {
 	tablets          []*topodatapb.Tablet
-	positions        []replication.Position
+	positions        []RelayLogPositions
 	innodbBufferPool []int
 	durability       policy.Durabler
 }
 
 // newReparentSorter creates a new reparentSorter
-func newReparentSorter(tablets []*topodatapb.Tablet, positions []replication.Position, innodbBufferPool []int, durability policy.Durabler) *reparentSorter {
+func newReparentSorter(tablets []*topodatapb.Tablet, positions []RelayLogPositions, innodbBufferPool []int, durability policy.Durabler) *reparentSorter {
 	return &reparentSorter{
 		tablets:          tablets,
 		positions:        positions,
@@ -72,11 +72,15 @@ func (rs *reparentSorter) Less(i, j int) bool {
 		return true
 	}
 
-	if !rs.positions[i].AtLeast(rs.positions[j]) {
+	// sort by combined and executed GTID positions
+	jPosition := rs.positions[j]
+	iPosition := rs.positions[i]
+
+	if !iPosition.AtLeast(jPosition) {
 		// [i] does not have all GTIDs that [j] does
 		return false
 	}
-	if !rs.positions[j].AtLeast(rs.positions[i]) {
+	if !jPosition.AtLeast(iPosition) {
 		// [j] does not have all GTIDs that [i] does
 		return true
 	}
@@ -101,7 +105,7 @@ func (rs *reparentSorter) Less(i, j int) bool {
 
 // sortTabletsForReparent sorts the tablets, given their positions for emergency reparent shard and planned reparent shard.
 // Tablets are sorted first by their replication positions, with ties broken by the promotion rules.
-func sortTabletsForReparent(tablets []*topodatapb.Tablet, positions []replication.Position, innodbBufferPool []int, durability policy.Durabler) error {
+func sortTabletsForReparent(tablets []*topodatapb.Tablet, positions []RelayLogPositions, innodbBufferPool []int, durability policy.Durabler) error {
 	// throw an error internal error in case of unequal number of tablets and positions
 	// fail-safe code prevents panic in sorting in case the lengths are unequal
 	if len(tablets) != len(positions) {

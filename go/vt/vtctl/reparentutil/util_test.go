@@ -1314,7 +1314,7 @@ func TestFindPositionForTablet(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			posString := replication.EncodePosition(pos)
+			posString := replication.EncodePosition(pos.Combined)
 			require.Equal(t, test.expectedPosition, posString)
 			require.Equal(t, test.expectedLag, lag)
 			require.Equal(t, test.expectedTakingBackup, takingBackup)
@@ -1520,7 +1520,7 @@ func TestGetValidCandidatesAndPositionsAsList(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		validCandidates map[string]replication.Position
+		validCandidates map[string]RelayLogPositions
 		tabletMap       map[string]*topo.TabletInfo
 		tabletRes       []*topodatapb.Tablet
 	}{
