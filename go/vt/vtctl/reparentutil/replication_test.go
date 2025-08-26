@@ -25,21 +25,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"vitess.io/vitess/go/mysql/replication"
-	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
-
 	_flag "vitess.io/vitess/go/internal/flag"
 	"vitess.io/vitess/go/mysql"
+	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/sets"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/topotools/events"
+	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
 func TestMain(m *testing.M) {
@@ -1277,6 +1277,87 @@ func Test_stopReplicationAndBuildStatusMaps(t *testing.T) {
 				},
 			},
 			expectedTakingBackup:     map[string]bool{"zone1-0000000100": true, "zone1-0000000101": true},
+			expectedPrimaryStatusMap: map[string]*replicationdatapb.PrimaryStatus{},
+			expectedTabletsReachable: []*topodatapb.Tablet{{
+				Type: topodatapb.TabletType_REPLICA,
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+			}, {
+				Type: topodatapb.TabletType_REPLICA,
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  101,
+				},
+			}},
+			shouldErr: false,
+		}, {
+			name:       "one tablet with unavailable error",
+			durability: policy.DurabilityNone,
+			tmc: &stopReplicationAndBuildStatusMapsTestTMClient{
+				stopReplicationAndGetStatusResults: map[string]*struct {
+					StopStatus *replicationdatapb.StopReplicationStatus
+					Err        error
+				}{
+					"zone1-0000000100": {
+						StopStatus: &replicationdatapb.StopReplicationStatus{
+							Before: &replicationdatapb.Status{Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429100:1-5", IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+							After:  nil,
+						},
+					},
+					"zone1-0000000101": {
+						StopStatus: &replicationdatapb.StopReplicationStatus{
+							Before: &replicationdatapb.Status{Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429101:1-5", IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+							After:  nil,
+						},
+					},
+					"zone1-0000000102": {
+						Err: vterrors.New(vtrpcpb.Code_UNAVAILABLE, "mysqld is down error here"),
+					},
+				},
+			},
+			tabletMap: map[string]*topo.TabletInfo{
+				"zone1-0000000100": {
+					Tablet: &topodatapb.Tablet{
+						Type: topodatapb.TabletType_REPLICA,
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  100,
+						},
+					},
+				},
+				"zone1-0000000101": {
+					Tablet: &topodatapb.Tablet{
+						Type: topodatapb.TabletType_REPLICA,
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  101,
+						},
+					},
+				},
+				"zone1-0000000102": {
+					Tablet: &topodatapb.Tablet{
+						Type: topodatapb.TabletType_REPLICA,
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  102,
+						},
+					},
+				},
+			},
+			ignoredTablets: sets.New[string](),
+			expectedStatusMap: map[string]*replicationdatapb.StopReplicationStatus{
+				"zone1-0000000100": {
+					Before: &replicationdatapb.Status{Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429100:1-5", IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+					After:  nil,
+				},
+				"zone1-0000000101": {
+					Before: &replicationdatapb.Status{Position: "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429101:1-5", IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+					After:  nil,
+				},
+			},
+			expectedTakingBackup:     map[string]bool{"zone1-0000000100": false, "zone1-0000000101": false},
 			expectedPrimaryStatusMap: map[string]*replicationdatapb.PrimaryStatus{},
 			expectedTabletsReachable: []*topodatapb.Tablet{{
 				Type: topodatapb.TabletType_REPLICA,

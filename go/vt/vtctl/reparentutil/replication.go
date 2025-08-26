@@ -31,6 +31,7 @@ import (
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/proto/vtrpc"
+	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/topoproto"
 	"vitess.io/vitess/go/vt/topotools"
@@ -206,6 +207,16 @@ func stopReplicationAndBuildStatusMaps(
 
 		stopReplicationStatus, err := tmc.StopReplicationAndGetStatus(groupCtx, tabletInfo.Tablet, replicationdatapb.StopReplicationMode_IOTHREADONLY)
 		if err != nil {
+			// vtrpcpb.Code_UNAVAILABLE is returned from vttablet tabletmanager RPCs (v23+) when it
+			// is not possible for vttablet to connect to the backend MySQL. Using this signal we
+			// will assume this tablet cannot be the most advanced candidate and we will skip it.
+			if vtErr := vterrors.FromGRPC(err); vterrors.Code(vtErr) == vtrpcpb.Code_UNAVAILABLE {
+				logger.Warningf("failed to get replication status from unhealthy tablet %v: %v", alias, err)
+				ignoredTablets.Insert(alias)
+				err = nil /* skip tablet */
+				return
+			}
+
 			sqlErr, isSQLErr := sqlerror.NewSQLErrorFromError(err).(*sqlerror.SQLError)
 			if isSQLErr && sqlErr != nil && sqlErr.Number() == sqlerror.ERNotReplica {
 				var primaryStatus *replicationdatapb.PrimaryStatus
