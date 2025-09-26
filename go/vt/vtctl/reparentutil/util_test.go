@@ -1776,13 +1776,35 @@ func TestRestrictValidCandidates(t *testing.T) {
 	}{
 		{
 			name: "remove invalid tablets",
-			validCandidates: map[string]replication.Position{
-				"zone1-0000000100": {GTIDSet: gtidSet1},
-				"zone1-0000000101": {GTIDSet: gtidSet2},
-				"zone1-0000000102": {GTIDSet: gtidSet2},
-				"zone1-0000000103": {GTIDSet: gtidSet3},
-				"zone1-0000000104": {GTIDSet: gtidSet3},
-				"zone1-0000000105": {GTIDSet: gtidSet4},
+			validCandidates: map[string]*RelayLogPositions{
+				"zone1-0000000100": {
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet2},
+				},
+				"zone1-0000000101": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000102": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000103": {
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000104": {
+					Combined: replication.Position{GTIDSet: gtidSet3},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000105": {
+					Combined: replication.Position{GTIDSet: gtidSet4},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
+				"zone1-0000000106": {
+					Combined: replication.Position{GTIDSet: gtidSet2}, // == to zone1-0000000101
+					Executed: replication.Position{GTIDSet: gtidSet4}, // == to zone1-0000000101 + 1
+				},
 			},
 			tabletMap: map[string]*topo.TabletInfo{
 				"zone1-0000000100": {
@@ -1834,22 +1856,42 @@ func TestRestrictValidCandidates(t *testing.T) {
 					Tablet: &topodatapb.Tablet{
 						Alias: &topodatapb.TabletAlias{
 							Cell: "zone1",
-							Uid:  103,
+							Uid:  105,
 						},
 						Type: topodatapb.TabletType_BACKUP,
 					},
 				},
+				"zone1-0000000106": {
+					Tablet: &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  106,
+						},
+						Type: topodatapb.TabletType_REPLICA,
+					},
+				},
 			},
-			result: map[string]replication.Position{
-				"zone1-0000000100": {GTIDSet: gtidSet1},
-				"zone1-0000000101": {GTIDSet: gtidSet2},
+			result: map[string]*RelayLogPositions{
+				"zone1-0000000100": {
+					Combined: replication.Position{GTIDSet: gtidSet1},
+					Executed: replication.Position{GTIDSet: gtidSet2},
+				},
+				"zone1-0000000101": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet3},
+				},
+				"zone1-0000000106": {
+					Combined: replication.Position{GTIDSet: gtidSet2},
+					Executed: replication.Position{GTIDSet: gtidSet4},
+				},
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap)
+			logger := logutil.NewMemoryLogger()
+			res, err := restrictValidCandidates(test.validCandidates, test.tabletMap, logger)
 			assert.NoError(t, err)
 			assert.Equal(t, res, test.result)
 		})
@@ -2121,10 +2163,10 @@ func TestGetBackupCandidates(t *testing.T) {
 }
 
 func TestGetValidCandidatesMajorityCount(t *testing.T) {
-	buildCandidatesFunc := func(length int) map[string]replication.Position {
-		candidates := make(map[string]replication.Position, length)
+	buildCandidatesFunc := func(length int) map[string]*RelayLogPositions {
+		candidates := make(map[string]*RelayLogPositions, length)
 		for i := 1; i <= length; i++ {
-			candidates[fmt.Sprintf("candidate-%d", i)] = replication.Position{}
+			candidates[fmt.Sprintf("zone1-%d", i)] = &RelayLogPositions{}
 		}
 		return candidates
 	}
