@@ -64,6 +64,7 @@ import (
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 	vtctlservicepb "vitess.io/vitess/go/vt/proto/vtctlservice"
 	vtorcdatapb "vitess.io/vitess/go/vt/proto/vtorcdata"
+	"vitess.io/vitess/go/vt/proto/vtrpc"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/schemamanager"
@@ -1299,6 +1300,8 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 	span.Annotate("wait_replicas_timeout_sec", waitReplicasTimeout.Seconds())
 	span.Annotate("prevent_cross_cell_promotion", req.PreventCrossCellPromotion)
 	span.Annotate("wait_for_all_tablets", req.WaitForAllTablets)
+	span.Annotate("wait_for_relay_logs_mode", req.WaitForRelayLogsMode)
+	span.Annotate("wait_for_relay_logs_tablet_count", req.WaitForRelayLogsTabletCount)
 
 	m := sync.RWMutex{}
 	logstream := []*logutilpb.Event{}
@@ -1308,6 +1311,10 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 
 		logstream = append(logstream, e)
 	})
+
+	if req.WaitForRelayLogsMode == replicationdatapb.WaitForRelayLogsMode_COUNT && req.WaitForRelayLogsTabletCount == 0 {
+		return nil, vterrors.New(vtrpc.Code_FAILED_PRECONDITION, "WaitForRelaylogsTabletCount field must be > 0 when WaitForRelayLogsMode field is set to COUNT")
+	}
 
 	ev, err := reparentutil.NewEmergencyReparenter(s.ts, s.tmc, logger).ReparentShard(ctx,
 		req.Keyspace,

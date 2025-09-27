@@ -329,7 +329,9 @@ func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositio
 }
 
 // restrictValidCandidates is used to restrict some candidates from being considered eligible for becoming the intermediate source or the final promotion candidate
-func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabletMap map[string]*topo.TabletInfo, logger logutil.Logger) (map[string]*RelayLogPositions, error) {
+func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabletMap map[string]*topo.TabletInfo, opts EmergencyReparentOptions, logger logutil.Logger) (
+	map[string]*RelayLogPositions, error,
+) {
 	restrictedValidCandidates := make(map[string]*RelayLogPositions)
 	validPositions := make([]*RelayLogPositions, 0, len(validCandidates))
 	for candidate, position := range validCandidates {
@@ -348,8 +350,17 @@ func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabl
 	// sort by replication positions with greatest GTID set first, then remove
 	// replicas that are not part of a majority of the most-advanced replicas.
 	validPositions = sortRelayLogPositions(validPositions)
-	majorityCandidatesCount := getValidCandidatesMajorityCount(restrictedValidCandidates)
-	validPositions = validPositions[:majorityCandidatesCount]
+
+	// reduce sorted valid positions when in MAJORITY or COUNT mode.
+	switch opts.WaitForRelayLogsMode {
+	case replicationdatapb.WaitForRelayLogsMode_MAJORITY:
+		majorityCandidatesCount := getValidCandidatesMajorityCount(restrictedValidCandidates)
+		validPositions = validPositions[:majorityCandidatesCount]
+	case replicationdatapb.WaitForRelayLogsMode_COUNT:
+		candidatesCount := int(opts.WaitForRelayLogsTabletCount)
+		validPositions = validPositions[:candidatesCount]
+	}
+
 	for tabletAlias, position := range restrictedValidCandidates {
 		if !slices.ContainsFunc(validPositions, func(rp *RelayLogPositions) bool {
 			return position.Equal(rp)
