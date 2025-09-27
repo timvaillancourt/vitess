@@ -327,8 +327,14 @@ func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositio
 	return int(math.Floor(float64(totalCandidates)/2) + 1)
 }
 
-// reduceValidCandidatesToCount reduces the set of valid candidates based on a list of valid, sorted positions and expected number of candidates.
-func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions, sortedValidPositions []*RelayLogPositions, opts EmergencyReparentOptions) map[string]*RelayLogPositions {
+// reduceValidCandidatesToCount reduces the set of valid candidates based on a list of valid positions and expected number of candidates.
+func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions, validPositions []*RelayLogPositions, opts EmergencyReparentOptions) (
+	map[string]*RelayLogPositions, error,
+) {
+	// sort by replication positions with greatest GTID set first, then remove
+	// replicas that are not part of a majority of the most-advanced replicas.
+	validPositions = sortRelayLogPositions(validPositions)
+
 	// reduce sorted valid positions when in MAJORITY or COUNT mode.
 	candidatesCount := len(validCandidates)
 	switch opts.WaitForRelayLogsMode {
@@ -339,18 +345,22 @@ func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions,
 	}
 
 	resultCandidates := make(map[string]*RelayLogPositions, candidatesCount)
-	for _, validPosition := range sortedValidPositions {
+	for _, validPosition := range validPositions {
 		for tabletAlias, position := range validCandidates {
 			if validPosition.Equal(position) {
 				resultCandidates[tabletAlias] = position
 			}
 			if len(resultCandidates) == candidatesCount {
 				// found all candidates
-				return resultCandidates
+				return resultCandidates, nil
 			}
 		}
 	}
-	return resultCandidates
+	if len(resultCandidates) != candidatesCount {
+		// this should never happen
+		return resultCandidates, vterrors.Errorf(vtrpc.Code_INTERNAL, "failed to find %d candidates, found %d candidates", candidatesCount, len(resultCandidates))
+	}
+	return resultCandidates, nil
 }
 
 // restrictValidCandidates is used to restrict some candidates from being considered eligible for becoming the intermediate source or the final promotion candidate
@@ -372,12 +382,8 @@ func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabl
 		validPositions = append(validPositions, position)
 	}
 
-	// sort by replication positions with greatest GTID set first, then remove
-	// replicas that are not part of a majority of the most-advanced replicas.
-	validPositions = sortRelayLogPositions(validPositions)
-
-	// reduce the number of valid candidates based on sorted valid positions, if required.
-	return reduceValidCandidatesToCount(restrictedValidCandidates, validPositions, opts), nil
+	// reduce the number of valid candidates based on valid positions.
+	return reduceValidCandidatesToCount(restrictedValidCandidates, validPositions, opts)
 }
 
 func findCandidate(
