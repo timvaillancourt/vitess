@@ -327,8 +327,8 @@ func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositio
 	return int(math.Floor(float64(totalCandidates)/2) + 1)
 }
 
-// reduceValidCandidatesToCount reduces the set of valid candidates based on a list of valid positions and expected number of candidates.
-func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions, validPositions []*RelayLogPositions, opts EmergencyReparentOptions) map[string]*RelayLogPositions {
+// reduceValidCandidatesToCount reduces the set of valid candidates based on a list of valid, sorted positions and expected number of candidates.
+func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions, sortedValidPositions []*RelayLogPositions, opts EmergencyReparentOptions) map[string]*RelayLogPositions {
 	// reduce sorted valid positions when in MAJORITY or COUNT mode.
 	candidatesCount := len(validCandidates)
 	switch opts.WaitForRelayLogsMode {
@@ -339,14 +339,14 @@ func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions,
 	}
 
 	resultCandidates := make(map[string]*RelayLogPositions, candidatesCount)
-	for _, validPosition := range validPositions {
+	for _, validPosition := range sortedValidPositions {
 		for tabletAlias, position := range validCandidates {
+			if validPosition.Equal(position) {
+				resultCandidates[tabletAlias] = position
+			}
 			if len(resultCandidates) == candidatesCount {
 				// found all candidates
 				return resultCandidates
-			}
-			if validPosition.Equal(position) {
-				resultCandidates[tabletAlias] = position
 			}
 		}
 	}
