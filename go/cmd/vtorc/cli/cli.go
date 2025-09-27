@@ -17,6 +17,8 @@ limitations under the License.
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"vitess.io/vitess/go/acl"
@@ -59,7 +61,8 @@ func run(cmd *cobra.Command, args []string) {
 	}
 	config.MarkConfigurationLoaded()
 	if err := config.Validate(); err != nil {
-		log.Fatalf("Failed to validate config: %+v", err)
+		log.Errorf("Failed to validate config: %+v", err)
+		os.Exit(1)
 	}
 
 	// Log final config values to debug if something goes wrong.
