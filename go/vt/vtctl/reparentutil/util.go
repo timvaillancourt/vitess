@@ -327,8 +327,10 @@ func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositio
 	return int(math.Floor(float64(totalCandidates)/2) + 1)
 }
 
-// reduceValidCandidatesToCount reduces the set of valid candidates based on a list of valid positions and expected number of candidates.
-func reduceValidCandidatesToCount(validCandidates map[string]*RelayLogPositions, validPositions []*RelayLogPositions, opts EmergencyReparentOptions) (
+// reduceValidCandidates reduces the set of valid candidates to a subset, if required. If MAJORITY or
+// COUNT replicationdatapb.WaitForRelayLogsMode is used, a subset of most-advanced candidates will be
+// used by comparing positions.
+func reduceValidCandidates(validCandidates map[string]*RelayLogPositions, validPositions []*RelayLogPositions, opts EmergencyReparentOptions) (
 	map[string]*RelayLogPositions, error,
 ) {
 	// sort by replication positions with greatest GTID set first, then remove
@@ -383,7 +385,7 @@ func restrictValidCandidates(validCandidates map[string]*RelayLogPositions, tabl
 	}
 
 	// reduce the number of valid candidates based on valid positions.
-	return reduceValidCandidatesToCount(restrictedValidCandidates, validPositions, opts)
+	return reduceValidCandidates(restrictedValidCandidates, validPositions, opts)
 }
 
 func findCandidate(

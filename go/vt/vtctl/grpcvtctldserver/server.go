@@ -64,7 +64,6 @@ import (
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 	vtctlservicepb "vitess.io/vitess/go/vt/proto/vtctlservice"
 	vtorcdatapb "vitess.io/vitess/go/vt/proto/vtorcdata"
-	"vitess.io/vitess/go/vt/proto/vtrpc"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/schemamanager"
@@ -1313,7 +1312,7 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 	})
 
 	if req.WaitForRelayLogsMode == replicationdatapb.WaitForRelayLogsMode_COUNT && req.WaitForRelayLogsTabletCount == 0 {
-		return nil, vterrors.New(vtrpc.Code_FAILED_PRECONDITION, "WaitForRelaylogsTabletCount field must be > 0 when WaitForRelayLogsMode field is set to COUNT")
+		return nil, vterrors.New(vtrpcpb.Code_FAILED_PRECONDITION, "WaitForRelaylogsTabletCount field must be > 0 when WaitForRelayLogsMode field is set to COUNT")
 	}
 
 	ev, err := reparentutil.NewEmergencyReparenter(s.ts, s.tmc, logger).ReparentShard(ctx,
