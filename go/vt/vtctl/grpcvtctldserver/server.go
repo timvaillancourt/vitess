@@ -1313,12 +1313,14 @@ func (s *VtctldServer) EmergencyReparentShard(ctx context.Context, req *vtctldat
 		req.Keyspace,
 		req.Shard,
 		reparentutil.EmergencyReparentOptions{
-			NewPrimaryAlias:           req.NewPrimary,
-			IgnoreReplicas:            sets.New(ignoreReplicaAliases...),
-			WaitReplicasTimeout:       waitReplicasTimeout,
-			WaitAllTablets:            req.WaitForAllTablets,
-			PreventCrossCellPromotion: req.PreventCrossCellPromotion,
-			ExpectedPrimaryAlias:      req.ExpectedPrimary,
+			NewPrimaryAlias:             req.NewPrimary,
+			IgnoreReplicas:              sets.New(ignoreReplicaAliases...),
+			WaitReplicasTimeout:         waitReplicasTimeout,
+			WaitAllTablets:              req.WaitForAllTablets,
+			PreventCrossCellPromotion:   req.PreventCrossCellPromotion,
+			ExpectedPrimaryAlias:        req.ExpectedPrimary,
+			WaitForRelayLogsMode:        req.WaitForRelayLogsMode,
+			WaitForRelayLogsTabletCount: req.WaitForRelayLogsTabletCount,
 		},
 	)
 

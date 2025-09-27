@@ -63,6 +63,11 @@ type EmergencyReparentOptions struct {
 	PreventCrossCellPromotion bool
 	ExpectedPrimaryAlias      *topodatapb.TabletAlias
 
+	// WaitForRelayLogsMode + TabletCount determines how many tablets
+	// are used to apply relay logs before candidate selection.
+	WaitForRelayLogsMode        replicationdatapb.WaitForRelayLogsMode
+	WaitForRelayLogsTabletCount int64
+
 	// Private options managed internally. We use value passing to avoid leaking
 	// these details back out.
 	lockAction string
