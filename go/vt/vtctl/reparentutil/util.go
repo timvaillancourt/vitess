@@ -333,8 +333,7 @@ func getValidCandidatesMajorityCount(validCandidates map[string]*RelayLogPositio
 func reduceValidCandidates(validCandidates map[string]*RelayLogPositions, validPositions []*RelayLogPositions, opts EmergencyReparentOptions) (
 	map[string]*RelayLogPositions, error,
 ) {
-	// sort by replication positions with greatest GTID set first, then remove
-	// replicas that are not part of a majority of the most-advanced replicas.
+	// sort by replication positions with greatest GTID set.
 	validPositions = sortRelayLogPositions(validPositions)
 
 	// reduce sorted valid positions when in MAJORITY or COUNT mode.
@@ -349,9 +348,10 @@ func reduceValidCandidates(validCandidates map[string]*RelayLogPositions, validP
 	resultCandidates := make(map[string]*RelayLogPositions, candidatesCount)
 	for _, validPosition := range validPositions {
 		for tabletAlias, position := range validCandidates {
-			if validPosition.Equal(position) {
-				resultCandidates[tabletAlias] = position
+			if !validPosition.Equal(position) {
+				continue
 			}
+			resultCandidates[tabletAlias] = position
 			if len(resultCandidates) == candidatesCount {
 				// found all candidates
 				return resultCandidates, nil

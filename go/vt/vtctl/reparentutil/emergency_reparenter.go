@@ -106,6 +106,11 @@ func (erp *EmergencyReparenter) ReparentShard(ctx context.Context, keyspace stri
 	var err error
 	statsLabels := []string{keyspace, shard}
 
+	// convert DEFAULT mode to replicationdatapb.WaitForRelayLogsMode_ALL.
+	if opts.WaitForRelayLogsMode == replicationdatapb.WaitForRelayLogsMode_DEFAULT {
+		opts.WaitForRelayLogsMode = replicationdatapb.WaitForRelayLogsMode_ALL
+	}
+
 	opts.lockAction = erp.getLockAction(opts.NewPrimaryAlias)
 	// First step is to lock the shard for the given operation, if not already locked
 	if err = topo.CheckShardLocked(ctx, keyspace, shard); err != nil {

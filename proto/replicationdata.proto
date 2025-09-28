@@ -115,7 +115,8 @@ message FullStatus {
 // WaitForRelayLogsMode represents what approach to use for deciding the number
 // of tablets to for the wait-for-relaylogs phase of EmergencyReparentShard.
 enum WaitForRelayLogsMode {
-  ALL = 0;
-  MAJORITY = 1;
-  COUNT = 2;
+  DEFAULT = 0;
+  ALL = 1;
+  MAJORITY = 2;
+  COUNT = 3;
 }

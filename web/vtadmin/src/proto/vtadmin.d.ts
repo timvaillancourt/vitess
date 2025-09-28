@@ -49844,9 +49844,10 @@ export namespace replicationdata {
 
     /** WaitForRelayLogsMode enum. */
     enum WaitForRelayLogsMode {
-        ALL = 0,
-        MAJORITY = 1,
-        COUNT = 2
+        DEFAULT = 0,
+        ALL = 1,
+        MAJORITY = 2,
+        COUNT = 3
     }
 }
 

@@ -91,22 +91,25 @@ func (StopReplicationMode) EnumDescriptor() ([]byte, []int) {
 type WaitForRelayLogsMode int32
 
 const (
-	WaitForRelayLogsMode_ALL      WaitForRelayLogsMode = 0
-	WaitForRelayLogsMode_MAJORITY WaitForRelayLogsMode = 1
-	WaitForRelayLogsMode_COUNT    WaitForRelayLogsMode = 2
+	WaitForRelayLogsMode_DEFAULT  WaitForRelayLogsMode = 0
+	WaitForRelayLogsMode_ALL      WaitForRelayLogsMode = 1
+	WaitForRelayLogsMode_MAJORITY WaitForRelayLogsMode = 2
+	WaitForRelayLogsMode_COUNT    WaitForRelayLogsMode = 3
 )
 
 // Enum value maps for WaitForRelayLogsMode.
 var (
 	WaitForRelayLogsMode_name = map[int32]string{
-		0: "ALL",
-		1: "MAJORITY",
-		2: "COUNT",
+		0: "DEFAULT",
+		1: "ALL",
+		2: "MAJORITY",
+		3: "COUNT",
 	}
 	WaitForRelayLogsMode_value = map[string]int32{
-		"ALL":      0,
-		"MAJORITY": 1,
-		"COUNT":    2,
+		"DEFAULT":  0,
+		"ALL":      1,
+		"MAJORITY": 2,
+		"COUNT":    3,
 	}
 )
 
@@ -847,11 +850,12 @@ const file_replicationdata_proto_rawDesc = "" +
 	"tabletType*;\n" +
 	"\x13StopReplicationMode\x12\x12\n" +
 	"\x0eIOANDSQLTHREAD\x10\x00\x12\x10\n" +
-	"\fIOTHREADONLY\x10\x01*8\n" +
-	"\x14WaitForRelayLogsMode\x12\a\n" +
-	"\x03ALL\x10\x00\x12\f\n" +
-	"\bMAJORITY\x10\x01\x12\t\n" +
-	"\x05COUNT\x10\x02B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
+	"\fIOTHREADONLY\x10\x01*E\n" +
+	"\x14WaitForRelayLogsMode\x12\v\n" +
+	"\aDEFAULT\x10\x00\x12\a\n" +
+	"\x03ALL\x10\x01\x12\f\n" +
+	"\bMAJORITY\x10\x02\x12\t\n" +
+	"\x05COUNT\x10\x03B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
 
 var (
 	file_replicationdata_proto_rawDescOnce sync.Once
