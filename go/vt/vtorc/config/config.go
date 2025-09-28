@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -239,8 +240,15 @@ var (
 					modeName := v.GetString(key)
 					modeCode, ok := replicationdatapb.WaitForRelayLogsMode_value[strings.ToUpper(modeName)]
 					if !ok {
+						var allModes []string
+						for k := range replicationdatapb.WaitForRelayLogsMode_value {
+							allModes = append(allModes, k)
+						}
+						slices.Sort(allModes)
+
 						fmt.Printf("Invalid option: %v\n", modeName)
-						fmt.Println("Usage: --wait-for-relaylogs-mode {ALL | MAJORITY | COUNT}")
+						fmt.Printf("Usage: --wait-for-relaylogs-mode {%s}\n", strings.Join(allModes, " | "))
+
 						os.Exit(1)
 						return -1
 					}
