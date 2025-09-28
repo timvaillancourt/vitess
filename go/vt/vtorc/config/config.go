@@ -294,7 +294,9 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.Bool("allow-recovery", allowRecovery.Default(), "Whether VTOrc should be allowed to run recovery actions")
 	fs.Bool("change-tablets-with-errant-gtid-to-drained", convertTabletsWithErrantGTIDs.Default(), "Whether VTOrc should be changing the type of tablets with errant GTIDs to DRAINED")
 	fs.Bool("enable-primary-disk-stalled-recovery", enablePrimaryDiskStalledRecovery.Default(), "Whether VTOrc should detect a stalled disk on the primary and failover")
-	fs.String("wait-for-relaylogs-mode", "ALL", "Specifies the number of tablets to wait for relaylog applying during an EmergencyReparentShard action. ALL: wait for all tablets, MAJORITY: wait for a majority of tablets, COUNT: wait for an exact number of tablets (using --wait-for-relaylogs-tablet-count flag)")
+
+	waitForRelayLogsModeDefaultStr := replicationdatapb.WaitForRelayLogsMode_name[int32(waitForRelayLogsMode.Default())]
+	fs.String("wait-for-relaylogs-mode", waitForRelayLogsModeDefaultStr, "Specifies the number of tablets to wait for relaylog applying during an EmergencyReparentShard action. ALL: wait for all tablets, MAJORITY: wait for a majority of tablets, COUNT: wait for an exact number of tablets (using --wait-for-relaylogs-tablet-count flag)")
 	fs.Int64("wait-for-relaylogs-tablet-count", waitForRelayLogsTabletCount.Default(), "Specifies the exact number of tablets to wait for relaylogs during EmergencyReparentShard actions. This setting must be > 0 when --wait-for-relaylogs-mode=COUNT is set")
 
 	viperutil.BindFlags(fs,
