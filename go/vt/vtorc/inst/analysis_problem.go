@@ -30,6 +30,7 @@ type DetectionAnalysisProblemInfo struct {
 	HasShardWideAction bool
 	//Keyspace           string
 	//Shard              string
+	Score int
 }
 
 type DetectionAnalysisProblem struct {
@@ -37,6 +38,7 @@ type DetectionAnalysisProblem struct {
 	AfterAnalyses  []AnalysisCode
 	BeforeAnalyses []AnalysisCode
 	MatchFunc      func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool
+	Priority       int
 }
 
 func (dap *DetectionAnalysisProblem) HasMatch(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
@@ -46,20 +48,32 @@ func (dap *DetectionAnalysisProblem) HasMatch(a *DetectionAnalysis, ca *clusterA
 	return dap.MatchFunc(a, ca, primaryTablet, tablet, isInvalid)
 }
 
-func sortDetectionAnalysisMatchedProblems(matchedProblems []DetectionAnalysisProblemInfo) {
+func processDetectionAnalysisMatchedProblems(matchedProblems []DetectionAnalysisProblemInfo) []DetectionAnalysisProblemInfo {
+	processed := matchedProblems
 	// use slices.SortStableFunc because it keeps the original order of equal elements.
-	slices.SortStableFunc(matchedProblems, func(a, b DetectionAnalysisProblemInfo) int {
+	slices.SortStableFunc(processed, func(a, b DetectionAnalysisProblemInfo) int {
 		aProblem, aOk := detectionAnalysisProblems[a.Analysis]
 		bProblem, bOk := detectionAnalysisProblems[b.Analysis]
-		if !aOk || !bOk {
-			return 0
+		if aOk && !bOk {
+			return -1
 		}
-
-		// handle dependencies
-		if slices.Contains(aProblem.BeforeAnalyses, b.Analysis) || slices.Contains(bProblem.AfterAnalyses, a.Analysis) {
+		if !aOk && bOk {
 			return 1
 		}
-		if slices.Contains(aProblem.AfterAnalyses, b.Analysis) || slices.Contains(bProblem.BeforeAnalyses, a.Analysis) {
+
+		// handle before dependencies
+		if len(aProblem.BeforeAnalyses) > 0 && slices.Contains(aProblem.BeforeAnalyses, b.Analysis) {
+			return 1
+		}
+		if len(bProblem.BeforeAnalyses) > 0 && slices.Contains(bProblem.BeforeAnalyses, a.Analysis) {
+			return -1
+		}
+
+		// handle after dependencies
+		if len(aProblem.AfterAnalyses) > 0 && slices.Contains(aProblem.AfterAnalyses, b.Analysis) {
+			return 1
+		}
+		if len(bProblem.AfterAnalyses) > 0 && slices.Contains(bProblem.AfterAnalyses, a.Analysis) {
 			return -1
 		}
 
@@ -71,8 +85,18 @@ func sortDetectionAnalysisMatchedProblems(matchedProblems []DetectionAnalysisPro
 			return -1
 		}
 
+		// priority (lower is better)
+		if aProblem.Priority > bProblem.Priority {
+			return 1
+		}
+		if aProblem.Priority < bProblem.Priority {
+			return -1
+		}
+
 		return 0
 	})
+
+	return processed
 }
 
 var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
@@ -85,6 +109,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && isInvalid
 		},
+		Priority: 0,
 	},
 	InvalidReplica: {
 		Info: DetectionAnalysisProblemInfo{
@@ -94,6 +119,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return isInvalid
 		},
+		Priority: 1,
 	},
 
 	// PrimaryDiskStalled
@@ -106,6 +132,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.IsDiskStalled
 		},
+		Priority: 0,
 	},
 
 	// DeadPrimary*
@@ -118,6 +145,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas == 0
 		},
+		Priority: 0,
 	},
 	DeadPrimary: {
 		Info: DetectionAnalysisProblemInfo{
@@ -128,6 +156,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0
 		},
+		Priority: 0,
 	},
 	DeadPrimaryAndReplicas: {
 		Info: DetectionAnalysisProblemInfo{
@@ -138,6 +167,23 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas > 0 && a.CountValidReplicas == 0 && a.CountValidReplicatingReplicas == 0
 		},
+		Priority: 0,
+	},
+
+	//
+	PrimaryIsReadOnly: {
+		Info: DetectionAnalysisProblemInfo{
+			Analysis:    PrimaryIsReadOnly,
+			Description: "",
+		},
+		Priority: 0,
+	},
+	ReplicaIsWritable: {
+		Info: DetectionAnalysisProblemInfo{
+			Analysis:    ReplicaIsWritable,
+			Description: "",
+		},
+		Priority: 1,
 	},
 
 	// Semi-sync
@@ -150,6 +196,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 			return a.IsClusterPrimary && policy.SemiSyncAckers(ca.durability, tablet) != 0 && !a.SemiSyncPrimaryEnabled
 		},
 		BeforeAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
+		Priority:       0,
 	},
 	ReplicaSemiSyncMustBeSet: {
 		Info: DetectionAnalysisProblemInfo{
@@ -160,5 +207,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 			return topo.IsReplicaType(a.TabletType) && !a.IsPrimary && policy.IsReplicaSemiSync(ca.durability, primaryTablet, tablet) && !a.SemiSyncReplicaEnabled
 		},
 		AfterAnalyses: []AnalysisCode{PrimarySemiSyncMustBeSet},
+		Priority:      0,
 	},
 }

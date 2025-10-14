@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSortDetectionAnalysisMatchedProblems(t *testing.T) {
+func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
 	testCases := []struct {
 		name               string
 		in                 []DetectionAnalysisProblemInfo
@@ -30,15 +30,19 @@ func TestSortDetectionAnalysisMatchedProblems(t *testing.T) {
 			in: []DetectionAnalysisProblemInfo{
 				{
 					Analysis:    InvalidReplica,
+					Description: "should be last, not a shardWideAction, priority 1",
+				},
+				{
+					Analysis:    PrimaryIsReadOnly,
 					Description: "should be after DeadPrimary, not a shardWideAction",
 				},
 				{
 					Analysis:    PrimarySemiSyncMustBeSet,
-					Description: "should be after ReplicaSemiSyncMustBeSet",
+					Description: "should be after ReplicaSemiSyncMustBeSet, has an after dependency",
 				},
 				{
 					Analysis:    ReplicaSemiSyncMustBeSet,
-					Description: "should be before PrimarySemiSyncMustBeSet",
+					Description: "should be before PrimarySemiSyncMustBeSet, has a before dependency",
 				},
 				{
 					Analysis:           DeadPrimary,
@@ -48,16 +52,17 @@ func TestSortDetectionAnalysisMatchedProblems(t *testing.T) {
 			},
 			postSortByAnalysis: []AnalysisCode{
 				DeadPrimary,
-				InvalidReplica,
+				PrimaryIsReadOnly,
 				ReplicaSemiSyncMustBeSet,
 				PrimarySemiSyncMustBeSet,
+				InvalidReplica,
 			},
 		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			problems := testCase.in
-			sortDetectionAnalysisMatchedProblems(problems)
+			problems := processDetectionAnalysisMatchedProblems(testCase.in)
+			require.Len(t, problems, len(testCase.postSortByAnalysis))
 			for i, analysis := range testCase.postSortByAnalysis {
 				require.Equal(t, string(analysis), string(problems[i].Analysis))
 			}
