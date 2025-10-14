@@ -18,52 +18,25 @@ package inst
 
 import (
 	"slices"
-	"strings"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 )
 
-type ProblemPriority int
-
-const (
-	maxDetectionProblemPriority ProblemPriority = iota
-	clusterWidePrimaryDetectionProblemPriority
-	primaryDetectionProblemPriority
-	defaultDetectionProblemPriority // use as default
-	lowDetectionProblemPriority
-)
-
-var (
-	clusterWidePrimaryDetectionProblemPriorityFunc = func([]DetectionAnalysisProblemInfo) ProblemPriority {
-		return clusterWidePrimaryDetectionProblemPriority
-	}
-	primaryDetectionProblemPriorityFunc = func([]DetectionAnalysisProblemInfo) ProblemPriority {
-		return primaryDetectionProblemPriority
-	}
-)
-
 type DetectionAnalysisProblemInfo struct {
 	Analysis           AnalysisCode
 	Description        string
 	HasShardWideAction bool
-	Keyspace           string
-	Shard              string
-	Priority           ProblemPriority
+	//Keyspace           string
+	//Shard              string
 }
 
 type DetectionAnalysisProblem struct {
-	Info         DetectionAnalysisProblemInfo
-	MatchFunc    func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool
-	PriorityFunc func(matchedProblems []DetectionAnalysisProblemInfo) ProblemPriority
-}
-
-func (dap *DetectionAnalysisProblem) GetPriority(matchedProblems []DetectionAnalysisProblemInfo) ProblemPriority {
-	if dap.PriorityFunc == nil {
-		return defaultDetectionProblemPriority
-	}
-	return dap.PriorityFunc(matchedProblems)
+	Info           DetectionAnalysisProblemInfo
+	AfterAnalyses  []AnalysisCode
+	BeforeAnalyses []AnalysisCode
+	MatchFunc      func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool
 }
 
 func (dap *DetectionAnalysisProblem) HasMatch(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
@@ -74,24 +47,31 @@ func (dap *DetectionAnalysisProblem) HasMatch(a *DetectionAnalysis, ca *clusterA
 }
 
 func sortDetectionAnalysisMatchedProblems(matchedProblems []DetectionAnalysisProblemInfo) {
-	slices.SortFunc(matchedProblems, func(a, b DetectionAnalysisProblemInfo) int {
+	// use slices.SortStableFunc because it keeps the original order of equal elements.
+	slices.SortStableFunc(matchedProblems, func(a, b DetectionAnalysisProblemInfo) int {
 		aProblem, aOk := detectionAnalysisProblems[a.Analysis]
-		if !aOk {
-			return 0
-		}
 		bProblem, bOk := detectionAnalysisProblems[b.Analysis]
-		if !bOk {
+		if !aOk || !bOk {
 			return 0
 		}
 
-		aPriority := aProblem.GetPriority(matchedProblems)
-		bPriority := bProblem.GetPriority(matchedProblems)
-		if aPriority == bPriority {
-			return strings.Compare(string(a.Analysis), string(b.Analysis))
-		} else if aPriority < bPriority {
+		// handle dependencies
+		if slices.Contains(aProblem.BeforeAnalyses, b.Analysis) || slices.Contains(bProblem.AfterAnalyses, a.Analysis) {
+			return 1
+		}
+		if slices.Contains(aProblem.AfterAnalyses, b.Analysis) || slices.Contains(bProblem.BeforeAnalyses, a.Analysis) {
 			return -1
 		}
-		return 1
+
+		// prioritize HasShardWideAction
+		if !aProblem.Info.HasShardWideAction && bProblem.Info.HasShardWideAction {
+			return 1
+		}
+		if aProblem.Info.HasShardWideAction && !bProblem.Info.HasShardWideAction {
+			return -1
+		}
+
+		return 0
 	})
 }
 
@@ -105,7 +85,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && isInvalid
 		},
-		PriorityFunc: primaryDetectionProblemPriorityFunc,
 	},
 	InvalidReplica: {
 		Info: DetectionAnalysisProblemInfo{
@@ -127,7 +106,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.IsDiskStalled
 		},
-		PriorityFunc: clusterWidePrimaryDetectionProblemPriorityFunc,
 	},
 
 	// DeadPrimary*
@@ -140,7 +118,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas == 0
 		},
-		PriorityFunc: clusterWidePrimaryDetectionProblemPriorityFunc,
 	},
 	DeadPrimary: {
 		Info: DetectionAnalysisProblemInfo{
@@ -151,7 +128,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0
 		},
-		PriorityFunc: clusterWidePrimaryDetectionProblemPriorityFunc,
 	},
 	DeadPrimaryAndReplicas: {
 		Info: DetectionAnalysisProblemInfo{
@@ -162,7 +138,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas > 0 && a.CountValidReplicas == 0 && a.CountValidReplicatingReplicas == 0
 		},
-		PriorityFunc: clusterWidePrimaryDetectionProblemPriorityFunc,
 	},
 
 	// Semi-sync
@@ -174,15 +149,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && policy.SemiSyncAckers(ca.durability, tablet) != 0 && !a.SemiSyncPrimaryEnabled
 		},
-		PriorityFunc: func(matchedProblems []DetectionAnalysisProblemInfo) ProblemPriority {
-			// deprioritize if we also have a ReplicaSemiSyncMustBeSet analysis
-			if slices.ContainsFunc(matchedProblems, func(mp DetectionAnalysisProblemInfo) bool {
-				return mp.Analysis == ReplicaSemiSyncMustBeSet
-			}) {
-				return defaultDetectionProblemPriority
-			}
-			return primaryDetectionProblemPriority
-		},
+		BeforeAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
 	},
 	ReplicaSemiSyncMustBeSet: {
 		Info: DetectionAnalysisProblemInfo{
@@ -192,14 +159,6 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return topo.IsReplicaType(a.TabletType) && !a.IsPrimary && policy.IsReplicaSemiSync(ca.durability, primaryTablet, tablet) && !a.SemiSyncReplicaEnabled
 		},
-		PriorityFunc: func(matchedProblems []DetectionAnalysisProblemInfo) ProblemPriority {
-			// raise in priority if we also have a PrimarySemiSyncMustBeSet analysis
-			if slices.ContainsFunc(matchedProblems, func(mp DetectionAnalysisProblemInfo) bool {
-				return mp.Analysis == PrimarySemiSyncMustBeSet
-			}) {
-				return maxDetectionProblemPriority
-			}
-			return defaultDetectionProblemPriority
-		},
+		AfterAnalyses: []AnalysisCode{PrimarySemiSyncMustBeSet},
 	},
 }
