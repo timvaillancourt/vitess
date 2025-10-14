@@ -61,20 +61,12 @@ func processDetectionAnalysisMatchedProblems(matchedProblems []DetectionAnalysis
 			return 1
 		}
 
-		// handle before dependencies
-		if slices.Contains(aProblem.BeforeAnalyses, b.Analysis) {
+		// handle dependencies
+		if slices.Contains(aProblem.BeforeAnalyses, b.Analysis) || slices.Contains(bProblem.AfterAnalyses, a.Analysis) {
 			return 1
 		}
-		if slices.Contains(bProblem.BeforeAnalyses, a.Analysis) {
+		if slices.Contains(bProblem.BeforeAnalyses, a.Analysis) || slices.Contains(aProblem.AfterAnalyses, b.Analysis) {
 			return -1
-		}
-
-		// handle after dependencies
-		if slices.Contains(aProblem.AfterAnalyses, b.Analysis) {
-			return -1
-		}
-		if slices.Contains(bProblem.AfterAnalyses, a.Analysis) {
-			return 1
 		}
 
 		// prioritize HasShardWideAction
