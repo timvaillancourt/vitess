@@ -62,7 +62,7 @@ func TestSortDetectionAnalysisMatchedProblems(t *testing.T) {
 						Analysis:    ReplicaSemiSyncMustBeSet,
 						Description: "should be before PrimarySemiSyncMustBeSet, has a before dependency",
 					},
-					BeforeAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
+					BeforeAnalyses: []AnalysisCode{PrimarySemiSyncMustBeSet},
 				},
 				{
 					Info: DetectionAnalysisProblemInfo{
