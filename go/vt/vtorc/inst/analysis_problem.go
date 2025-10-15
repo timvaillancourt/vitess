@@ -36,17 +36,18 @@ type DetectionAnalysisProblem struct {
 	Info           DetectionAnalysisProblemInfo
 	AfterAnalyses  []AnalysisCode
 	BeforeAnalyses []AnalysisCode
-	Priority       int
 	MatchFunc      func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool
+	Priority       int
 	PriorityFunc   func(allProblems []DetectionAnalysisProblem) int
 }
 
-// GetPriority returns the priority of a problem as an int.
+// GetPriority returns the priority of a problem as an int. If PriorityFunc is defined, this
+// is used to get the priority. Otherwise, the Priority integer field is used.
 func (dap *DetectionAnalysisProblem) GetPriority(allProblems []DetectionAnalysisProblem) int {
-	if dap.PriorityFunc != nil {
-		return dap.PriorityFunc(allProblems)
+	if dap.PriorityFunc == nil {
+		return dap.Priority
 	}
-	return dap.Priority
+	return dap.PriorityFunc(allProblems)
 }
 
 // HasMatch returns true if a DetectionAnalysisProblem matches the provided states.
@@ -170,7 +171,7 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 	},
 }
 
-func processDetectionAnalysisMatchedProblems(allProblems []DetectionAnalysisProblem) []DetectionAnalysisProblem {
+func sortDetectionAnalysisMatchedProblems(allProblems []DetectionAnalysisProblem) []DetectionAnalysisProblem {
 	// use slices.SortStableFunc because it keeps the original order of equal elements.
 	slices.SortStableFunc(allProblems, func(a, b DetectionAnalysisProblem) int {
 		aAnalysis := a.Info.Analysis

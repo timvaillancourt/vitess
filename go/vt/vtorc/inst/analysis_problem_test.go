@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
+func TestSortDetectionAnalysisMatchedProblems(t *testing.T) {
 	testCases := []struct {
 		name               string
 		in                 []DetectionAnalysisProblem
@@ -84,10 +84,10 @@ func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			problems := processDetectionAnalysisMatchedProblems(testCase.in)
-			require.Len(t, problems, len(testCase.postSortByAnalysis))
+			sorted := sortDetectionAnalysisMatchedProblems(testCase.in)
+			require.Len(t, sorted, len(testCase.postSortByAnalysis))
 			for i, analysis := range testCase.postSortByAnalysis {
-				require.Equal(t, analysis, problems[i].Info.Analysis)
+				require.Equal(t, analysis, sorted[i].Info.Analysis)
 			}
 		})
 	}
