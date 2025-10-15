@@ -22,32 +22,54 @@ import (
 func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
 	testCases := []struct {
 		name               string
-		in                 []DetectionAnalysisProblemInfo
+		in                 []DetectionAnalysisProblem
 		postSortByAnalysis []AnalysisCode
 	}{
 		{
 			name: "default",
-			in: []DetectionAnalysisProblemInfo{
+			in: []DetectionAnalysisProblem{
 				{
-					Analysis:    InvalidReplica,
-					Description: "should be last, not a shardWideAction, priority 1",
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:    InvalidReplica,
+						Description: "should be last, not a shardWideAction, priority 1",
+					},
+					Priority: 1,
 				},
 				{
-					Analysis:    PrimaryIsReadOnly,
-					Description: "should be after DeadPrimary, not a shardWideAction",
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:    InvalidReplica,
+						Description: "should be last, not a shardWideAction, priority 2",
+					},
+					PriorityFunc: func(allProblems []DetectionAnalysisProblem) int {
+						return 2
+					},
 				},
 				{
-					Analysis:    PrimarySemiSyncMustBeSet,
-					Description: "should be after ReplicaSemiSyncMustBeSet, has an after dependency",
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:    PrimaryIsReadOnly,
+						Description: "should be after DeadPrimary, not a shardWideAction",
+					},
 				},
 				{
-					Analysis:    ReplicaSemiSyncMustBeSet,
-					Description: "should be before PrimarySemiSyncMustBeSet, has a before dependency",
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:    PrimarySemiSyncMustBeSet,
+						Description: "should be after ReplicaSemiSyncMustBeSet, has an after dependency",
+					},
+					AfterAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
 				},
 				{
-					Analysis:           DeadPrimary,
-					Description:        "should be 1st, is a shardWideAction",
-					HasShardWideAction: true,
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:    ReplicaSemiSyncMustBeSet,
+						Description: "should be before PrimarySemiSyncMustBeSet, has a before dependency",
+					},
+					BeforeAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
+				},
+				{
+					Info: DetectionAnalysisProblemInfo{
+						Analysis:           DeadPrimary,
+						Description:        "should be 1st, is a shardWideAction",
+						HasShardWideAction: true,
+					},
 				},
 			},
 			postSortByAnalysis: []AnalysisCode{
@@ -55,6 +77,7 @@ func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
 				PrimaryIsReadOnly,
 				ReplicaSemiSyncMustBeSet,
 				PrimarySemiSyncMustBeSet,
+				InvalidReplica,
 				InvalidReplica,
 			},
 		},
@@ -64,7 +87,7 @@ func TestProcessDetectionAnalysisMatchedProblems(t *testing.T) {
 			problems := processDetectionAnalysisMatchedProblems(testCase.in)
 			require.Len(t, problems, len(testCase.postSortByAnalysis))
 			for i, analysis := range testCase.postSortByAnalysis {
-				require.Equal(t, string(analysis), string(problems[i].Analysis))
+				require.Equal(t, analysis, problems[i].Info.Analysis)
 			}
 		})
 	}
