@@ -111,7 +111,7 @@ type DetectionAnalysis struct {
 	ReplicaNetTimeout                         int32
 	HeartbeatInterval                         float64
 	Analysis                                  AnalysisCode
-	AnalysisMatchedProblems                   []DetectionAnalysisProblemInfo
+	AnalysisMatchedProblems                   []*DetectionAnalysisProblemMeta
 	Description                               string
 	StructureAnalysis                         []StructureAnalysisCode
 	OracleGTIDImmediateTopology               bool

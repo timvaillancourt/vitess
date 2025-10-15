@@ -24,30 +24,39 @@ import (
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 )
 
-// DetectionAnalysisProblemInfo contains basic metadata describing a problem.
-type DetectionAnalysisProblemInfo struct {
+const (
+	detectionAnalysisPriorityHigh = iota
+	detectionAnalysisPriorityMedium
+	detectionAnalysisPriorityLow
+)
+
+// DetectionAnalysisProblemMeta contains basic metadata describing a problem.
+type DetectionAnalysisProblemMeta struct {
 	Analysis           AnalysisCode
 	Description        string
 	HasShardWideAction bool
+	Priority           int
 }
 
 // DetectionAnalysisProblem describes how to match, sort and track a problem.
 type DetectionAnalysisProblem struct {
-	Info           DetectionAnalysisProblemInfo
+	Meta           *DetectionAnalysisProblemMeta
 	AfterAnalyses  []AnalysisCode
 	BeforeAnalyses []AnalysisCode
 	MatchFunc      func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool
-	Priority       int
-	PriorityFunc   func(allProblems []DetectionAnalysisProblem) int
+	PriorityFunc   func(allProblems []*DetectionAnalysisProblem) int
 }
 
 // GetPriority returns the priority of a problem as an int. If PriorityFunc is defined, this
-// is used to get the priority. Otherwise, the Priority integer field is used.
-func (dap *DetectionAnalysisProblem) GetPriority(allProblems []DetectionAnalysisProblem) int {
-	if dap.PriorityFunc == nil {
-		return dap.Priority
+// is used to get the priority. Otherwise, the Priority within the 'Meta' field is used.
+func (dap *DetectionAnalysisProblem) GetPriority(allProblems []*DetectionAnalysisProblem) int {
+	if dap.Meta == nil {
+		return 0
 	}
-	return dap.PriorityFunc(allProblems)
+	if dap.PriorityFunc != nil {
+		dap.Meta.Priority = dap.PriorityFunc(allProblems)
+	}
+	return dap.Meta.Priority
 }
 
 // HasMatch returns true if a DetectionAnalysisProblem matches the provided states.
@@ -59,24 +68,24 @@ func (dap *DetectionAnalysisProblem) HasMatch(a *DetectionAnalysis, ca *clusterA
 }
 
 // detectionAnalysisProblems contains all possible problems to match during detection analysis.
-var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
+var detectionAnalysisProblems = map[AnalysisCode]*DetectionAnalysisProblem{
 	// InvalidPrimary and InvalidReplica
 	InvalidPrimary: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    InvalidPrimary,
 			Description: "VTOrc hasn't been able to reach the primary even once since restart/shutdown",
+			Priority:    detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && isInvalid
 		},
 	},
 	InvalidReplica: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    InvalidReplica,
 			Description: "VTOrc hasn't been able to reach the replica even once since restart/shutdown",
+			Priority:    detectionAnalysisPriorityMedium,
 		},
-		Priority: 1,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return isInvalid
 		},
@@ -84,12 +93,12 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 
 	// PrimaryDiskStalled
 	PrimaryDiskStalled: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:           PrimaryDiskStalled,
 			Description:        "Primary has a stalled disk",
 			HasShardWideAction: true,
+			Priority:           detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.IsDiskStalled
 		},
@@ -97,34 +106,34 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 
 	// DeadPrimary*
 	DeadPrimaryWithoutReplicas: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:           DeadPrimaryWithoutReplicas,
 			Description:        "Primary cannot be reached by vtorc and has no replica",
 			HasShardWideAction: true,
+			Priority:           detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas == 0
 		},
 	},
 	DeadPrimary: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:           DeadPrimary,
 			Description:        "Primary cannot be reached by vtorc and none of its replicas is replicating",
 			HasShardWideAction: true,
+			Priority:           detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountValidReplicas == a.CountReplicas && a.CountValidReplicatingReplicas == 0
 		},
 	},
 	DeadPrimaryAndReplicas: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:           DeadPrimaryAndReplicas,
 			Description:        "Primary cannot be reached by vtorc and none of its replicas is replicating",
 			HasShardWideAction: true,
+			Priority:           detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && !a.LastCheckValid && a.CountReplicas > 0 && a.CountValidReplicas == 0 && a.CountValidReplicatingReplicas == 0
 		},
@@ -132,52 +141,55 @@ var detectionAnalysisProblems = map[AnalysisCode]DetectionAnalysisProblem{
 
 	// MySQL read-only checks
 	PrimaryIsReadOnly: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    PrimaryIsReadOnly,
 			Description: "",
+			Priority:    detectionAnalysisPriorityHigh,
 		},
-		Priority: 0,
 	},
 	ReplicaIsWritable: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    ReplicaIsWritable,
 			Description: "",
+			Priority:    detectionAnalysisPriorityMedium,
 		},
-		Priority: 1,
 	},
 
 	// Semi-sync checks
 	PrimarySemiSyncMustBeSet: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    PrimarySemiSyncMustBeSet,
 			Description: "Primary semi-sync must be set",
+			Priority:    detectionAnalysisPriorityHigh,
 		},
 		AfterAnalyses: []AnalysisCode{ReplicaSemiSyncMustBeSet},
-		Priority:      0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return a.IsClusterPrimary && policy.SemiSyncAckers(ca.durability, tablet) != 0 && !a.SemiSyncPrimaryEnabled
 		},
 	},
 	ReplicaSemiSyncMustBeSet: {
-		Info: DetectionAnalysisProblemInfo{
+		Meta: &DetectionAnalysisProblemMeta{
 			Analysis:    ReplicaSemiSyncMustBeSet,
 			Description: "Replica semi-sync must be set",
+			Priority:    detectionAnalysisPriorityHigh,
 		},
 		BeforeAnalyses: []AnalysisCode{PrimarySemiSyncMustBeSet},
-		Priority:       0,
 		MatchFunc: func(a *DetectionAnalysis, ca *clusterAnalysis, primaryTablet, tablet *topodatapb.Tablet, isInvalid bool) bool {
 			return topo.IsReplicaType(a.TabletType) && !a.IsPrimary && policy.IsReplicaSemiSync(ca.durability, primaryTablet, tablet) && !a.SemiSyncReplicaEnabled
 		},
 	},
 }
 
-func sortDetectionAnalysisMatchedProblems(allProblems []DetectionAnalysisProblem) []DetectionAnalysisProblem {
+func sortDetectionAnalysisMatchedProblems(allProblems []*DetectionAnalysisProblem) {
 	// use slices.SortStableFunc because it keeps the original order of equal elements.
-	slices.SortStableFunc(allProblems, func(a, b DetectionAnalysisProblem) int {
-		aAnalysis := a.Info.Analysis
-		bAnalysis := b.Info.Analysis
+	slices.SortStableFunc(allProblems, func(a, b *DetectionAnalysisProblem) int {
+		if a.Meta == nil || b.Meta == nil {
+			return 0 // this should not happen
+		}
 
-		// handle dependencies
+		// handle before/after dependencies
+		aAnalysis := a.Meta.Analysis
+		bAnalysis := b.Meta.Analysis
 		if slices.Contains(b.BeforeAnalyses, aAnalysis) || slices.Contains(a.AfterAnalyses, bAnalysis) {
 			return 1
 		}
@@ -186,10 +198,10 @@ func sortDetectionAnalysisMatchedProblems(allProblems []DetectionAnalysisProblem
 		}
 
 		// prioritize HasShardWideAction
-		if !a.Info.HasShardWideAction && b.Info.HasShardWideAction {
+		if !a.Meta.HasShardWideAction && b.Meta.HasShardWideAction {
 			return 1
 		}
-		if a.Info.HasShardWideAction && !b.Info.HasShardWideAction {
+		if a.Meta.HasShardWideAction && !b.Meta.HasShardWideAction {
 			return -1
 		}
 
@@ -206,5 +218,4 @@ func sortDetectionAnalysisMatchedProblems(allProblems []DetectionAnalysisProblem
 		// equal
 		return 0
 	})
-	return allProblems
 }
