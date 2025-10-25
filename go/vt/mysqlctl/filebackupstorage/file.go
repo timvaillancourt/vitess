@@ -24,6 +24,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/pflag"
 
@@ -145,11 +147,34 @@ func newFileBackupStorage(params backupstorage.Params) *FileBackupStorage {
 	return &FileBackupStorage{params}
 }
 
+// parseBackupStoragePath returns a full path to the provided dir. It also
+// confirms the provided dir string does not cause a directory traversal
+// to a path outside of FileBackupStorageRoot.
+func parseBackupStoragePath(dir string) (string, error) {
+	path := path.Join(FileBackupStorageRoot, dir)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return path, fmt.Errorf("failed to parse backup path: %v", err)
+	}
+	absRootPath, err := filepath.Abs(FileBackupStorageRoot)
+	if err != nil {
+		return path, fmt.Errorf("failed to parse backup root path: %v", err)
+	}
+	if absPath != absRootPath && !strings.HasPrefix(absPath, absRootPath+string(os.PathSeparator)) {
+		return path, fmt.Errorf("invalid backup directory")
+	}
+	return path, nil
+}
+
 // ListBackups is part of the BackupStorage interface
 func (fbs *FileBackupStorage) ListBackups(ctx context.Context, dir string) ([]backupstorage.BackupHandle, error) {
-	// ReadDir already sorts the results
-	p := path.Join(FileBackupStorageRoot, dir)
-	fi, err := os.ReadDir(p)
+	// Check dir is not a directory traversal.
+	path, err := parseBackupStoragePath(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse backup path %q: %v", path, err)
+	}
+
+	fi, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

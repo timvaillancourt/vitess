@@ -19,7 +19,10 @@ package filebackupstorage
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/vt/mysqlctl/backupstorage"
 )
@@ -36,6 +39,25 @@ import (
 func setupFileBackupStorage(t *testing.T) backupstorage.BackupStorage {
 	FileBackupStorageRoot = t.TempDir()
 	return newFileBackupStorage(backupstorage.NoParams())
+}
+
+func TestParseBackupStoragePath(t *testing.T) {
+	origFileBackupStorageRoot := FileBackupStorageRoot
+	defer func() {
+		FileBackupStorageRoot = origFileBackupStorageRoot
+	}()
+	FileBackupStorageRoot = t.TempDir()
+
+	t.Run("success", func(t *testing.T) {
+		path, err := parseBackupStoragePath("good/path")
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join(FileBackupStorageRoot, "good/path"), path)
+	})
+
+	t.Run("dir-traversal", func(t *testing.T) {
+		_, err := parseBackupStoragePath("../../..")
+		require.ErrorContains(t, err, "invalid backup directory")
+	})
 }
 
 func TestListBackups(t *testing.T) {
