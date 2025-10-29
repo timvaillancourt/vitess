@@ -15,7 +15,7 @@ go.sum @harshit-gangal @mattlord @rohit-nayak-ps @systay @frouioui
 /java/ @harshit-gangal
 /go/cmd @mattlord
 /go/cmd/vtadmin @beingnoble03
-/go/cmd/vtctldclient @mattlord
+/go/cmd/vtctldclient @mattlord @timvaillancourt
 /go/cmd/vtctldclient/command/throttler.go @shlomi-noach @mattlord
 /go/cmd/vtctldclient/command/vreplication @mattlord @rohit-nayak-ps @shlomi-noach @beingnoble03
 /go/cmd/vtctldclient/command/backups.go @frouioui @mattlord
@@ -34,7 +34,7 @@ go.sum @harshit-gangal @mattlord @rohit-nayak-ps @systay @frouioui
 /go/test/endtoend/vtorc @shlomi-noach @timvaillancourt
 /go/tools/ @frouioui @systay
 /go/vt/dbconnpool @harshit-gangal @mattlord
-/go/vt/discovery @frouioui
+/go/vt/discovery @frouioui @timvaillancourt
 /go/vt/discovery/*tablet_picker* @rohit-nayak-ps @mattlord
 /go/vt/mysqlctl @mattlord @frouioui
 /go/vt/proto @harshit-gangal @mattlord
@@ -45,16 +45,16 @@ go.sum @harshit-gangal @mattlord @rohit-nayak-ps @systay @frouioui
 /go/vt/sqlparser @harshit-gangal @systay
 /go/vt/srvtopo @mattlord
 /go/vt/sysvars @harshit-gangal @systay
-/go/vt/topo @mattlord
-/go/vt/topotools @mattlord
+/go/vt/topo @mattlord @timvaillancourt
+/go/vt/topotools @mattlord @timvaillancourt
 /go/vt/vitessdriver @harshit-gangal
 /go/vt/vtadmin @beingnoble03 @rohit-nayak-ps
 /go/vt/vtctl @rohit-nayak-ps
 /go/vt/vtctl/vtctl.go @rohit-nayak-ps
-/go/vt/vtctl/grpcvtctldclient @mattlord
-/go/vt/vtctl/grpcvtctldserver @mattlord
-/go/vt/vtctl/reparentutil
-/go/vt/vtctl/vtctldclient @mattlord
+/go/vt/vtctl/grpcvtctldclient @mattlord @timvaillancourt
+/go/vt/vtctl/grpcvtctldserver @mattlord @timvaillancourt
+/go/vt/vtctl/reparentutil @arthurschreiber @timvaillancourt
+/go/vt/vtctl/vtctldclient @mattlord @timvaillancourt
 /go/vt/vtctld @rohit-nayak-ps @mattlord
 /go/vt/vterrors @harshit-gangal @systay @frouioui
 /go/vt/vtexplain @systay @harshit-gangal
@@ -63,13 +63,13 @@ go.sum @harshit-gangal @mattlord @rohit-nayak-ps @systay @frouioui
 /go/vt/vtgate/planbuilder @harshit-gangal @systay @frouioui @arthurschreiber
 /go/vt/vtgate/*vstream* @rohit-nayak-ps @mattlord @shlomi-noach @beingnoble03
 /go/vt/vtgate/evalengine @dbussink @systay
-/go/vt/vtorc @shlomi-noach @timvaillancourt
+/go/vt/vtorc @shlomi-noach @timvaillancourt @mattlord
 /go/vt/vttablet/*conn* @harshit-gangal @systay
 /go/vt/vttablet/endtoend @harshit-gangal @mattlord @rohit-nayak-ps @systay
 /go/vt/vttablet/grpc* @rohit-nayak-ps @shlomi-noach @harshit-gangal
 /go/vt/vttablet/onlineddl @mattlord @rohit-nayak-ps @shlomi-noach
 /go/vt/vttablet/queryservice @harshit-gangal @systay
-/go/vt/vttablet/tabletmanager @rohit-nayak-ps @shlomi-noach
+/go/vt/vttablet/tabletmanager @rohit-nayak-ps @shlomi-noach @timvaillancourt
 /go/vt/vttablet/tabletmanager/rpc_backup.go @rohit-nayak-ps @shlomi-noach @frouioui
 /go/vt/vttablet/tabletmanager/rpc_throttler.go @shlomi-noach @mattlord @timvaillancourt
 /go/vt/vttablet/tabletserver/throttle @shlomi-noach @mattlord @timvaillancourt
@@ -86,6 +86,7 @@ go.sum @harshit-gangal @mattlord @rohit-nayak-ps @systay @frouioui
 /proto/vtadmin.proto @beingnoble03 @mattlord
 /proto/vtctldata.proto @mattlord
 /proto/vtctlservice.proto @mattlord
+/proto/vtorcdata.proto @shlomi-noach @timvaillancourt @mattlord
 /test/ @frouioui @rohit-nayak-ps @mattlord @harshit-gangal
 /tools/ @frouioui @rohit-nayak-ps
 /web/vtadmin @beingnoble03
