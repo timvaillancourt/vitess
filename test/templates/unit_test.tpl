@@ -98,8 +98,10 @@ jobs:
         sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk
 
         mkdir -p dist bin
-        curl -s -L https://github.com/coreos/etcd/releases/download/v3.5.17/etcd-v3.5.17-linux-amd64.tar.gz | tar -zxC dist
-        mv dist/etcd-v3.5.17-linux-amd64/{etcd,etcdctl} bin/
+        curl -s -L -o {{.Etcd.Filename}} {{.Etcd.URL}}
+        sha256sum {{.Etcd.Filename}} | grep -q {{.Etcd.ChecksumSHA256}}
+        tar -C dist -zxf {{.Etcd.Filename}}
+        mv dist/etcd-*/{etcd,etcdctl} bin/
 
         go mod download
         go install golang.org/x/tools/cmd/goimports@{{.Goimports.SHA}} # {{.Goimports.Comment}}

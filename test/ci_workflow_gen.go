@@ -62,6 +62,14 @@ const (
 	goimportsTag      = "v0.39.0"
 )
 
+var (
+	etcdMeta = FileDependencyMeta{
+		Filename:       "etcd-v3.5.25-linux-amd64.tar.gz",
+		URL:            "https://github.com/coreos/etcd/releases/download/v3.5.25/etcd-v3.5.25-linux-amd64.tar.gz",
+		ChecksumSHA256: "168af82b59772e1811a9af7b358d42f5c6df44e0d9767afb006ecf12c4bbd607",
+	}
+)
+
 // To support a private git repository, set goPrivate to a repo in
 // github.com/org/repo format. This assumes a GitHub PAT token is
 // set as a repo secret named GH_ACCESS_TOKEN. The GitHub PAT must
@@ -196,9 +204,19 @@ type GitMetas struct {
 	GoJunitReport *GitMeta
 }
 
+type FileDependencyMeta struct {
+	Filename, URL, ChecksumSHA256 string
+}
+
 type unitTest struct {
 	*GitMetas
-	Name, RunsOn, Platform, FileName, GoPrivate, Evalengine string
+	Name       string
+	RunsOn     string
+	Platform   string
+	FileName   string
+	GoPrivate  string
+	Evalengine string
+	Etcd       FileDependencyMeta
 }
 
 type clusterTest struct {
@@ -451,6 +469,7 @@ func generateUnitTestWorkflows(gitMetas *GitMetas) {
 				Platform:   string(platform),
 				GoPrivate:  goPrivate,
 				Evalengine: evalengine,
+				Etcd:       etcdMeta,
 				GitMetas:   gitMetas,
 			}
 			test.FileName = fmt.Sprintf("unit_test_%s%s.yml", evalengineToString(evalengine), platform)
