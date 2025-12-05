@@ -339,6 +339,9 @@ func (ts *Server) UpdateTablet(ctx context.Context, ti *TabletInfo) error {
 
 	span, ctx := trace.NewSpan(ctx, "TopoServer.UpdateTablet")
 	span.Annotate("tablet", topoproto.TabletAliasString(ti.Alias))
+	span.Annotate("previous_version", ti.Tablet.RecordVersion)
+	ti.Tablet.RecordVersion++ // increment the tablet record version
+	span.Annotate("new_version", ti.Tablet.RecordVersion)
 	defer span.Finish()
 
 	data, err := ti.Tablet.MarshalVT()

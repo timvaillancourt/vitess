@@ -398,8 +398,11 @@ type Tablet struct {
 	PrimaryTermStartTime *vttime.Time `protobuf:"bytes,14,opt,name=primary_term_start_time,json=primaryTermStartTime,proto3" json:"primary_term_start_time,omitempty"`
 	// default_conn_collation is the default connection collation used by this tablet.
 	DefaultConnCollation uint32 `protobuf:"varint,16,opt,name=default_conn_collation,json=defaultConnCollation,proto3" json:"default_conn_collation,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// RecordVersion represents the version of the tablet record. It is incremented each
+	// time the tablet record is updated in the topology.
+	RecordVersion uint64 `protobuf:"varint,17,opt,name=record_version,json=recordVersion,proto3" json:"record_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Tablet) Reset() {
@@ -519,6 +522,13 @@ func (x *Tablet) GetPrimaryTermStartTime() *vttime.Time {
 func (x *Tablet) GetDefaultConnCollation() uint32 {
 	if x != nil {
 		return x.DefaultConnCollation
+	}
+	return 0
+}
+
+func (x *Tablet) GetRecordVersion() uint64 {
+	if x != nil {
+		return x.RecordVersion
 	}
 	return 0
 }
@@ -1791,7 +1801,7 @@ const file_topodata_proto_rawDesc = "" +
 	"\x03end\x18\x02 \x01(\fR\x03end\"3\n" +
 	"\vTabletAlias\x12\x12\n" +
 	"\x04cell\x18\x01 \x01(\tR\x04cell\x12\x10\n" +
-	"\x03uid\x18\x02 \x01(\rR\x03uid\"\xba\x05\n" +
+	"\x03uid\x18\x02 \x01(\rR\x03uid\"\xe1\x05\n" +
 	"\x06Tablet\x12+\n" +
 	"\x05alias\x18\x01 \x01(\v2\x15.topodata.TabletAliasR\x05alias\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x128\n" +
@@ -1807,7 +1817,8 @@ const file_topodata_proto_rawDesc = "" +
 	"\n" +
 	"mysql_port\x18\r \x01(\x05R\tmysqlPort\x12C\n" +
 	"\x17primary_term_start_time\x18\x0e \x01(\v2\f.vttime.TimeR\x14primaryTermStartTime\x124\n" +
-	"\x16default_conn_collation\x18\x10 \x01(\rR\x14defaultConnCollation\x1a:\n" +
+	"\x16default_conn_collation\x18\x10 \x01(\rR\x14defaultConnCollation\x12%\n" +
+	"\x0erecord_version\x18\x11 \x01(\x04R\rrecordVersion\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\x1a7\n" +
