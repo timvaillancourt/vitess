@@ -1780,8 +1780,13 @@ type QueryResult struct {
 	Info                string                 `protobuf:"bytes,6,opt,name=info,proto3" json:"info,omitempty"`
 	SessionStateChanges string                 `protobuf:"bytes,7,opt,name=session_state_changes,json=sessionStateChanges,proto3" json:"session_state_changes,omitempty"`
 	InsertIdChanged     bool                   `protobuf:"varint,8,opt,name=insert_id_changed,json=insertIdChanged,proto3" json:"insert_id_changed,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// realtime_stats are high-volume stats piggy-backed on QueryResult
+	// messages in order for VTGate to intercept them. These stats have
+	// tablet-level scope and do not measure reflect the  execution of
+	// the query they are returned on.
+	RealtimeStats *QueryRealtimeStats `protobuf:"bytes,9,opt,name=realtime_stats,json=realtimeStats,proto3" json:"realtime_stats,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -1861,6 +1866,13 @@ func (x *QueryResult) GetInsertIdChanged() bool {
 		return x.InsertIdChanged
 	}
 	return false
+}
+
+func (x *QueryResult) GetRealtimeStats() *QueryRealtimeStats {
+	if x != nil {
+		return x.RealtimeStats
+	}
+	return nil
 }
 
 // QueryWarning is used to convey out of band query execution warnings
@@ -5265,6 +5277,88 @@ func (x *RealtimeStats) GetTxUnresolved() bool {
 	return false
 }
 
+// QueryRealtimeStats are high-volume stats that piggyback on QueryResponse messages.
+type QueryRealtimeStats struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// replication_lag_seconds represents the current re
+	ReplicationLagSeconds uint32 `protobuf:"varint,1,opt,name=replication_lag_seconds,json=replicationLagSeconds,proto3" json:"replication_lag_seconds,omitempty"`
+	// cache_warmed_percent represents the usage percentage of database caches (probably InnoDB).
+	CacheWarmedPercent float64 `protobuf:"fixed64,2,opt,name=cache_warmed_percent,json=cacheWarmedPercent,proto3" json:"cache_warmed_percent,omitempty"`
+	// cpu_usage represent the percent usage of all CPUs.
+	CpuUsage float64 `protobuf:"fixed64,3,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`
+	// query_conn_pool_usage represents the usage of the query conn pool.
+	QueryConnPoolUsage float64 `protobuf:"fixed64,4,opt,name=query_conn_pool_usage,json=queryConnPoolUsage,proto3" json:"query_conn_pool_usage,omitempty"`
+	// queries_running represents the number of queries currently running.
+	QueriesRunning uint64 `protobuf:"varint,5,opt,name=queries_running,json=queriesRunning,proto3" json:"queries_running,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryRealtimeStats) Reset() {
+	*x = QueryRealtimeStats{}
+	mi := &file_query_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryRealtimeStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryRealtimeStats) ProtoMessage() {}
+
+func (x *QueryRealtimeStats) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryRealtimeStats.ProtoReflect.Descriptor instead.
+func (*QueryRealtimeStats) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *QueryRealtimeStats) GetReplicationLagSeconds() uint32 {
+	if x != nil {
+		return x.ReplicationLagSeconds
+	}
+	return 0
+}
+
+func (x *QueryRealtimeStats) GetCacheWarmedPercent() float64 {
+	if x != nil {
+		return x.CacheWarmedPercent
+	}
+	return 0
+}
+
+func (x *QueryRealtimeStats) GetCpuUsage() float64 {
+	if x != nil {
+		return x.CpuUsage
+	}
+	return 0
+}
+
+func (x *QueryRealtimeStats) GetQueryConnPoolUsage() float64 {
+	if x != nil {
+		return x.QueryConnPoolUsage
+	}
+	return 0
+}
+
+func (x *QueryRealtimeStats) GetQueriesRunning() uint64 {
+	if x != nil {
+		return x.QueriesRunning
+	}
+	return 0
+}
+
 // AggregateStats contains information about the health of a group of
 // tablets for a Target.  It is used to propagate stats from a vtgate
 // to another, or from the Gateway layer of a vtgate to the routing
@@ -5289,7 +5383,7 @@ type AggregateStats struct {
 
 func (x *AggregateStats) Reset() {
 	*x = AggregateStats{}
-	mi := &file_query_proto_msgTypes[61]
+	mi := &file_query_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5301,7 +5395,7 @@ func (x *AggregateStats) String() string {
 func (*AggregateStats) ProtoMessage() {}
 
 func (x *AggregateStats) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[61]
+	mi := &file_query_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5314,7 +5408,7 @@ func (x *AggregateStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AggregateStats.ProtoReflect.Descriptor instead.
 func (*AggregateStats) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{61}
+	return file_query_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *AggregateStats) GetHealthyTabletCount() int32 {
@@ -5406,7 +5500,7 @@ type StreamHealthResponse struct {
 
 func (x *StreamHealthResponse) Reset() {
 	*x = StreamHealthResponse{}
-	mi := &file_query_proto_msgTypes[62]
+	mi := &file_query_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5418,7 +5512,7 @@ func (x *StreamHealthResponse) String() string {
 func (*StreamHealthResponse) ProtoMessage() {}
 
 func (x *StreamHealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[62]
+	mi := &file_query_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5431,7 +5525,7 @@ func (x *StreamHealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamHealthResponse.ProtoReflect.Descriptor instead.
 func (*StreamHealthResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{62}
+	return file_query_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *StreamHealthResponse) GetTarget() *Target {
@@ -5482,7 +5576,7 @@ type TransactionMetadata struct {
 
 func (x *TransactionMetadata) Reset() {
 	*x = TransactionMetadata{}
-	mi := &file_query_proto_msgTypes[63]
+	mi := &file_query_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5494,7 +5588,7 @@ func (x *TransactionMetadata) String() string {
 func (*TransactionMetadata) ProtoMessage() {}
 
 func (x *TransactionMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[63]
+	mi := &file_query_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5507,7 +5601,7 @@ func (x *TransactionMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransactionMetadata.ProtoReflect.Descriptor instead.
 func (*TransactionMetadata) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{63}
+	return file_query_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *TransactionMetadata) GetDtid() string {
@@ -5550,7 +5644,7 @@ type GetSchemaRequest struct {
 
 func (x *GetSchemaRequest) Reset() {
 	*x = GetSchemaRequest{}
-	mi := &file_query_proto_msgTypes[64]
+	mi := &file_query_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5562,7 +5656,7 @@ func (x *GetSchemaRequest) String() string {
 func (*GetSchemaRequest) ProtoMessage() {}
 
 func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[64]
+	mi := &file_query_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5575,7 +5669,7 @@ func (x *GetSchemaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaRequest.ProtoReflect.Descriptor instead.
 func (*GetSchemaRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{64}
+	return file_query_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *GetSchemaRequest) GetTarget() *Target {
@@ -5611,7 +5705,7 @@ type UDFInfo struct {
 
 func (x *UDFInfo) Reset() {
 	*x = UDFInfo{}
-	mi := &file_query_proto_msgTypes[65]
+	mi := &file_query_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5623,7 +5717,7 @@ func (x *UDFInfo) String() string {
 func (*UDFInfo) ProtoMessage() {}
 
 func (x *UDFInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[65]
+	mi := &file_query_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5636,7 +5730,7 @@ func (x *UDFInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UDFInfo.ProtoReflect.Descriptor instead.
 func (*UDFInfo) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{65}
+	return file_query_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *UDFInfo) GetName() string {
@@ -5672,7 +5766,7 @@ type GetSchemaResponse struct {
 
 func (x *GetSchemaResponse) Reset() {
 	*x = GetSchemaResponse{}
-	mi := &file_query_proto_msgTypes[66]
+	mi := &file_query_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5684,7 +5778,7 @@ func (x *GetSchemaResponse) String() string {
 func (*GetSchemaResponse) ProtoMessage() {}
 
 func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[66]
+	mi := &file_query_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5697,7 +5791,7 @@ func (x *GetSchemaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSchemaResponse.ProtoReflect.Descriptor instead.
 func (*GetSchemaResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{66}
+	return file_query_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *GetSchemaResponse) GetUdfs() []*UDFInfo {
@@ -5731,7 +5825,7 @@ type StreamEvent_Statement struct {
 
 func (x *StreamEvent_Statement) Reset() {
 	*x = StreamEvent_Statement{}
-	mi := &file_query_proto_msgTypes[68]
+	mi := &file_query_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5743,7 +5837,7 @@ func (x *StreamEvent_Statement) String() string {
 func (*StreamEvent_Statement) ProtoMessage() {}
 
 func (x *StreamEvent_Statement) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[68]
+	mi := &file_query_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5901,7 +5995,7 @@ const file_query_proto_rawDesc = "" +
 	"columnType\"7\n" +
 	"\x03Row\x12\x18\n" +
 	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
-	"\x06values\x18\x02 \x01(\fR\x06values\"\x8f\x02\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"\xd1\x02\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1b\n" +
@@ -5910,7 +6004,8 @@ const file_query_proto_rawDesc = "" +
 	".query.RowR\x04rows\x12\x12\n" +
 	"\x04info\x18\x06 \x01(\tR\x04info\x122\n" +
 	"\x15session_state_changes\x18\a \x01(\tR\x13sessionStateChanges\x12*\n" +
-	"\x11insert_id_changed\x18\b \x01(\bR\x0finsertIdChangedJ\x04\b\x05\x10\x06\"<\n" +
+	"\x11insert_id_changed\x18\b \x01(\bR\x0finsertIdChanged\x12@\n" +
+	"\x0erealtime_stats\x18\t \x01(\v2\x19.query.QueryRealtimeStatsR\rrealtimeStatsJ\x04\b\x05\x10\x06\"<\n" +
 	"\fQueryWarning\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\xa0\x03\n" +
@@ -6176,7 +6271,13 @@ const file_query_proto_rawDesc = "" +
 	"\x13view_schema_changed\x18\b \x03(\tR\x11viewSchemaChanged\x12!\n" +
 	"\fudfs_changed\x18\t \x01(\bR\vudfsChanged\x12#\n" +
 	"\rtx_unresolved\x18\n" +
-	" \x01(\bR\ftxUnresolved\"\xf6\x01\n" +
+	" \x01(\bR\ftxUnresolved\"\xf7\x01\n" +
+	"\x12QueryRealtimeStats\x126\n" +
+	"\x17replication_lag_seconds\x18\x01 \x01(\rR\x15replicationLagSeconds\x120\n" +
+	"\x14cache_warmed_percent\x18\x02 \x01(\x01R\x12cacheWarmedPercent\x12\x1b\n" +
+	"\tcpu_usage\x18\x03 \x01(\x01R\bcpuUsage\x121\n" +
+	"\x15query_conn_pool_usage\x18\x04 \x01(\x01R\x12queryConnPoolUsage\x12'\n" +
+	"\x0fqueries_running\x18\x05 \x01(\x04R\x0equeriesRunning\"\xf6\x01\n" +
 	"\x0eAggregateStats\x120\n" +
 	"\x14healthy_tablet_count\x18\x01 \x01(\x05R\x12healthyTabletCount\x124\n" +
 	"\x16unhealthy_tablet_count\x18\x02 \x01(\x05R\x14unhealthyTabletCount\x12=\n" +
@@ -6318,7 +6419,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 71)
 var file_query_proto_goTypes = []any{
 	(MySqlFlag)(0),                            // 0: query.MySqlFlag
 	(Flag)(0),                                 // 1: query.Flag
@@ -6394,26 +6495,27 @@ var file_query_proto_goTypes = []any{
 	(*ReleaseResponse)(nil),                   // 71: query.ReleaseResponse
 	(*StreamHealthRequest)(nil),               // 72: query.StreamHealthRequest
 	(*RealtimeStats)(nil),                     // 73: query.RealtimeStats
-	(*AggregateStats)(nil),                    // 74: query.AggregateStats
-	(*StreamHealthResponse)(nil),              // 75: query.StreamHealthResponse
-	(*TransactionMetadata)(nil),               // 76: query.TransactionMetadata
-	(*GetSchemaRequest)(nil),                  // 77: query.GetSchemaRequest
-	(*UDFInfo)(nil),                           // 78: query.UDFInfo
-	(*GetSchemaResponse)(nil),                 // 79: query.GetSchemaResponse
-	nil,                                       // 80: query.BoundQuery.BindVariablesEntry
-	(*StreamEvent_Statement)(nil),             // 81: query.StreamEvent.Statement
-	nil,                                       // 82: query.GetSchemaResponse.TableDefinitionEntry
-	(topodata.TabletType)(0),                  // 83: topodata.TabletType
-	(*vtrpc.CallerID)(nil),                    // 84: vtrpc.CallerID
-	(*vtrpc.RPCError)(nil),                    // 85: vtrpc.RPCError
-	(*topodata.TabletAlias)(nil),              // 86: topodata.TabletAlias
+	(*QueryRealtimeStats)(nil),                // 74: query.QueryRealtimeStats
+	(*AggregateStats)(nil),                    // 75: query.AggregateStats
+	(*StreamHealthResponse)(nil),              // 76: query.StreamHealthResponse
+	(*TransactionMetadata)(nil),               // 77: query.TransactionMetadata
+	(*GetSchemaRequest)(nil),                  // 78: query.GetSchemaRequest
+	(*UDFInfo)(nil),                           // 79: query.UDFInfo
+	(*GetSchemaResponse)(nil),                 // 80: query.GetSchemaResponse
+	nil,                                       // 81: query.BoundQuery.BindVariablesEntry
+	(*StreamEvent_Statement)(nil),             // 82: query.StreamEvent.Statement
+	nil,                                       // 83: query.GetSchemaResponse.TableDefinitionEntry
+	(topodata.TabletType)(0),                  // 84: topodata.TabletType
+	(*vtrpc.CallerID)(nil),                    // 85: vtrpc.CallerID
+	(*vtrpc.RPCError)(nil),                    // 86: vtrpc.RPCError
+	(*topodata.TabletAlias)(nil),              // 87: topodata.TabletAlias
 }
 var file_query_proto_depIdxs = []int32{
-	83,  // 0: query.Target.tablet_type:type_name -> topodata.TabletType
+	84,  // 0: query.Target.tablet_type:type_name -> topodata.TabletType
 	2,   // 1: query.Value.type:type_name -> query.Type
 	2,   // 2: query.BindVariable.type:type_name -> query.Type
 	16,  // 3: query.BindVariable.values:type_name -> query.Value
-	80,  // 4: query.BoundQuery.bind_variables:type_name -> query.BoundQuery.BindVariablesEntry
+	81,  // 4: query.BoundQuery.bind_variables:type_name -> query.BoundQuery.BindVariablesEntry
 	6,   // 5: query.ExecuteOptions.included_fields:type_name -> query.ExecuteOptions.IncludedFields
 	7,   // 6: query.ExecuteOptions.workload:type_name -> query.ExecuteOptions.Workload
 	8,   // 7: query.ExecuteOptions.transaction_isolation:type_name -> query.ExecuteOptions.TransactionIsolation
@@ -6423,143 +6525,144 @@ var file_query_proto_depIdxs = []int32{
 	2,   // 11: query.Field.type:type_name -> query.Type
 	20,  // 12: query.QueryResult.fields:type_name -> query.Field
 	21,  // 13: query.QueryResult.rows:type_name -> query.Row
-	81,  // 14: query.StreamEvent.statements:type_name -> query.StreamEvent.Statement
-	15,  // 15: query.StreamEvent.event_token:type_name -> query.EventToken
-	84,  // 16: query.ExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 17: query.ExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 18: query.ExecuteRequest.target:type_name -> query.Target
-	18,  // 19: query.ExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 20: query.ExecuteRequest.options:type_name -> query.ExecuteOptions
-	22,  // 21: query.ExecuteResponse.result:type_name -> query.QueryResult
-	85,  // 22: query.ResultWithError.error:type_name -> vtrpc.RPCError
-	22,  // 23: query.ResultWithError.result:type_name -> query.QueryResult
-	84,  // 24: query.StreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 25: query.StreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 26: query.StreamExecuteRequest.target:type_name -> query.Target
-	18,  // 27: query.StreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 28: query.StreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	22,  // 29: query.StreamExecuteResponse.result:type_name -> query.QueryResult
-	84,  // 30: query.BeginRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 31: query.BeginRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 32: query.BeginRequest.target:type_name -> query.Target
-	19,  // 33: query.BeginRequest.options:type_name -> query.ExecuteOptions
-	86,  // 34: query.BeginResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 35: query.CommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 36: query.CommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 37: query.CommitRequest.target:type_name -> query.Target
-	84,  // 38: query.RollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 39: query.RollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 40: query.RollbackRequest.target:type_name -> query.Target
-	84,  // 41: query.PrepareRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 42: query.PrepareRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 43: query.PrepareRequest.target:type_name -> query.Target
-	84,  // 44: query.CommitPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 45: query.CommitPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 46: query.CommitPreparedRequest.target:type_name -> query.Target
-	84,  // 47: query.RollbackPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 48: query.RollbackPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 49: query.RollbackPreparedRequest.target:type_name -> query.Target
-	84,  // 50: query.CreateTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 51: query.CreateTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 52: query.CreateTransactionRequest.target:type_name -> query.Target
-	13,  // 53: query.CreateTransactionRequest.participants:type_name -> query.Target
-	84,  // 54: query.StartCommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 55: query.StartCommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 56: query.StartCommitRequest.target:type_name -> query.Target
-	3,   // 57: query.StartCommitResponse.state:type_name -> query.StartCommitState
-	84,  // 58: query.SetRollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 59: query.SetRollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 60: query.SetRollbackRequest.target:type_name -> query.Target
-	84,  // 61: query.ConcludeTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 62: query.ConcludeTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 63: query.ConcludeTransactionRequest.target:type_name -> query.Target
-	84,  // 64: query.ReadTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 65: query.ReadTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 66: query.ReadTransactionRequest.target:type_name -> query.Target
-	76,  // 67: query.ReadTransactionResponse.metadata:type_name -> query.TransactionMetadata
-	84,  // 68: query.UnresolvedTransactionsRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 69: query.UnresolvedTransactionsRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 70: query.UnresolvedTransactionsRequest.target:type_name -> query.Target
-	76,  // 71: query.UnresolvedTransactionsResponse.transactions:type_name -> query.TransactionMetadata
-	84,  // 72: query.BeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 73: query.BeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 74: query.BeginExecuteRequest.target:type_name -> query.Target
-	18,  // 75: query.BeginExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 76: query.BeginExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 77: query.BeginExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 78: query.BeginExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 79: query.BeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 80: query.BeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 81: query.BeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 82: query.BeginStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 83: query.BeginStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 84: query.BeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 85: query.BeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 86: query.BeginStreamExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 87: query.BeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 88: query.MessageStreamRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 89: query.MessageStreamRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 90: query.MessageStreamRequest.target:type_name -> query.Target
-	22,  // 91: query.MessageStreamResponse.result:type_name -> query.QueryResult
-	84,  // 92: query.MessageAckRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 93: query.MessageAckRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 94: query.MessageAckRequest.target:type_name -> query.Target
-	16,  // 95: query.MessageAckRequest.ids:type_name -> query.Value
-	22,  // 96: query.MessageAckResponse.result:type_name -> query.QueryResult
-	84,  // 97: query.ReserveExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 98: query.ReserveExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 99: query.ReserveExecuteRequest.target:type_name -> query.Target
-	18,  // 100: query.ReserveExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 101: query.ReserveExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 102: query.ReserveExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 103: query.ReserveExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 104: query.ReserveExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 105: query.ReserveStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 106: query.ReserveStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 107: query.ReserveStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 108: query.ReserveStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 109: query.ReserveStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 110: query.ReserveStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 111: query.ReserveStreamExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 112: query.ReserveStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 113: query.ReserveBeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 114: query.ReserveBeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 115: query.ReserveBeginExecuteRequest.target:type_name -> query.Target
-	18,  // 116: query.ReserveBeginExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 117: query.ReserveBeginExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 118: query.ReserveBeginExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 119: query.ReserveBeginExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 120: query.ReserveBeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 121: query.ReserveBeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 122: query.ReserveBeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 123: query.ReserveBeginStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 124: query.ReserveBeginStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 125: query.ReserveBeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	85,  // 126: query.ReserveBeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 127: query.ReserveBeginStreamExecuteResponse.result:type_name -> query.QueryResult
-	86,  // 128: query.ReserveBeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	84,  // 129: query.ReleaseRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 130: query.ReleaseRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 131: query.ReleaseRequest.target:type_name -> query.Target
-	13,  // 132: query.StreamHealthResponse.target:type_name -> query.Target
-	73,  // 133: query.StreamHealthResponse.realtime_stats:type_name -> query.RealtimeStats
-	86,  // 134: query.StreamHealthResponse.tablet_alias:type_name -> topodata.TabletAlias
-	4,   // 135: query.TransactionMetadata.state:type_name -> query.TransactionState
-	13,  // 136: query.TransactionMetadata.participants:type_name -> query.Target
-	13,  // 137: query.GetSchemaRequest.target:type_name -> query.Target
-	5,   // 138: query.GetSchemaRequest.table_type:type_name -> query.SchemaTableType
-	2,   // 139: query.UDFInfo.return_type:type_name -> query.Type
-	78,  // 140: query.GetSchemaResponse.udfs:type_name -> query.UDFInfo
-	82,  // 141: query.GetSchemaResponse.table_definition:type_name -> query.GetSchemaResponse.TableDefinitionEntry
-	17,  // 142: query.BoundQuery.BindVariablesEntry.value:type_name -> query.BindVariable
-	12,  // 143: query.StreamEvent.Statement.category:type_name -> query.StreamEvent.Statement.Category
-	20,  // 144: query.StreamEvent.Statement.primary_key_fields:type_name -> query.Field
-	21,  // 145: query.StreamEvent.Statement.primary_key_values:type_name -> query.Row
-	146, // [146:146] is the sub-list for method output_type
-	146, // [146:146] is the sub-list for method input_type
-	146, // [146:146] is the sub-list for extension type_name
-	146, // [146:146] is the sub-list for extension extendee
-	0,   // [0:146] is the sub-list for field type_name
+	74,  // 14: query.QueryResult.realtime_stats:type_name -> query.QueryRealtimeStats
+	82,  // 15: query.StreamEvent.statements:type_name -> query.StreamEvent.Statement
+	15,  // 16: query.StreamEvent.event_token:type_name -> query.EventToken
+	85,  // 17: query.ExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 18: query.ExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 19: query.ExecuteRequest.target:type_name -> query.Target
+	18,  // 20: query.ExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 21: query.ExecuteRequest.options:type_name -> query.ExecuteOptions
+	22,  // 22: query.ExecuteResponse.result:type_name -> query.QueryResult
+	86,  // 23: query.ResultWithError.error:type_name -> vtrpc.RPCError
+	22,  // 24: query.ResultWithError.result:type_name -> query.QueryResult
+	85,  // 25: query.StreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 26: query.StreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 27: query.StreamExecuteRequest.target:type_name -> query.Target
+	18,  // 28: query.StreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 29: query.StreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	22,  // 30: query.StreamExecuteResponse.result:type_name -> query.QueryResult
+	85,  // 31: query.BeginRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 32: query.BeginRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 33: query.BeginRequest.target:type_name -> query.Target
+	19,  // 34: query.BeginRequest.options:type_name -> query.ExecuteOptions
+	87,  // 35: query.BeginResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 36: query.CommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 37: query.CommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 38: query.CommitRequest.target:type_name -> query.Target
+	85,  // 39: query.RollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 40: query.RollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 41: query.RollbackRequest.target:type_name -> query.Target
+	85,  // 42: query.PrepareRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 43: query.PrepareRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 44: query.PrepareRequest.target:type_name -> query.Target
+	85,  // 45: query.CommitPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 46: query.CommitPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 47: query.CommitPreparedRequest.target:type_name -> query.Target
+	85,  // 48: query.RollbackPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 49: query.RollbackPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 50: query.RollbackPreparedRequest.target:type_name -> query.Target
+	85,  // 51: query.CreateTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 52: query.CreateTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 53: query.CreateTransactionRequest.target:type_name -> query.Target
+	13,  // 54: query.CreateTransactionRequest.participants:type_name -> query.Target
+	85,  // 55: query.StartCommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 56: query.StartCommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 57: query.StartCommitRequest.target:type_name -> query.Target
+	3,   // 58: query.StartCommitResponse.state:type_name -> query.StartCommitState
+	85,  // 59: query.SetRollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 60: query.SetRollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 61: query.SetRollbackRequest.target:type_name -> query.Target
+	85,  // 62: query.ConcludeTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 63: query.ConcludeTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 64: query.ConcludeTransactionRequest.target:type_name -> query.Target
+	85,  // 65: query.ReadTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 66: query.ReadTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 67: query.ReadTransactionRequest.target:type_name -> query.Target
+	77,  // 68: query.ReadTransactionResponse.metadata:type_name -> query.TransactionMetadata
+	85,  // 69: query.UnresolvedTransactionsRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 70: query.UnresolvedTransactionsRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 71: query.UnresolvedTransactionsRequest.target:type_name -> query.Target
+	77,  // 72: query.UnresolvedTransactionsResponse.transactions:type_name -> query.TransactionMetadata
+	85,  // 73: query.BeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 74: query.BeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 75: query.BeginExecuteRequest.target:type_name -> query.Target
+	18,  // 76: query.BeginExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 77: query.BeginExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 78: query.BeginExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 79: query.BeginExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 80: query.BeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 81: query.BeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 82: query.BeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 83: query.BeginStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 84: query.BeginStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 85: query.BeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 86: query.BeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 87: query.BeginStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 88: query.BeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 89: query.MessageStreamRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 90: query.MessageStreamRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 91: query.MessageStreamRequest.target:type_name -> query.Target
+	22,  // 92: query.MessageStreamResponse.result:type_name -> query.QueryResult
+	85,  // 93: query.MessageAckRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 94: query.MessageAckRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 95: query.MessageAckRequest.target:type_name -> query.Target
+	16,  // 96: query.MessageAckRequest.ids:type_name -> query.Value
+	22,  // 97: query.MessageAckResponse.result:type_name -> query.QueryResult
+	85,  // 98: query.ReserveExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 99: query.ReserveExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 100: query.ReserveExecuteRequest.target:type_name -> query.Target
+	18,  // 101: query.ReserveExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 102: query.ReserveExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 103: query.ReserveExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 104: query.ReserveExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 105: query.ReserveExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 106: query.ReserveStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 107: query.ReserveStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 108: query.ReserveStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 109: query.ReserveStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 110: query.ReserveStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 111: query.ReserveStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 112: query.ReserveStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 113: query.ReserveStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 114: query.ReserveBeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 115: query.ReserveBeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 116: query.ReserveBeginExecuteRequest.target:type_name -> query.Target
+	18,  // 117: query.ReserveBeginExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 118: query.ReserveBeginExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 119: query.ReserveBeginExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 120: query.ReserveBeginExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 121: query.ReserveBeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 122: query.ReserveBeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 123: query.ReserveBeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 124: query.ReserveBeginStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 125: query.ReserveBeginStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 126: query.ReserveBeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 127: query.ReserveBeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 128: query.ReserveBeginStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 129: query.ReserveBeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 130: query.ReleaseRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 131: query.ReleaseRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 132: query.ReleaseRequest.target:type_name -> query.Target
+	13,  // 133: query.StreamHealthResponse.target:type_name -> query.Target
+	73,  // 134: query.StreamHealthResponse.realtime_stats:type_name -> query.RealtimeStats
+	87,  // 135: query.StreamHealthResponse.tablet_alias:type_name -> topodata.TabletAlias
+	4,   // 136: query.TransactionMetadata.state:type_name -> query.TransactionState
+	13,  // 137: query.TransactionMetadata.participants:type_name -> query.Target
+	13,  // 138: query.GetSchemaRequest.target:type_name -> query.Target
+	5,   // 139: query.GetSchemaRequest.table_type:type_name -> query.SchemaTableType
+	2,   // 140: query.UDFInfo.return_type:type_name -> query.Type
+	79,  // 141: query.GetSchemaResponse.udfs:type_name -> query.UDFInfo
+	83,  // 142: query.GetSchemaResponse.table_definition:type_name -> query.GetSchemaResponse.TableDefinitionEntry
+	17,  // 143: query.BoundQuery.BindVariablesEntry.value:type_name -> query.BindVariable
+	12,  // 144: query.StreamEvent.Statement.category:type_name -> query.StreamEvent.Statement.Category
+	20,  // 145: query.StreamEvent.Statement.primary_key_fields:type_name -> query.Field
+	21,  // 146: query.StreamEvent.Statement.primary_key_values:type_name -> query.Row
+	147, // [147:147] is the sub-list for method output_type
+	147, // [147:147] is the sub-list for method input_type
+	147, // [147:147] is the sub-list for extension type_name
+	147, // [147:147] is the sub-list for extension extendee
+	0,   // [0:147] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -6576,7 +6679,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      13,
-			NumMessages:   70,
+			NumMessages:   71,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

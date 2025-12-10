@@ -275,6 +275,7 @@ func (m *QueryResult) CloneVT() *QueryResult {
 	r.Info = m.Info
 	r.SessionStateChanges = m.SessionStateChanges
 	r.InsertIdChanged = m.InsertIdChanged
+	r.RealtimeStats = m.RealtimeStats.CloneVT()
 	if rhs := m.Fields; rhs != nil {
 		tmpContainer := make([]*Field, len(rhs))
 		for k, v := range rhs {
@@ -1398,6 +1399,27 @@ func (m *RealtimeStats) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
+func (m *QueryRealtimeStats) CloneVT() *QueryRealtimeStats {
+	if m == nil {
+		return (*QueryRealtimeStats)(nil)
+	}
+	r := new(QueryRealtimeStats)
+	r.ReplicationLagSeconds = m.ReplicationLagSeconds
+	r.CacheWarmedPercent = m.CacheWarmedPercent
+	r.CpuUsage = m.CpuUsage
+	r.QueryConnPoolUsage = m.QueryConnPoolUsage
+	r.QueriesRunning = m.QueriesRunning
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *QueryRealtimeStats) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
 func (m *AggregateStats) CloneVT() *AggregateStats {
 	if m == nil {
 		return (*AggregateStats)(nil)
@@ -2235,6 +2257,16 @@ func (m *QueryResult) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.RealtimeStats != nil {
+		size, err := m.RealtimeStats.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x4a
 	}
 	if m.InsertIdChanged {
 		i--
@@ -5640,6 +5672,67 @@ func (m *RealtimeStats) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *QueryRealtimeStats) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QueryRealtimeStats) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *QueryRealtimeStats) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.QueriesRunning != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.QueriesRunning))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.QueryConnPoolUsage != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.QueryConnPoolUsage))))
+		i--
+		dAtA[i] = 0x21
+	}
+	if m.CpuUsage != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.CpuUsage))))
+		i--
+		dAtA[i] = 0x19
+	}
+	if m.CacheWarmedPercent != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.CacheWarmedPercent))))
+		i--
+		dAtA[i] = 0x11
+	}
+	if m.ReplicationLagSeconds != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ReplicationLagSeconds))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *AggregateStats) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -6343,6 +6436,10 @@ func (m *QueryResult) SizeVT() (n int) {
 	}
 	if m.InsertIdChanged {
 		n += 2
+	}
+	if m.RealtimeStats != nil {
+		l = m.RealtimeStats.SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -7601,6 +7698,31 @@ func (m *RealtimeStats) SizeVT() (n int) {
 	}
 	if m.TxUnresolved {
 		n += 2
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *QueryRealtimeStats) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ReplicationLagSeconds != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.ReplicationLagSeconds))
+	}
+	if m.CacheWarmedPercent != 0 {
+		n += 9
+	}
+	if m.CpuUsage != 0 {
+		n += 9
+	}
+	if m.QueryConnPoolUsage != 0 {
+		n += 9
+	}
+	if m.QueriesRunning != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.QueriesRunning))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -9776,6 +9898,42 @@ func (m *QueryResult) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.InsertIdChanged = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RealtimeStats", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.RealtimeStats == nil {
+				m.RealtimeStats = &QueryRealtimeStats{}
+			}
+			if err := m.RealtimeStats.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -18338,6 +18496,128 @@ func (m *RealtimeStats) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.TxUnresolved = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *QueryRealtimeStats) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: QueryRealtimeStats: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: QueryRealtimeStats: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReplicationLagSeconds", wireType)
+			}
+			m.ReplicationLagSeconds = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ReplicationLagSeconds |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 1 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CacheWarmedPercent", wireType)
+			}
+			var v uint64
+			if (iNdEx + 8) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
+			iNdEx += 8
+			m.CacheWarmedPercent = float64(math.Float64frombits(v))
+		case 3:
+			if wireType != 1 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CpuUsage", wireType)
+			}
+			var v uint64
+			if (iNdEx + 8) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
+			iNdEx += 8
+			m.CpuUsage = float64(math.Float64frombits(v))
+		case 4:
+			if wireType != 1 {
+				return fmt.Errorf("proto: wrong wireType = %d for field QueryConnPoolUsage", wireType)
+			}
+			var v uint64
+			if (iNdEx + 8) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
+			iNdEx += 8
+			m.QueryConnPoolUsage = float64(math.Float64frombits(v))
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field QueriesRunning", wireType)
+			}
+			m.QueriesRunning = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.QueriesRunning |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
