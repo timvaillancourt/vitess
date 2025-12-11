@@ -383,6 +383,14 @@ func (ws *wrappedService) GetSchema(ctx context.Context, target *querypb.Target,
 	return err
 }
 
+func (ws *wrappedService) GetRealtimeStats(ctx context.Context) (stats *querypb.QueryserverRealtimeStats) {
+	_ = ws.wrapper(ctx, nil, ws.impl, "GetRealtimeStats", false, func(ctx context.Context, target *querypb.Target, conn QueryService) (bool, error) {
+		stats = conn.GetRealtimeStats(ctx)
+		return stats == nil, nil
+	})
+	return stats
+}
+
 func (ws *wrappedService) Close(ctx context.Context) error {
 	return ws.wrapper(ctx, nil, ws.impl, "Close", false, func(ctx context.Context, target *querypb.Target, conn QueryService) (bool, error) {
 		// No point retrying Close.

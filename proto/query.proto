@@ -444,12 +444,6 @@ message QueryResult {
   string info = 6;
   string session_state_changes = 7;
   bool insert_id_changed = 8;
-
-  // realtime_stats are high-volume stats piggy-backed on QueryResult
-  // messages in order for VTGate to intercept them. These stats have
-  // tablet-level scope and do not measure reflect the  execution of
-  // the query they are returned on.
-  QueryRealtimeStats realtime_stats = 9;
 }
 
 // QueryWarning is used to convey out of band query execution warnings
@@ -501,9 +495,21 @@ message ExecuteRequest {
   int64 reserved_id = 7;
 }
 
+// QueryserverRealtimeStats are high-volume stats that piggy-back on QueryResponse messages.
+message QueryserverRealtimeStats {
+  // query_conn_pool_usage represents the usage percent of the query conn pool.
+  double query_conn_pool_usage = 1;
+}
+
 // ExecuteResponse is the returned value from Execute
 message ExecuteResponse {
   QueryResult result = 1;
+
+  // realtime_stats are high-volume stats piggy-backed on response messages
+  // in order for VTGate to intercept them. These stats have tablet-level
+  // scope and do not measure reflect the execution of the query they are
+  // returned on.
+  QueryserverRealtimeStats queryserver_realtime_stats = 2;
 }
 
 // ResultWithError represents a query response
@@ -561,6 +567,12 @@ message CommitRequest {
 // CommitResponse is the returned value from Commit
 message CommitResponse {
   int64 reserved_id = 1;
+
+  // realtime_stats are high-volume stats piggy-backed on response messages
+  // in order for VTGate to intercept them. These stats have tablet-level
+  // scope and do not measure reflect the execution of the query they are
+  // returned on.
+  QueryserverRealtimeStats queryserver_realtime_stats = 2;
 }
 
 // RollbackRequest is the payload to Rollback
@@ -942,24 +954,6 @@ message RealtimeStats {
   bool udfs_changed = 9;
 
   bool tx_unresolved = 10;
-}
-
-// QueryRealtimeStats are high-volume stats that piggyback on QueryResponse messages.
-message QueryRealtimeStats {
-  // replication_lag_seconds represents the current re
-  uint32 replication_lag_seconds = 1;
-
-  // cache_warmed_percent represents the usage percentage of database caches (probably InnoDB).
-  double cache_warmed_percent = 2;
-
-  // cpu_usage represent the percent usage of all CPUs.
-  double cpu_usage = 3;
-
-  // query_conn_pool_usage represents the usage of the query conn pool.
-  double query_conn_pool_usage = 4;
-
-  // queries_running represents the number of queries currently running.
-  uint64 queries_running = 5;
 }
 
 // AggregateStats contains information about the health of a group of

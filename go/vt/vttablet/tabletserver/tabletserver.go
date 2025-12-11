@@ -2047,6 +2047,13 @@ func (tsv *TabletServer) ConsolidatorMode() string {
 	return tsv.qe.consolidatorMode.Load().(string)
 }
 
+// GetRealtimeStats returns realtime stats for tabletserver, to be used in query responses.
+func (tsv *TabletServer) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	return &querypb.QueryserverRealtimeStats{
+		QueryConnPoolUsage: 66.66,
+	}
+}
+
 // queryAsString returns a readable normalized version of the query.
 // If sanitize is false it also includes the bind variables.
 // If truncateForLog is true, it truncates the sql query and the

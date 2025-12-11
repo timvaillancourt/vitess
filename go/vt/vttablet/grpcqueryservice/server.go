@@ -53,7 +53,8 @@ func (q *query) Execute(ctx context.Context, request *querypb.ExecuteRequest) (r
 		return nil, vterrors.ToGRPC(err)
 	}
 	return &querypb.ExecuteResponse{
-		Result: sqltypes.ResultToProto3(result),
+		Result:                   sqltypes.ResultToProto3(result),
+		QueryserverRealtimeStats: q.server.GetRealtimeStats(ctx),
 	}, nil
 }
 
@@ -102,7 +103,10 @@ func (q *query) Commit(ctx context.Context, request *querypb.CommitRequest) (res
 	if err != nil {
 		return nil, vterrors.ToGRPC(err)
 	}
-	return &querypb.CommitResponse{ReservedId: rID}, nil
+	return &querypb.CommitResponse{
+		ReservedId:               rID,
+		QueryserverRealtimeStats: q.server.GetRealtimeStats(ctx),
+	}, nil
 }
 
 // Rollback is part of the queryservice.QueryServer interface

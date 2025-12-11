@@ -1780,13 +1780,8 @@ type QueryResult struct {
 	Info                string                 `protobuf:"bytes,6,opt,name=info,proto3" json:"info,omitempty"`
 	SessionStateChanges string                 `protobuf:"bytes,7,opt,name=session_state_changes,json=sessionStateChanges,proto3" json:"session_state_changes,omitempty"`
 	InsertIdChanged     bool                   `protobuf:"varint,8,opt,name=insert_id_changed,json=insertIdChanged,proto3" json:"insert_id_changed,omitempty"`
-	// realtime_stats are high-volume stats piggy-backed on QueryResult
-	// messages in order for VTGate to intercept them. These stats have
-	// tablet-level scope and do not measure reflect the  execution of
-	// the query they are returned on.
-	RealtimeStats *QueryRealtimeStats `protobuf:"bytes,9,opt,name=realtime_stats,json=realtimeStats,proto3" json:"realtime_stats,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -1866,13 +1861,6 @@ func (x *QueryResult) GetInsertIdChanged() bool {
 		return x.InsertIdChanged
 	}
 	return false
-}
-
-func (x *QueryResult) GetRealtimeStats() *QueryRealtimeStats {
-	if x != nil {
-		return x.RealtimeStats
-	}
-	return nil
 }
 
 // QueryWarning is used to convey out of band query execution warnings
@@ -2079,17 +2067,68 @@ func (x *ExecuteRequest) GetReservedId() int64 {
 	return 0
 }
 
+// QueryserverRealtimeStats are high-volume stats that piggy-back on QueryResponse messages.
+type QueryserverRealtimeStats struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// query_conn_pool_usage represents the usage percent of the query conn pool.
+	QueryConnPoolUsage float64 `protobuf:"fixed64,1,opt,name=query_conn_pool_usage,json=queryConnPoolUsage,proto3" json:"query_conn_pool_usage,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *QueryserverRealtimeStats) Reset() {
+	*x = QueryserverRealtimeStats{}
+	mi := &file_query_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryserverRealtimeStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryserverRealtimeStats) ProtoMessage() {}
+
+func (x *QueryserverRealtimeStats) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryserverRealtimeStats.ProtoReflect.Descriptor instead.
+func (*QueryserverRealtimeStats) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *QueryserverRealtimeStats) GetQueryConnPoolUsage() float64 {
+	if x != nil {
+		return x.QueryConnPoolUsage
+	}
+	return 0
+}
+
 // ExecuteResponse is the returned value from Execute
 type ExecuteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Result        *QueryResult           `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Result *QueryResult           `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	// realtime_stats are high-volume stats piggy-backed on response messages
+	// in order for VTGate to intercept them. These stats have tablet-level
+	// scope and do not measure reflect the execution of the query they are
+	// returned on.
+	QueryserverRealtimeStats *QueryserverRealtimeStats `protobuf:"bytes,2,opt,name=queryserver_realtime_stats,json=queryserverRealtimeStats,proto3" json:"queryserver_realtime_stats,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ExecuteResponse) Reset() {
 	*x = ExecuteResponse{}
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2101,7 +2140,7 @@ func (x *ExecuteResponse) String() string {
 func (*ExecuteResponse) ProtoMessage() {}
 
 func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2114,12 +2153,19 @@ func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{13}
+	return file_query_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ExecuteResponse) GetResult() *QueryResult {
 	if x != nil {
 		return x.Result
+	}
+	return nil
+}
+
+func (x *ExecuteResponse) GetQueryserverRealtimeStats() *QueryserverRealtimeStats {
+	if x != nil {
+		return x.QueryserverRealtimeStats
 	}
 	return nil
 }
@@ -2139,7 +2185,7 @@ type ResultWithError struct {
 
 func (x *ResultWithError) Reset() {
 	*x = ResultWithError{}
-	mi := &file_query_proto_msgTypes[14]
+	mi := &file_query_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2151,7 +2197,7 @@ func (x *ResultWithError) String() string {
 func (*ResultWithError) ProtoMessage() {}
 
 func (x *ResultWithError) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[14]
+	mi := &file_query_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2164,7 +2210,7 @@ func (x *ResultWithError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultWithError.ProtoReflect.Descriptor instead.
 func (*ResultWithError) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{14}
+	return file_query_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ResultWithError) GetError() *vtrpc.RPCError {
@@ -2197,7 +2243,7 @@ type StreamExecuteRequest struct {
 
 func (x *StreamExecuteRequest) Reset() {
 	*x = StreamExecuteRequest{}
-	mi := &file_query_proto_msgTypes[15]
+	mi := &file_query_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2209,7 +2255,7 @@ func (x *StreamExecuteRequest) String() string {
 func (*StreamExecuteRequest) ProtoMessage() {}
 
 func (x *StreamExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[15]
+	mi := &file_query_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2222,7 +2268,7 @@ func (x *StreamExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamExecuteRequest.ProtoReflect.Descriptor instead.
 func (*StreamExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{15}
+	return file_query_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *StreamExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2284,7 +2330,7 @@ type StreamExecuteResponse struct {
 
 func (x *StreamExecuteResponse) Reset() {
 	*x = StreamExecuteResponse{}
-	mi := &file_query_proto_msgTypes[16]
+	mi := &file_query_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2296,7 +2342,7 @@ func (x *StreamExecuteResponse) String() string {
 func (*StreamExecuteResponse) ProtoMessage() {}
 
 func (x *StreamExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[16]
+	mi := &file_query_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2309,7 +2355,7 @@ func (x *StreamExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamExecuteResponse.ProtoReflect.Descriptor instead.
 func (*StreamExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{16}
+	return file_query_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *StreamExecuteResponse) GetResult() *QueryResult {
@@ -2332,7 +2378,7 @@ type BeginRequest struct {
 
 func (x *BeginRequest) Reset() {
 	*x = BeginRequest{}
-	mi := &file_query_proto_msgTypes[17]
+	mi := &file_query_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2344,7 +2390,7 @@ func (x *BeginRequest) String() string {
 func (*BeginRequest) ProtoMessage() {}
 
 func (x *BeginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[17]
+	mi := &file_query_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2357,7 +2403,7 @@ func (x *BeginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRequest.ProtoReflect.Descriptor instead.
 func (*BeginRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{17}
+	return file_query_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BeginRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2402,7 +2448,7 @@ type BeginResponse struct {
 
 func (x *BeginResponse) Reset() {
 	*x = BeginResponse{}
-	mi := &file_query_proto_msgTypes[18]
+	mi := &file_query_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2414,7 +2460,7 @@ func (x *BeginResponse) String() string {
 func (*BeginResponse) ProtoMessage() {}
 
 func (x *BeginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[18]
+	mi := &file_query_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2427,7 +2473,7 @@ func (x *BeginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginResponse.ProtoReflect.Descriptor instead.
 func (*BeginResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{18}
+	return file_query_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BeginResponse) GetTransactionId() int64 {
@@ -2464,7 +2510,7 @@ type CommitRequest struct {
 
 func (x *CommitRequest) Reset() {
 	*x = CommitRequest{}
-	mi := &file_query_proto_msgTypes[19]
+	mi := &file_query_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2476,7 +2522,7 @@ func (x *CommitRequest) String() string {
 func (*CommitRequest) ProtoMessage() {}
 
 func (x *CommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[19]
+	mi := &file_query_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2489,7 +2535,7 @@ func (x *CommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitRequest.ProtoReflect.Descriptor instead.
 func (*CommitRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{19}
+	return file_query_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CommitRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2522,15 +2568,20 @@ func (x *CommitRequest) GetTransactionId() int64 {
 
 // CommitResponse is the returned value from Commit
 type CommitResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ReservedId    int64                  `protobuf:"varint,1,opt,name=reserved_id,json=reservedId,proto3" json:"reserved_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ReservedId int64                  `protobuf:"varint,1,opt,name=reserved_id,json=reservedId,proto3" json:"reserved_id,omitempty"`
+	// realtime_stats are high-volume stats piggy-backed on response messages
+	// in order for VTGate to intercept them. These stats have tablet-level
+	// scope and do not measure reflect the execution of the query they are
+	// returned on.
+	QueryserverRealtimeStats *QueryserverRealtimeStats `protobuf:"bytes,2,opt,name=queryserver_realtime_stats,json=queryserverRealtimeStats,proto3" json:"queryserver_realtime_stats,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CommitResponse) Reset() {
 	*x = CommitResponse{}
-	mi := &file_query_proto_msgTypes[20]
+	mi := &file_query_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2542,7 +2593,7 @@ func (x *CommitResponse) String() string {
 func (*CommitResponse) ProtoMessage() {}
 
 func (x *CommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[20]
+	mi := &file_query_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2555,7 +2606,7 @@ func (x *CommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitResponse.ProtoReflect.Descriptor instead.
 func (*CommitResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{20}
+	return file_query_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CommitResponse) GetReservedId() int64 {
@@ -2563,6 +2614,13 @@ func (x *CommitResponse) GetReservedId() int64 {
 		return x.ReservedId
 	}
 	return 0
+}
+
+func (x *CommitResponse) GetQueryserverRealtimeStats() *QueryserverRealtimeStats {
+	if x != nil {
+		return x.QueryserverRealtimeStats
+	}
+	return nil
 }
 
 // RollbackRequest is the payload to Rollback
@@ -2578,7 +2636,7 @@ type RollbackRequest struct {
 
 func (x *RollbackRequest) Reset() {
 	*x = RollbackRequest{}
-	mi := &file_query_proto_msgTypes[21]
+	mi := &file_query_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2590,7 +2648,7 @@ func (x *RollbackRequest) String() string {
 func (*RollbackRequest) ProtoMessage() {}
 
 func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[21]
+	mi := &file_query_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2603,7 +2661,7 @@ func (x *RollbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackRequest.ProtoReflect.Descriptor instead.
 func (*RollbackRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{21}
+	return file_query_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RollbackRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2644,7 +2702,7 @@ type RollbackResponse struct {
 
 func (x *RollbackResponse) Reset() {
 	*x = RollbackResponse{}
-	mi := &file_query_proto_msgTypes[22]
+	mi := &file_query_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2656,7 +2714,7 @@ func (x *RollbackResponse) String() string {
 func (*RollbackResponse) ProtoMessage() {}
 
 func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[22]
+	mi := &file_query_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2669,7 +2727,7 @@ func (x *RollbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackResponse.ProtoReflect.Descriptor instead.
 func (*RollbackResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{22}
+	return file_query_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RollbackResponse) GetReservedId() int64 {
@@ -2693,7 +2751,7 @@ type PrepareRequest struct {
 
 func (x *PrepareRequest) Reset() {
 	*x = PrepareRequest{}
-	mi := &file_query_proto_msgTypes[23]
+	mi := &file_query_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2705,7 +2763,7 @@ func (x *PrepareRequest) String() string {
 func (*PrepareRequest) ProtoMessage() {}
 
 func (x *PrepareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[23]
+	mi := &file_query_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2718,7 +2776,7 @@ func (x *PrepareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareRequest.ProtoReflect.Descriptor instead.
 func (*PrepareRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{23}
+	return file_query_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PrepareRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2765,7 +2823,7 @@ type PrepareResponse struct {
 
 func (x *PrepareResponse) Reset() {
 	*x = PrepareResponse{}
-	mi := &file_query_proto_msgTypes[24]
+	mi := &file_query_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2777,7 +2835,7 @@ func (x *PrepareResponse) String() string {
 func (*PrepareResponse) ProtoMessage() {}
 
 func (x *PrepareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[24]
+	mi := &file_query_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2790,7 +2848,7 @@ func (x *PrepareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareResponse.ProtoReflect.Descriptor instead.
 func (*PrepareResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{24}
+	return file_query_proto_rawDescGZIP(), []int{25}
 }
 
 // CommitPreparedRequest is the payload to CommitPrepared
@@ -2806,7 +2864,7 @@ type CommitPreparedRequest struct {
 
 func (x *CommitPreparedRequest) Reset() {
 	*x = CommitPreparedRequest{}
-	mi := &file_query_proto_msgTypes[25]
+	mi := &file_query_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2818,7 +2876,7 @@ func (x *CommitPreparedRequest) String() string {
 func (*CommitPreparedRequest) ProtoMessage() {}
 
 func (x *CommitPreparedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[25]
+	mi := &file_query_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2831,7 +2889,7 @@ func (x *CommitPreparedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitPreparedRequest.ProtoReflect.Descriptor instead.
 func (*CommitPreparedRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{25}
+	return file_query_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CommitPreparedRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2871,7 +2929,7 @@ type CommitPreparedResponse struct {
 
 func (x *CommitPreparedResponse) Reset() {
 	*x = CommitPreparedResponse{}
-	mi := &file_query_proto_msgTypes[26]
+	mi := &file_query_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +2941,7 @@ func (x *CommitPreparedResponse) String() string {
 func (*CommitPreparedResponse) ProtoMessage() {}
 
 func (x *CommitPreparedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[26]
+	mi := &file_query_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +2954,7 @@ func (x *CommitPreparedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitPreparedResponse.ProtoReflect.Descriptor instead.
 func (*CommitPreparedResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{26}
+	return file_query_proto_rawDescGZIP(), []int{27}
 }
 
 // RollbackPreparedRequest is the payload to RollbackPrepared
@@ -2913,7 +2971,7 @@ type RollbackPreparedRequest struct {
 
 func (x *RollbackPreparedRequest) Reset() {
 	*x = RollbackPreparedRequest{}
-	mi := &file_query_proto_msgTypes[27]
+	mi := &file_query_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2925,7 +2983,7 @@ func (x *RollbackPreparedRequest) String() string {
 func (*RollbackPreparedRequest) ProtoMessage() {}
 
 func (x *RollbackPreparedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[27]
+	mi := &file_query_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2938,7 +2996,7 @@ func (x *RollbackPreparedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackPreparedRequest.ProtoReflect.Descriptor instead.
 func (*RollbackPreparedRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{27}
+	return file_query_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RollbackPreparedRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -2985,7 +3043,7 @@ type RollbackPreparedResponse struct {
 
 func (x *RollbackPreparedResponse) Reset() {
 	*x = RollbackPreparedResponse{}
-	mi := &file_query_proto_msgTypes[28]
+	mi := &file_query_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2997,7 +3055,7 @@ func (x *RollbackPreparedResponse) String() string {
 func (*RollbackPreparedResponse) ProtoMessage() {}
 
 func (x *RollbackPreparedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[28]
+	mi := &file_query_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3010,7 +3068,7 @@ func (x *RollbackPreparedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackPreparedResponse.ProtoReflect.Descriptor instead.
 func (*RollbackPreparedResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{28}
+	return file_query_proto_rawDescGZIP(), []int{29}
 }
 
 // CreateTransactionRequest is the payload to CreateTransaction
@@ -3027,7 +3085,7 @@ type CreateTransactionRequest struct {
 
 func (x *CreateTransactionRequest) Reset() {
 	*x = CreateTransactionRequest{}
-	mi := &file_query_proto_msgTypes[29]
+	mi := &file_query_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3039,7 +3097,7 @@ func (x *CreateTransactionRequest) String() string {
 func (*CreateTransactionRequest) ProtoMessage() {}
 
 func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[29]
+	mi := &file_query_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3052,7 +3110,7 @@ func (x *CreateTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTransactionRequest.ProtoReflect.Descriptor instead.
 func (*CreateTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{29}
+	return file_query_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CreateTransactionRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3099,7 +3157,7 @@ type CreateTransactionResponse struct {
 
 func (x *CreateTransactionResponse) Reset() {
 	*x = CreateTransactionResponse{}
-	mi := &file_query_proto_msgTypes[30]
+	mi := &file_query_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3111,7 +3169,7 @@ func (x *CreateTransactionResponse) String() string {
 func (*CreateTransactionResponse) ProtoMessage() {}
 
 func (x *CreateTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[30]
+	mi := &file_query_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3124,7 +3182,7 @@ func (x *CreateTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTransactionResponse.ProtoReflect.Descriptor instead.
 func (*CreateTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{30}
+	return file_query_proto_rawDescGZIP(), []int{31}
 }
 
 // StartCommitRequest is the payload to StartCommit
@@ -3141,7 +3199,7 @@ type StartCommitRequest struct {
 
 func (x *StartCommitRequest) Reset() {
 	*x = StartCommitRequest{}
-	mi := &file_query_proto_msgTypes[31]
+	mi := &file_query_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3153,7 +3211,7 @@ func (x *StartCommitRequest) String() string {
 func (*StartCommitRequest) ProtoMessage() {}
 
 func (x *StartCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[31]
+	mi := &file_query_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3166,7 +3224,7 @@ func (x *StartCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartCommitRequest.ProtoReflect.Descriptor instead.
 func (*StartCommitRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{31}
+	return file_query_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *StartCommitRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3214,7 +3272,7 @@ type StartCommitResponse struct {
 
 func (x *StartCommitResponse) Reset() {
 	*x = StartCommitResponse{}
-	mi := &file_query_proto_msgTypes[32]
+	mi := &file_query_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3226,7 +3284,7 @@ func (x *StartCommitResponse) String() string {
 func (*StartCommitResponse) ProtoMessage() {}
 
 func (x *StartCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[32]
+	mi := &file_query_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3239,7 +3297,7 @@ func (x *StartCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartCommitResponse.ProtoReflect.Descriptor instead.
 func (*StartCommitResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{32}
+	return file_query_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *StartCommitResponse) GetState() StartCommitState {
@@ -3263,7 +3321,7 @@ type SetRollbackRequest struct {
 
 func (x *SetRollbackRequest) Reset() {
 	*x = SetRollbackRequest{}
-	mi := &file_query_proto_msgTypes[33]
+	mi := &file_query_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3275,7 +3333,7 @@ func (x *SetRollbackRequest) String() string {
 func (*SetRollbackRequest) ProtoMessage() {}
 
 func (x *SetRollbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[33]
+	mi := &file_query_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3288,7 +3346,7 @@ func (x *SetRollbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetRollbackRequest.ProtoReflect.Descriptor instead.
 func (*SetRollbackRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{33}
+	return file_query_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SetRollbackRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3335,7 +3393,7 @@ type SetRollbackResponse struct {
 
 func (x *SetRollbackResponse) Reset() {
 	*x = SetRollbackResponse{}
-	mi := &file_query_proto_msgTypes[34]
+	mi := &file_query_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3347,7 +3405,7 @@ func (x *SetRollbackResponse) String() string {
 func (*SetRollbackResponse) ProtoMessage() {}
 
 func (x *SetRollbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[34]
+	mi := &file_query_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3360,7 +3418,7 @@ func (x *SetRollbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetRollbackResponse.ProtoReflect.Descriptor instead.
 func (*SetRollbackResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{34}
+	return file_query_proto_rawDescGZIP(), []int{35}
 }
 
 // ConcludeTransactionRequest is the payload to ConcludeTransaction
@@ -3376,7 +3434,7 @@ type ConcludeTransactionRequest struct {
 
 func (x *ConcludeTransactionRequest) Reset() {
 	*x = ConcludeTransactionRequest{}
-	mi := &file_query_proto_msgTypes[35]
+	mi := &file_query_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3388,7 +3446,7 @@ func (x *ConcludeTransactionRequest) String() string {
 func (*ConcludeTransactionRequest) ProtoMessage() {}
 
 func (x *ConcludeTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[35]
+	mi := &file_query_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3401,7 +3459,7 @@ func (x *ConcludeTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConcludeTransactionRequest.ProtoReflect.Descriptor instead.
 func (*ConcludeTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{35}
+	return file_query_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ConcludeTransactionRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3441,7 +3499,7 @@ type ConcludeTransactionResponse struct {
 
 func (x *ConcludeTransactionResponse) Reset() {
 	*x = ConcludeTransactionResponse{}
-	mi := &file_query_proto_msgTypes[36]
+	mi := &file_query_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3453,7 +3511,7 @@ func (x *ConcludeTransactionResponse) String() string {
 func (*ConcludeTransactionResponse) ProtoMessage() {}
 
 func (x *ConcludeTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[36]
+	mi := &file_query_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3466,7 +3524,7 @@ func (x *ConcludeTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConcludeTransactionResponse.ProtoReflect.Descriptor instead.
 func (*ConcludeTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{36}
+	return file_query_proto_rawDescGZIP(), []int{37}
 }
 
 // ReadTransactionRequest is the payload to ReadTransaction
@@ -3482,7 +3540,7 @@ type ReadTransactionRequest struct {
 
 func (x *ReadTransactionRequest) Reset() {
 	*x = ReadTransactionRequest{}
-	mi := &file_query_proto_msgTypes[37]
+	mi := &file_query_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3494,7 +3552,7 @@ func (x *ReadTransactionRequest) String() string {
 func (*ReadTransactionRequest) ProtoMessage() {}
 
 func (x *ReadTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[37]
+	mi := &file_query_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3507,7 +3565,7 @@ func (x *ReadTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadTransactionRequest.ProtoReflect.Descriptor instead.
 func (*ReadTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{37}
+	return file_query_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ReadTransactionRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3548,7 +3606,7 @@ type ReadTransactionResponse struct {
 
 func (x *ReadTransactionResponse) Reset() {
 	*x = ReadTransactionResponse{}
-	mi := &file_query_proto_msgTypes[38]
+	mi := &file_query_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3560,7 +3618,7 @@ func (x *ReadTransactionResponse) String() string {
 func (*ReadTransactionResponse) ProtoMessage() {}
 
 func (x *ReadTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[38]
+	mi := &file_query_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3573,7 +3631,7 @@ func (x *ReadTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadTransactionResponse.ProtoReflect.Descriptor instead.
 func (*ReadTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{38}
+	return file_query_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ReadTransactionResponse) GetMetadata() *TransactionMetadata {
@@ -3596,7 +3654,7 @@ type UnresolvedTransactionsRequest struct {
 
 func (x *UnresolvedTransactionsRequest) Reset() {
 	*x = UnresolvedTransactionsRequest{}
-	mi := &file_query_proto_msgTypes[39]
+	mi := &file_query_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3608,7 +3666,7 @@ func (x *UnresolvedTransactionsRequest) String() string {
 func (*UnresolvedTransactionsRequest) ProtoMessage() {}
 
 func (x *UnresolvedTransactionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[39]
+	mi := &file_query_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3621,7 +3679,7 @@ func (x *UnresolvedTransactionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedTransactionsRequest.ProtoReflect.Descriptor instead.
 func (*UnresolvedTransactionsRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{39}
+	return file_query_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *UnresolvedTransactionsRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3662,7 +3720,7 @@ type UnresolvedTransactionsResponse struct {
 
 func (x *UnresolvedTransactionsResponse) Reset() {
 	*x = UnresolvedTransactionsResponse{}
-	mi := &file_query_proto_msgTypes[40]
+	mi := &file_query_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3674,7 +3732,7 @@ func (x *UnresolvedTransactionsResponse) String() string {
 func (*UnresolvedTransactionsResponse) ProtoMessage() {}
 
 func (x *UnresolvedTransactionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[40]
+	mi := &file_query_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3687,7 +3745,7 @@ func (x *UnresolvedTransactionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedTransactionsResponse.ProtoReflect.Descriptor instead.
 func (*UnresolvedTransactionsResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{40}
+	return file_query_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *UnresolvedTransactionsResponse) GetTransactions() []*TransactionMetadata {
@@ -3713,7 +3771,7 @@ type BeginExecuteRequest struct {
 
 func (x *BeginExecuteRequest) Reset() {
 	*x = BeginExecuteRequest{}
-	mi := &file_query_proto_msgTypes[41]
+	mi := &file_query_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3725,7 +3783,7 @@ func (x *BeginExecuteRequest) String() string {
 func (*BeginExecuteRequest) ProtoMessage() {}
 
 func (x *BeginExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[41]
+	mi := &file_query_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3738,7 +3796,7 @@ func (x *BeginExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginExecuteRequest.ProtoReflect.Descriptor instead.
 func (*BeginExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{41}
+	return file_query_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *BeginExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3810,7 +3868,7 @@ type BeginExecuteResponse struct {
 
 func (x *BeginExecuteResponse) Reset() {
 	*x = BeginExecuteResponse{}
-	mi := &file_query_proto_msgTypes[42]
+	mi := &file_query_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3822,7 +3880,7 @@ func (x *BeginExecuteResponse) String() string {
 func (*BeginExecuteResponse) ProtoMessage() {}
 
 func (x *BeginExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[42]
+	mi := &file_query_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3835,7 +3893,7 @@ func (x *BeginExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginExecuteResponse.ProtoReflect.Descriptor instead.
 func (*BeginExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{42}
+	return file_query_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *BeginExecuteResponse) GetError() *vtrpc.RPCError {
@@ -3889,7 +3947,7 @@ type BeginStreamExecuteRequest struct {
 
 func (x *BeginStreamExecuteRequest) Reset() {
 	*x = BeginStreamExecuteRequest{}
-	mi := &file_query_proto_msgTypes[43]
+	mi := &file_query_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3901,7 +3959,7 @@ func (x *BeginStreamExecuteRequest) String() string {
 func (*BeginStreamExecuteRequest) ProtoMessage() {}
 
 func (x *BeginStreamExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[43]
+	mi := &file_query_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3914,7 +3972,7 @@ func (x *BeginStreamExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginStreamExecuteRequest.ProtoReflect.Descriptor instead.
 func (*BeginStreamExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{43}
+	return file_query_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *BeginStreamExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -3986,7 +4044,7 @@ type BeginStreamExecuteResponse struct {
 
 func (x *BeginStreamExecuteResponse) Reset() {
 	*x = BeginStreamExecuteResponse{}
-	mi := &file_query_proto_msgTypes[44]
+	mi := &file_query_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3998,7 +4056,7 @@ func (x *BeginStreamExecuteResponse) String() string {
 func (*BeginStreamExecuteResponse) ProtoMessage() {}
 
 func (x *BeginStreamExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[44]
+	mi := &file_query_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4011,7 +4069,7 @@ func (x *BeginStreamExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginStreamExecuteResponse.ProtoReflect.Descriptor instead.
 func (*BeginStreamExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{44}
+	return file_query_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *BeginStreamExecuteResponse) GetError() *vtrpc.RPCError {
@@ -4063,7 +4121,7 @@ type MessageStreamRequest struct {
 
 func (x *MessageStreamRequest) Reset() {
 	*x = MessageStreamRequest{}
-	mi := &file_query_proto_msgTypes[45]
+	mi := &file_query_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4075,7 +4133,7 @@ func (x *MessageStreamRequest) String() string {
 func (*MessageStreamRequest) ProtoMessage() {}
 
 func (x *MessageStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[45]
+	mi := &file_query_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4088,7 +4146,7 @@ func (x *MessageStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageStreamRequest.ProtoReflect.Descriptor instead.
 func (*MessageStreamRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{45}
+	return file_query_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *MessageStreamRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4129,7 +4187,7 @@ type MessageStreamResponse struct {
 
 func (x *MessageStreamResponse) Reset() {
 	*x = MessageStreamResponse{}
-	mi := &file_query_proto_msgTypes[46]
+	mi := &file_query_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4141,7 +4199,7 @@ func (x *MessageStreamResponse) String() string {
 func (*MessageStreamResponse) ProtoMessage() {}
 
 func (x *MessageStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[46]
+	mi := &file_query_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4154,7 +4212,7 @@ func (x *MessageStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageStreamResponse.ProtoReflect.Descriptor instead.
 func (*MessageStreamResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{46}
+	return file_query_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *MessageStreamResponse) GetResult() *QueryResult {
@@ -4179,7 +4237,7 @@ type MessageAckRequest struct {
 
 func (x *MessageAckRequest) Reset() {
 	*x = MessageAckRequest{}
-	mi := &file_query_proto_msgTypes[47]
+	mi := &file_query_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4191,7 +4249,7 @@ func (x *MessageAckRequest) String() string {
 func (*MessageAckRequest) ProtoMessage() {}
 
 func (x *MessageAckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[47]
+	mi := &file_query_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4204,7 +4262,7 @@ func (x *MessageAckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageAckRequest.ProtoReflect.Descriptor instead.
 func (*MessageAckRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{47}
+	return file_query_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *MessageAckRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4255,7 +4313,7 @@ type MessageAckResponse struct {
 
 func (x *MessageAckResponse) Reset() {
 	*x = MessageAckResponse{}
-	mi := &file_query_proto_msgTypes[48]
+	mi := &file_query_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4267,7 +4325,7 @@ func (x *MessageAckResponse) String() string {
 func (*MessageAckResponse) ProtoMessage() {}
 
 func (x *MessageAckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[48]
+	mi := &file_query_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4280,7 +4338,7 @@ func (x *MessageAckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageAckResponse.ProtoReflect.Descriptor instead.
 func (*MessageAckResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{48}
+	return file_query_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *MessageAckResponse) GetResult() *QueryResult {
@@ -4306,7 +4364,7 @@ type ReserveExecuteRequest struct {
 
 func (x *ReserveExecuteRequest) Reset() {
 	*x = ReserveExecuteRequest{}
-	mi := &file_query_proto_msgTypes[49]
+	mi := &file_query_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4318,7 +4376,7 @@ func (x *ReserveExecuteRequest) String() string {
 func (*ReserveExecuteRequest) ProtoMessage() {}
 
 func (x *ReserveExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[49]
+	mi := &file_query_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4331,7 +4389,7 @@ func (x *ReserveExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ReserveExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{49}
+	return file_query_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ReserveExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4397,7 +4455,7 @@ type ReserveExecuteResponse struct {
 
 func (x *ReserveExecuteResponse) Reset() {
 	*x = ReserveExecuteResponse{}
-	mi := &file_query_proto_msgTypes[50]
+	mi := &file_query_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4409,7 +4467,7 @@ func (x *ReserveExecuteResponse) String() string {
 func (*ReserveExecuteResponse) ProtoMessage() {}
 
 func (x *ReserveExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[50]
+	mi := &file_query_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4422,7 +4480,7 @@ func (x *ReserveExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ReserveExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{50}
+	return file_query_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ReserveExecuteResponse) GetError() *vtrpc.RPCError {
@@ -4469,7 +4527,7 @@ type ReserveStreamExecuteRequest struct {
 
 func (x *ReserveStreamExecuteRequest) Reset() {
 	*x = ReserveStreamExecuteRequest{}
-	mi := &file_query_proto_msgTypes[51]
+	mi := &file_query_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4481,7 +4539,7 @@ func (x *ReserveStreamExecuteRequest) String() string {
 func (*ReserveStreamExecuteRequest) ProtoMessage() {}
 
 func (x *ReserveStreamExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[51]
+	mi := &file_query_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4494,7 +4552,7 @@ func (x *ReserveStreamExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveStreamExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ReserveStreamExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{51}
+	return file_query_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ReserveStreamExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4560,7 +4618,7 @@ type ReserveStreamExecuteResponse struct {
 
 func (x *ReserveStreamExecuteResponse) Reset() {
 	*x = ReserveStreamExecuteResponse{}
-	mi := &file_query_proto_msgTypes[52]
+	mi := &file_query_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4572,7 +4630,7 @@ func (x *ReserveStreamExecuteResponse) String() string {
 func (*ReserveStreamExecuteResponse) ProtoMessage() {}
 
 func (x *ReserveStreamExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[52]
+	mi := &file_query_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4585,7 +4643,7 @@ func (x *ReserveStreamExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveStreamExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ReserveStreamExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{52}
+	return file_query_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ReserveStreamExecuteResponse) GetError() *vtrpc.RPCError {
@@ -4632,7 +4690,7 @@ type ReserveBeginExecuteRequest struct {
 
 func (x *ReserveBeginExecuteRequest) Reset() {
 	*x = ReserveBeginExecuteRequest{}
-	mi := &file_query_proto_msgTypes[53]
+	mi := &file_query_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4644,7 +4702,7 @@ func (x *ReserveBeginExecuteRequest) String() string {
 func (*ReserveBeginExecuteRequest) ProtoMessage() {}
 
 func (x *ReserveBeginExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[53]
+	mi := &file_query_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4657,7 +4715,7 @@ func (x *ReserveBeginExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveBeginExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ReserveBeginExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{53}
+	return file_query_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ReserveBeginExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4730,7 +4788,7 @@ type ReserveBeginExecuteResponse struct {
 
 func (x *ReserveBeginExecuteResponse) Reset() {
 	*x = ReserveBeginExecuteResponse{}
-	mi := &file_query_proto_msgTypes[54]
+	mi := &file_query_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4742,7 +4800,7 @@ func (x *ReserveBeginExecuteResponse) String() string {
 func (*ReserveBeginExecuteResponse) ProtoMessage() {}
 
 func (x *ReserveBeginExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[54]
+	mi := &file_query_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4755,7 +4813,7 @@ func (x *ReserveBeginExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveBeginExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ReserveBeginExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{54}
+	return file_query_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ReserveBeginExecuteResponse) GetError() *vtrpc.RPCError {
@@ -4816,7 +4874,7 @@ type ReserveBeginStreamExecuteRequest struct {
 
 func (x *ReserveBeginStreamExecuteRequest) Reset() {
 	*x = ReserveBeginStreamExecuteRequest{}
-	mi := &file_query_proto_msgTypes[55]
+	mi := &file_query_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4828,7 +4886,7 @@ func (x *ReserveBeginStreamExecuteRequest) String() string {
 func (*ReserveBeginStreamExecuteRequest) ProtoMessage() {}
 
 func (x *ReserveBeginStreamExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[55]
+	mi := &file_query_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4841,7 +4899,7 @@ func (x *ReserveBeginStreamExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveBeginStreamExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ReserveBeginStreamExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{55}
+	return file_query_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ReserveBeginStreamExecuteRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -4914,7 +4972,7 @@ type ReserveBeginStreamExecuteResponse struct {
 
 func (x *ReserveBeginStreamExecuteResponse) Reset() {
 	*x = ReserveBeginStreamExecuteResponse{}
-	mi := &file_query_proto_msgTypes[56]
+	mi := &file_query_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4926,7 +4984,7 @@ func (x *ReserveBeginStreamExecuteResponse) String() string {
 func (*ReserveBeginStreamExecuteResponse) ProtoMessage() {}
 
 func (x *ReserveBeginStreamExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[56]
+	mi := &file_query_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4939,7 +4997,7 @@ func (x *ReserveBeginStreamExecuteResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ReserveBeginStreamExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ReserveBeginStreamExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{56}
+	return file_query_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ReserveBeginStreamExecuteResponse) GetError() *vtrpc.RPCError {
@@ -4998,7 +5056,7 @@ type ReleaseRequest struct {
 
 func (x *ReleaseRequest) Reset() {
 	*x = ReleaseRequest{}
-	mi := &file_query_proto_msgTypes[57]
+	mi := &file_query_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5010,7 +5068,7 @@ func (x *ReleaseRequest) String() string {
 func (*ReleaseRequest) ProtoMessage() {}
 
 func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[57]
+	mi := &file_query_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5023,7 +5081,7 @@ func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{57}
+	return file_query_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ReleaseRequest) GetEffectiveCallerId() *vtrpc.CallerID {
@@ -5070,7 +5128,7 @@ type ReleaseResponse struct {
 
 func (x *ReleaseResponse) Reset() {
 	*x = ReleaseResponse{}
-	mi := &file_query_proto_msgTypes[58]
+	mi := &file_query_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5082,7 +5140,7 @@ func (x *ReleaseResponse) String() string {
 func (*ReleaseResponse) ProtoMessage() {}
 
 func (x *ReleaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[58]
+	mi := &file_query_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5095,7 +5153,7 @@ func (x *ReleaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseResponse.ProtoReflect.Descriptor instead.
 func (*ReleaseResponse) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{58}
+	return file_query_proto_rawDescGZIP(), []int{59}
 }
 
 // StreamHealthRequest is the payload for StreamHealth
@@ -5107,7 +5165,7 @@ type StreamHealthRequest struct {
 
 func (x *StreamHealthRequest) Reset() {
 	*x = StreamHealthRequest{}
-	mi := &file_query_proto_msgTypes[59]
+	mi := &file_query_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5119,7 +5177,7 @@ func (x *StreamHealthRequest) String() string {
 func (*StreamHealthRequest) ProtoMessage() {}
 
 func (x *StreamHealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[59]
+	mi := &file_query_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5132,7 +5190,7 @@ func (x *StreamHealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamHealthRequest.ProtoReflect.Descriptor instead.
 func (*StreamHealthRequest) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{59}
+	return file_query_proto_rawDescGZIP(), []int{60}
 }
 
 // RealtimeStats contains information about the tablet status.
@@ -5179,7 +5237,7 @@ type RealtimeStats struct {
 
 func (x *RealtimeStats) Reset() {
 	*x = RealtimeStats{}
-	mi := &file_query_proto_msgTypes[60]
+	mi := &file_query_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5191,7 +5249,7 @@ func (x *RealtimeStats) String() string {
 func (*RealtimeStats) ProtoMessage() {}
 
 func (x *RealtimeStats) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[60]
+	mi := &file_query_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5204,7 +5262,7 @@ func (x *RealtimeStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RealtimeStats.ProtoReflect.Descriptor instead.
 func (*RealtimeStats) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{60}
+	return file_query_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *RealtimeStats) GetHealthError() string {
@@ -5275,88 +5333,6 @@ func (x *RealtimeStats) GetTxUnresolved() bool {
 		return x.TxUnresolved
 	}
 	return false
-}
-
-// QueryRealtimeStats are high-volume stats that piggyback on QueryResponse messages.
-type QueryRealtimeStats struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// replication_lag_seconds represents the current re
-	ReplicationLagSeconds uint32 `protobuf:"varint,1,opt,name=replication_lag_seconds,json=replicationLagSeconds,proto3" json:"replication_lag_seconds,omitempty"`
-	// cache_warmed_percent represents the usage percentage of database caches (probably InnoDB).
-	CacheWarmedPercent float64 `protobuf:"fixed64,2,opt,name=cache_warmed_percent,json=cacheWarmedPercent,proto3" json:"cache_warmed_percent,omitempty"`
-	// cpu_usage represent the percent usage of all CPUs.
-	CpuUsage float64 `protobuf:"fixed64,3,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`
-	// query_conn_pool_usage represents the usage of the query conn pool.
-	QueryConnPoolUsage float64 `protobuf:"fixed64,4,opt,name=query_conn_pool_usage,json=queryConnPoolUsage,proto3" json:"query_conn_pool_usage,omitempty"`
-	// queries_running represents the number of queries currently running.
-	QueriesRunning uint64 `protobuf:"varint,5,opt,name=queries_running,json=queriesRunning,proto3" json:"queries_running,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *QueryRealtimeStats) Reset() {
-	*x = QueryRealtimeStats{}
-	mi := &file_query_proto_msgTypes[61]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *QueryRealtimeStats) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*QueryRealtimeStats) ProtoMessage() {}
-
-func (x *QueryRealtimeStats) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[61]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use QueryRealtimeStats.ProtoReflect.Descriptor instead.
-func (*QueryRealtimeStats) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{61}
-}
-
-func (x *QueryRealtimeStats) GetReplicationLagSeconds() uint32 {
-	if x != nil {
-		return x.ReplicationLagSeconds
-	}
-	return 0
-}
-
-func (x *QueryRealtimeStats) GetCacheWarmedPercent() float64 {
-	if x != nil {
-		return x.CacheWarmedPercent
-	}
-	return 0
-}
-
-func (x *QueryRealtimeStats) GetCpuUsage() float64 {
-	if x != nil {
-		return x.CpuUsage
-	}
-	return 0
-}
-
-func (x *QueryRealtimeStats) GetQueryConnPoolUsage() float64 {
-	if x != nil {
-		return x.QueryConnPoolUsage
-	}
-	return 0
-}
-
-func (x *QueryRealtimeStats) GetQueriesRunning() uint64 {
-	if x != nil {
-		return x.QueriesRunning
-	}
-	return 0
 }
 
 // AggregateStats contains information about the health of a group of
@@ -5995,7 +5971,7 @@ const file_query_proto_rawDesc = "" +
 	"columnType\"7\n" +
 	"\x03Row\x12\x18\n" +
 	"\alengths\x18\x01 \x03(\x12R\alengths\x12\x16\n" +
-	"\x06values\x18\x02 \x01(\fR\x06values\"\xd1\x02\n" +
+	"\x06values\x18\x02 \x01(\fR\x06values\"\x8f\x02\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1b\n" +
@@ -6004,8 +5980,7 @@ const file_query_proto_rawDesc = "" +
 	".query.RowR\x04rows\x12\x12\n" +
 	"\x04info\x18\x06 \x01(\tR\x04info\x122\n" +
 	"\x15session_state_changes\x18\a \x01(\tR\x13sessionStateChanges\x12*\n" +
-	"\x11insert_id_changed\x18\b \x01(\bR\x0finsertIdChanged\x12@\n" +
-	"\x0erealtime_stats\x18\t \x01(\v2\x19.query.QueryRealtimeStatsR\rrealtimeStatsJ\x04\b\x05\x10\x06\"<\n" +
+	"\x11insert_id_changed\x18\b \x01(\bR\x0finsertIdChangedJ\x04\b\x05\x10\x06\"<\n" +
 	"\fQueryWarning\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\xa0\x03\n" +
@@ -6035,9 +6010,12 @@ const file_query_proto_rawDesc = "" +
 	"\x0etransaction_id\x18\x05 \x01(\x03R\rtransactionId\x12/\n" +
 	"\aoptions\x18\x06 \x01(\v2\x15.query.ExecuteOptionsR\aoptions\x12\x1f\n" +
 	"\vreserved_id\x18\a \x01(\x03R\n" +
-	"reservedId\"=\n" +
+	"reservedId\"M\n" +
+	"\x18QueryserverRealtimeStats\x121\n" +
+	"\x15query_conn_pool_usage\x18\x01 \x01(\x01R\x12queryConnPoolUsage\"\x9c\x01\n" +
 	"\x0fExecuteResponse\x12*\n" +
-	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\"d\n" +
+	"\x06result\x18\x01 \x01(\v2\x12.query.QueryResultR\x06result\x12]\n" +
+	"\x1aqueryserver_realtime_stats\x18\x02 \x01(\v2\x1f.query.QueryserverRealtimeStatsR\x18queryserverRealtimeStats\"d\n" +
 	"\x0fResultWithError\x12%\n" +
 	"\x05error\x18\x01 \x01(\v2\x0f.vtrpc.RPCErrorR\x05error\x12*\n" +
 	"\x06result\x18\x02 \x01(\v2\x12.query.QueryResultR\x06result\"\xe7\x02\n" +
@@ -6065,10 +6043,11 @@ const file_query_proto_rawDesc = "" +
 	"\x13effective_caller_id\x18\x01 \x01(\v2\x0f.vtrpc.CallerIDR\x11effectiveCallerId\x12E\n" +
 	"\x13immediate_caller_id\x18\x02 \x01(\v2\x15.query.VTGateCallerIDR\x11immediateCallerId\x12%\n" +
 	"\x06target\x18\x03 \x01(\v2\r.query.TargetR\x06target\x12%\n" +
-	"\x0etransaction_id\x18\x04 \x01(\x03R\rtransactionId\"1\n" +
+	"\x0etransaction_id\x18\x04 \x01(\x03R\rtransactionId\"\x90\x01\n" +
 	"\x0eCommitResponse\x12\x1f\n" +
 	"\vreserved_id\x18\x01 \x01(\x03R\n" +
-	"reservedId\"\xe7\x01\n" +
+	"reservedId\x12]\n" +
+	"\x1aqueryserver_realtime_stats\x18\x02 \x01(\v2\x1f.query.QueryserverRealtimeStatsR\x18queryserverRealtimeStats\"\xe7\x01\n" +
 	"\x0fRollbackRequest\x12?\n" +
 	"\x13effective_caller_id\x18\x01 \x01(\v2\x0f.vtrpc.CallerIDR\x11effectiveCallerId\x12E\n" +
 	"\x13immediate_caller_id\x18\x02 \x01(\v2\x15.query.VTGateCallerIDR\x11immediateCallerId\x12%\n" +
@@ -6271,13 +6250,7 @@ const file_query_proto_rawDesc = "" +
 	"\x13view_schema_changed\x18\b \x03(\tR\x11viewSchemaChanged\x12!\n" +
 	"\fudfs_changed\x18\t \x01(\bR\vudfsChanged\x12#\n" +
 	"\rtx_unresolved\x18\n" +
-	" \x01(\bR\ftxUnresolved\"\xf7\x01\n" +
-	"\x12QueryRealtimeStats\x126\n" +
-	"\x17replication_lag_seconds\x18\x01 \x01(\rR\x15replicationLagSeconds\x120\n" +
-	"\x14cache_warmed_percent\x18\x02 \x01(\x01R\x12cacheWarmedPercent\x12\x1b\n" +
-	"\tcpu_usage\x18\x03 \x01(\x01R\bcpuUsage\x121\n" +
-	"\x15query_conn_pool_usage\x18\x04 \x01(\x01R\x12queryConnPoolUsage\x12'\n" +
-	"\x0fqueries_running\x18\x05 \x01(\x04R\x0equeriesRunning\"\xf6\x01\n" +
+	" \x01(\bR\ftxUnresolved\"\xf6\x01\n" +
 	"\x0eAggregateStats\x120\n" +
 	"\x14healthy_tablet_count\x18\x01 \x01(\x05R\x12healthyTabletCount\x124\n" +
 	"\x16unhealthy_tablet_count\x18\x02 \x01(\x05R\x14unhealthyTabletCount\x12=\n" +
@@ -6447,55 +6420,55 @@ var file_query_proto_goTypes = []any{
 	(*QueryWarning)(nil),                      // 23: query.QueryWarning
 	(*StreamEvent)(nil),                       // 24: query.StreamEvent
 	(*ExecuteRequest)(nil),                    // 25: query.ExecuteRequest
-	(*ExecuteResponse)(nil),                   // 26: query.ExecuteResponse
-	(*ResultWithError)(nil),                   // 27: query.ResultWithError
-	(*StreamExecuteRequest)(nil),              // 28: query.StreamExecuteRequest
-	(*StreamExecuteResponse)(nil),             // 29: query.StreamExecuteResponse
-	(*BeginRequest)(nil),                      // 30: query.BeginRequest
-	(*BeginResponse)(nil),                     // 31: query.BeginResponse
-	(*CommitRequest)(nil),                     // 32: query.CommitRequest
-	(*CommitResponse)(nil),                    // 33: query.CommitResponse
-	(*RollbackRequest)(nil),                   // 34: query.RollbackRequest
-	(*RollbackResponse)(nil),                  // 35: query.RollbackResponse
-	(*PrepareRequest)(nil),                    // 36: query.PrepareRequest
-	(*PrepareResponse)(nil),                   // 37: query.PrepareResponse
-	(*CommitPreparedRequest)(nil),             // 38: query.CommitPreparedRequest
-	(*CommitPreparedResponse)(nil),            // 39: query.CommitPreparedResponse
-	(*RollbackPreparedRequest)(nil),           // 40: query.RollbackPreparedRequest
-	(*RollbackPreparedResponse)(nil),          // 41: query.RollbackPreparedResponse
-	(*CreateTransactionRequest)(nil),          // 42: query.CreateTransactionRequest
-	(*CreateTransactionResponse)(nil),         // 43: query.CreateTransactionResponse
-	(*StartCommitRequest)(nil),                // 44: query.StartCommitRequest
-	(*StartCommitResponse)(nil),               // 45: query.StartCommitResponse
-	(*SetRollbackRequest)(nil),                // 46: query.SetRollbackRequest
-	(*SetRollbackResponse)(nil),               // 47: query.SetRollbackResponse
-	(*ConcludeTransactionRequest)(nil),        // 48: query.ConcludeTransactionRequest
-	(*ConcludeTransactionResponse)(nil),       // 49: query.ConcludeTransactionResponse
-	(*ReadTransactionRequest)(nil),            // 50: query.ReadTransactionRequest
-	(*ReadTransactionResponse)(nil),           // 51: query.ReadTransactionResponse
-	(*UnresolvedTransactionsRequest)(nil),     // 52: query.UnresolvedTransactionsRequest
-	(*UnresolvedTransactionsResponse)(nil),    // 53: query.UnresolvedTransactionsResponse
-	(*BeginExecuteRequest)(nil),               // 54: query.BeginExecuteRequest
-	(*BeginExecuteResponse)(nil),              // 55: query.BeginExecuteResponse
-	(*BeginStreamExecuteRequest)(nil),         // 56: query.BeginStreamExecuteRequest
-	(*BeginStreamExecuteResponse)(nil),        // 57: query.BeginStreamExecuteResponse
-	(*MessageStreamRequest)(nil),              // 58: query.MessageStreamRequest
-	(*MessageStreamResponse)(nil),             // 59: query.MessageStreamResponse
-	(*MessageAckRequest)(nil),                 // 60: query.MessageAckRequest
-	(*MessageAckResponse)(nil),                // 61: query.MessageAckResponse
-	(*ReserveExecuteRequest)(nil),             // 62: query.ReserveExecuteRequest
-	(*ReserveExecuteResponse)(nil),            // 63: query.ReserveExecuteResponse
-	(*ReserveStreamExecuteRequest)(nil),       // 64: query.ReserveStreamExecuteRequest
-	(*ReserveStreamExecuteResponse)(nil),      // 65: query.ReserveStreamExecuteResponse
-	(*ReserveBeginExecuteRequest)(nil),        // 66: query.ReserveBeginExecuteRequest
-	(*ReserveBeginExecuteResponse)(nil),       // 67: query.ReserveBeginExecuteResponse
-	(*ReserveBeginStreamExecuteRequest)(nil),  // 68: query.ReserveBeginStreamExecuteRequest
-	(*ReserveBeginStreamExecuteResponse)(nil), // 69: query.ReserveBeginStreamExecuteResponse
-	(*ReleaseRequest)(nil),                    // 70: query.ReleaseRequest
-	(*ReleaseResponse)(nil),                   // 71: query.ReleaseResponse
-	(*StreamHealthRequest)(nil),               // 72: query.StreamHealthRequest
-	(*RealtimeStats)(nil),                     // 73: query.RealtimeStats
-	(*QueryRealtimeStats)(nil),                // 74: query.QueryRealtimeStats
+	(*QueryserverRealtimeStats)(nil),          // 26: query.QueryserverRealtimeStats
+	(*ExecuteResponse)(nil),                   // 27: query.ExecuteResponse
+	(*ResultWithError)(nil),                   // 28: query.ResultWithError
+	(*StreamExecuteRequest)(nil),              // 29: query.StreamExecuteRequest
+	(*StreamExecuteResponse)(nil),             // 30: query.StreamExecuteResponse
+	(*BeginRequest)(nil),                      // 31: query.BeginRequest
+	(*BeginResponse)(nil),                     // 32: query.BeginResponse
+	(*CommitRequest)(nil),                     // 33: query.CommitRequest
+	(*CommitResponse)(nil),                    // 34: query.CommitResponse
+	(*RollbackRequest)(nil),                   // 35: query.RollbackRequest
+	(*RollbackResponse)(nil),                  // 36: query.RollbackResponse
+	(*PrepareRequest)(nil),                    // 37: query.PrepareRequest
+	(*PrepareResponse)(nil),                   // 38: query.PrepareResponse
+	(*CommitPreparedRequest)(nil),             // 39: query.CommitPreparedRequest
+	(*CommitPreparedResponse)(nil),            // 40: query.CommitPreparedResponse
+	(*RollbackPreparedRequest)(nil),           // 41: query.RollbackPreparedRequest
+	(*RollbackPreparedResponse)(nil),          // 42: query.RollbackPreparedResponse
+	(*CreateTransactionRequest)(nil),          // 43: query.CreateTransactionRequest
+	(*CreateTransactionResponse)(nil),         // 44: query.CreateTransactionResponse
+	(*StartCommitRequest)(nil),                // 45: query.StartCommitRequest
+	(*StartCommitResponse)(nil),               // 46: query.StartCommitResponse
+	(*SetRollbackRequest)(nil),                // 47: query.SetRollbackRequest
+	(*SetRollbackResponse)(nil),               // 48: query.SetRollbackResponse
+	(*ConcludeTransactionRequest)(nil),        // 49: query.ConcludeTransactionRequest
+	(*ConcludeTransactionResponse)(nil),       // 50: query.ConcludeTransactionResponse
+	(*ReadTransactionRequest)(nil),            // 51: query.ReadTransactionRequest
+	(*ReadTransactionResponse)(nil),           // 52: query.ReadTransactionResponse
+	(*UnresolvedTransactionsRequest)(nil),     // 53: query.UnresolvedTransactionsRequest
+	(*UnresolvedTransactionsResponse)(nil),    // 54: query.UnresolvedTransactionsResponse
+	(*BeginExecuteRequest)(nil),               // 55: query.BeginExecuteRequest
+	(*BeginExecuteResponse)(nil),              // 56: query.BeginExecuteResponse
+	(*BeginStreamExecuteRequest)(nil),         // 57: query.BeginStreamExecuteRequest
+	(*BeginStreamExecuteResponse)(nil),        // 58: query.BeginStreamExecuteResponse
+	(*MessageStreamRequest)(nil),              // 59: query.MessageStreamRequest
+	(*MessageStreamResponse)(nil),             // 60: query.MessageStreamResponse
+	(*MessageAckRequest)(nil),                 // 61: query.MessageAckRequest
+	(*MessageAckResponse)(nil),                // 62: query.MessageAckResponse
+	(*ReserveExecuteRequest)(nil),             // 63: query.ReserveExecuteRequest
+	(*ReserveExecuteResponse)(nil),            // 64: query.ReserveExecuteResponse
+	(*ReserveStreamExecuteRequest)(nil),       // 65: query.ReserveStreamExecuteRequest
+	(*ReserveStreamExecuteResponse)(nil),      // 66: query.ReserveStreamExecuteResponse
+	(*ReserveBeginExecuteRequest)(nil),        // 67: query.ReserveBeginExecuteRequest
+	(*ReserveBeginExecuteResponse)(nil),       // 68: query.ReserveBeginExecuteResponse
+	(*ReserveBeginStreamExecuteRequest)(nil),  // 69: query.ReserveBeginStreamExecuteRequest
+	(*ReserveBeginStreamExecuteResponse)(nil), // 70: query.ReserveBeginStreamExecuteResponse
+	(*ReleaseRequest)(nil),                    // 71: query.ReleaseRequest
+	(*ReleaseResponse)(nil),                   // 72: query.ReleaseResponse
+	(*StreamHealthRequest)(nil),               // 73: query.StreamHealthRequest
+	(*RealtimeStats)(nil),                     // 74: query.RealtimeStats
 	(*AggregateStats)(nil),                    // 75: query.AggregateStats
 	(*StreamHealthResponse)(nil),              // 76: query.StreamHealthResponse
 	(*TransactionMetadata)(nil),               // 77: query.TransactionMetadata
@@ -6525,15 +6498,15 @@ var file_query_proto_depIdxs = []int32{
 	2,   // 11: query.Field.type:type_name -> query.Type
 	20,  // 12: query.QueryResult.fields:type_name -> query.Field
 	21,  // 13: query.QueryResult.rows:type_name -> query.Row
-	74,  // 14: query.QueryResult.realtime_stats:type_name -> query.QueryRealtimeStats
-	82,  // 15: query.StreamEvent.statements:type_name -> query.StreamEvent.Statement
-	15,  // 16: query.StreamEvent.event_token:type_name -> query.EventToken
-	85,  // 17: query.ExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 18: query.ExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 19: query.ExecuteRequest.target:type_name -> query.Target
-	18,  // 20: query.ExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 21: query.ExecuteRequest.options:type_name -> query.ExecuteOptions
-	22,  // 22: query.ExecuteResponse.result:type_name -> query.QueryResult
+	82,  // 14: query.StreamEvent.statements:type_name -> query.StreamEvent.Statement
+	15,  // 15: query.StreamEvent.event_token:type_name -> query.EventToken
+	85,  // 16: query.ExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 17: query.ExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 18: query.ExecuteRequest.target:type_name -> query.Target
+	18,  // 19: query.ExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 20: query.ExecuteRequest.options:type_name -> query.ExecuteOptions
+	22,  // 21: query.ExecuteResponse.result:type_name -> query.QueryResult
+	26,  // 22: query.ExecuteResponse.queryserver_realtime_stats:type_name -> query.QueryserverRealtimeStats
 	86,  // 23: query.ResultWithError.error:type_name -> vtrpc.RPCError
 	22,  // 24: query.ResultWithError.result:type_name -> query.QueryResult
 	85,  // 25: query.StreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
@@ -6550,119 +6523,120 @@ var file_query_proto_depIdxs = []int32{
 	85,  // 36: query.CommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
 	14,  // 37: query.CommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
 	13,  // 38: query.CommitRequest.target:type_name -> query.Target
-	85,  // 39: query.RollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 40: query.RollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 41: query.RollbackRequest.target:type_name -> query.Target
-	85,  // 42: query.PrepareRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 43: query.PrepareRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 44: query.PrepareRequest.target:type_name -> query.Target
-	85,  // 45: query.CommitPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 46: query.CommitPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 47: query.CommitPreparedRequest.target:type_name -> query.Target
-	85,  // 48: query.RollbackPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 49: query.RollbackPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 50: query.RollbackPreparedRequest.target:type_name -> query.Target
-	85,  // 51: query.CreateTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 52: query.CreateTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 53: query.CreateTransactionRequest.target:type_name -> query.Target
-	13,  // 54: query.CreateTransactionRequest.participants:type_name -> query.Target
-	85,  // 55: query.StartCommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 56: query.StartCommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 57: query.StartCommitRequest.target:type_name -> query.Target
-	3,   // 58: query.StartCommitResponse.state:type_name -> query.StartCommitState
-	85,  // 59: query.SetRollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 60: query.SetRollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 61: query.SetRollbackRequest.target:type_name -> query.Target
-	85,  // 62: query.ConcludeTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 63: query.ConcludeTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 64: query.ConcludeTransactionRequest.target:type_name -> query.Target
-	85,  // 65: query.ReadTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 66: query.ReadTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 67: query.ReadTransactionRequest.target:type_name -> query.Target
-	77,  // 68: query.ReadTransactionResponse.metadata:type_name -> query.TransactionMetadata
-	85,  // 69: query.UnresolvedTransactionsRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 70: query.UnresolvedTransactionsRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 71: query.UnresolvedTransactionsRequest.target:type_name -> query.Target
-	77,  // 72: query.UnresolvedTransactionsResponse.transactions:type_name -> query.TransactionMetadata
-	85,  // 73: query.BeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 74: query.BeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 75: query.BeginExecuteRequest.target:type_name -> query.Target
-	18,  // 76: query.BeginExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 77: query.BeginExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 78: query.BeginExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 79: query.BeginExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 80: query.BeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 81: query.BeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 82: query.BeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 83: query.BeginStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 84: query.BeginStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 85: query.BeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 86: query.BeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 87: query.BeginStreamExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 88: query.BeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 89: query.MessageStreamRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 90: query.MessageStreamRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 91: query.MessageStreamRequest.target:type_name -> query.Target
-	22,  // 92: query.MessageStreamResponse.result:type_name -> query.QueryResult
-	85,  // 93: query.MessageAckRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 94: query.MessageAckRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 95: query.MessageAckRequest.target:type_name -> query.Target
-	16,  // 96: query.MessageAckRequest.ids:type_name -> query.Value
-	22,  // 97: query.MessageAckResponse.result:type_name -> query.QueryResult
-	85,  // 98: query.ReserveExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 99: query.ReserveExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 100: query.ReserveExecuteRequest.target:type_name -> query.Target
-	18,  // 101: query.ReserveExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 102: query.ReserveExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 103: query.ReserveExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 104: query.ReserveExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 105: query.ReserveExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 106: query.ReserveStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 107: query.ReserveStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 108: query.ReserveStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 109: query.ReserveStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 110: query.ReserveStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 111: query.ReserveStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 112: query.ReserveStreamExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 113: query.ReserveStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 114: query.ReserveBeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 115: query.ReserveBeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 116: query.ReserveBeginExecuteRequest.target:type_name -> query.Target
-	18,  // 117: query.ReserveBeginExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 118: query.ReserveBeginExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 119: query.ReserveBeginExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 120: query.ReserveBeginExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 121: query.ReserveBeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 122: query.ReserveBeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 123: query.ReserveBeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 124: query.ReserveBeginStreamExecuteRequest.target:type_name -> query.Target
-	18,  // 125: query.ReserveBeginStreamExecuteRequest.query:type_name -> query.BoundQuery
-	19,  // 126: query.ReserveBeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
-	86,  // 127: query.ReserveBeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
-	22,  // 128: query.ReserveBeginStreamExecuteResponse.result:type_name -> query.QueryResult
-	87,  // 129: query.ReserveBeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
-	85,  // 130: query.ReleaseRequest.effective_caller_id:type_name -> vtrpc.CallerID
-	14,  // 131: query.ReleaseRequest.immediate_caller_id:type_name -> query.VTGateCallerID
-	13,  // 132: query.ReleaseRequest.target:type_name -> query.Target
-	13,  // 133: query.StreamHealthResponse.target:type_name -> query.Target
-	73,  // 134: query.StreamHealthResponse.realtime_stats:type_name -> query.RealtimeStats
-	87,  // 135: query.StreamHealthResponse.tablet_alias:type_name -> topodata.TabletAlias
-	4,   // 136: query.TransactionMetadata.state:type_name -> query.TransactionState
-	13,  // 137: query.TransactionMetadata.participants:type_name -> query.Target
-	13,  // 138: query.GetSchemaRequest.target:type_name -> query.Target
-	5,   // 139: query.GetSchemaRequest.table_type:type_name -> query.SchemaTableType
-	2,   // 140: query.UDFInfo.return_type:type_name -> query.Type
-	79,  // 141: query.GetSchemaResponse.udfs:type_name -> query.UDFInfo
-	83,  // 142: query.GetSchemaResponse.table_definition:type_name -> query.GetSchemaResponse.TableDefinitionEntry
-	17,  // 143: query.BoundQuery.BindVariablesEntry.value:type_name -> query.BindVariable
-	12,  // 144: query.StreamEvent.Statement.category:type_name -> query.StreamEvent.Statement.Category
-	20,  // 145: query.StreamEvent.Statement.primary_key_fields:type_name -> query.Field
-	21,  // 146: query.StreamEvent.Statement.primary_key_values:type_name -> query.Row
-	147, // [147:147] is the sub-list for method output_type
-	147, // [147:147] is the sub-list for method input_type
-	147, // [147:147] is the sub-list for extension type_name
-	147, // [147:147] is the sub-list for extension extendee
-	0,   // [0:147] is the sub-list for field type_name
+	26,  // 39: query.CommitResponse.queryserver_realtime_stats:type_name -> query.QueryserverRealtimeStats
+	85,  // 40: query.RollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 41: query.RollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 42: query.RollbackRequest.target:type_name -> query.Target
+	85,  // 43: query.PrepareRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 44: query.PrepareRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 45: query.PrepareRequest.target:type_name -> query.Target
+	85,  // 46: query.CommitPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 47: query.CommitPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 48: query.CommitPreparedRequest.target:type_name -> query.Target
+	85,  // 49: query.RollbackPreparedRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 50: query.RollbackPreparedRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 51: query.RollbackPreparedRequest.target:type_name -> query.Target
+	85,  // 52: query.CreateTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 53: query.CreateTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 54: query.CreateTransactionRequest.target:type_name -> query.Target
+	13,  // 55: query.CreateTransactionRequest.participants:type_name -> query.Target
+	85,  // 56: query.StartCommitRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 57: query.StartCommitRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 58: query.StartCommitRequest.target:type_name -> query.Target
+	3,   // 59: query.StartCommitResponse.state:type_name -> query.StartCommitState
+	85,  // 60: query.SetRollbackRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 61: query.SetRollbackRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 62: query.SetRollbackRequest.target:type_name -> query.Target
+	85,  // 63: query.ConcludeTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 64: query.ConcludeTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 65: query.ConcludeTransactionRequest.target:type_name -> query.Target
+	85,  // 66: query.ReadTransactionRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 67: query.ReadTransactionRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 68: query.ReadTransactionRequest.target:type_name -> query.Target
+	77,  // 69: query.ReadTransactionResponse.metadata:type_name -> query.TransactionMetadata
+	85,  // 70: query.UnresolvedTransactionsRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 71: query.UnresolvedTransactionsRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 72: query.UnresolvedTransactionsRequest.target:type_name -> query.Target
+	77,  // 73: query.UnresolvedTransactionsResponse.transactions:type_name -> query.TransactionMetadata
+	85,  // 74: query.BeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 75: query.BeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 76: query.BeginExecuteRequest.target:type_name -> query.Target
+	18,  // 77: query.BeginExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 78: query.BeginExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 79: query.BeginExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 80: query.BeginExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 81: query.BeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 82: query.BeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 83: query.BeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 84: query.BeginStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 85: query.BeginStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 86: query.BeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 87: query.BeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 88: query.BeginStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 89: query.BeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 90: query.MessageStreamRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 91: query.MessageStreamRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 92: query.MessageStreamRequest.target:type_name -> query.Target
+	22,  // 93: query.MessageStreamResponse.result:type_name -> query.QueryResult
+	85,  // 94: query.MessageAckRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 95: query.MessageAckRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 96: query.MessageAckRequest.target:type_name -> query.Target
+	16,  // 97: query.MessageAckRequest.ids:type_name -> query.Value
+	22,  // 98: query.MessageAckResponse.result:type_name -> query.QueryResult
+	85,  // 99: query.ReserveExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 100: query.ReserveExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 101: query.ReserveExecuteRequest.target:type_name -> query.Target
+	18,  // 102: query.ReserveExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 103: query.ReserveExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 104: query.ReserveExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 105: query.ReserveExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 106: query.ReserveExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 107: query.ReserveStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 108: query.ReserveStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 109: query.ReserveStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 110: query.ReserveStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 111: query.ReserveStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 112: query.ReserveStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 113: query.ReserveStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 114: query.ReserveStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 115: query.ReserveBeginExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 116: query.ReserveBeginExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 117: query.ReserveBeginExecuteRequest.target:type_name -> query.Target
+	18,  // 118: query.ReserveBeginExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 119: query.ReserveBeginExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 120: query.ReserveBeginExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 121: query.ReserveBeginExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 122: query.ReserveBeginExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 123: query.ReserveBeginStreamExecuteRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 124: query.ReserveBeginStreamExecuteRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 125: query.ReserveBeginStreamExecuteRequest.target:type_name -> query.Target
+	18,  // 126: query.ReserveBeginStreamExecuteRequest.query:type_name -> query.BoundQuery
+	19,  // 127: query.ReserveBeginStreamExecuteRequest.options:type_name -> query.ExecuteOptions
+	86,  // 128: query.ReserveBeginStreamExecuteResponse.error:type_name -> vtrpc.RPCError
+	22,  // 129: query.ReserveBeginStreamExecuteResponse.result:type_name -> query.QueryResult
+	87,  // 130: query.ReserveBeginStreamExecuteResponse.tablet_alias:type_name -> topodata.TabletAlias
+	85,  // 131: query.ReleaseRequest.effective_caller_id:type_name -> vtrpc.CallerID
+	14,  // 132: query.ReleaseRequest.immediate_caller_id:type_name -> query.VTGateCallerID
+	13,  // 133: query.ReleaseRequest.target:type_name -> query.Target
+	13,  // 134: query.StreamHealthResponse.target:type_name -> query.Target
+	74,  // 135: query.StreamHealthResponse.realtime_stats:type_name -> query.RealtimeStats
+	87,  // 136: query.StreamHealthResponse.tablet_alias:type_name -> topodata.TabletAlias
+	4,   // 137: query.TransactionMetadata.state:type_name -> query.TransactionState
+	13,  // 138: query.TransactionMetadata.participants:type_name -> query.Target
+	13,  // 139: query.GetSchemaRequest.target:type_name -> query.Target
+	5,   // 140: query.GetSchemaRequest.table_type:type_name -> query.SchemaTableType
+	2,   // 141: query.UDFInfo.return_type:type_name -> query.Type
+	79,  // 142: query.GetSchemaResponse.udfs:type_name -> query.UDFInfo
+	83,  // 143: query.GetSchemaResponse.table_definition:type_name -> query.GetSchemaResponse.TableDefinitionEntry
+	17,  // 144: query.BoundQuery.BindVariablesEntry.value:type_name -> query.BindVariable
+	12,  // 145: query.StreamEvent.Statement.category:type_name -> query.StreamEvent.Statement.Category
+	20,  // 146: query.StreamEvent.Statement.primary_key_fields:type_name -> query.Field
+	21,  // 147: query.StreamEvent.Statement.primary_key_values:type_name -> query.Row
+	148, // [148:148] is the sub-list for method output_type
+	148, // [148:148] is the sub-list for method input_type
+	148, // [148:148] is the sub-list for extension type_name
+	148, // [148:148] is the sub-list for extension extendee
+	0,   // [0:148] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }

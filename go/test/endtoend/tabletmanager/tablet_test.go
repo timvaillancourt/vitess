@@ -162,3 +162,33 @@ func checkValueGreaterZero(t *testing.T, statusValues map[string]string, val str
 	require.NoError(t, err)
 	require.Greater(t, valInMap, 0)
 }
+
+func TestTabletShutdownTime(t *testing.T) {
+	// Create new tablet
+	tablet := clusterInstance.NewVttabletInstance("replica", 0, "")
+	defer killTablets(tablet)
+	mysqlctlProcess, err := cluster.MysqlCtlProcessInstance(tablet.TabletUID, tablet.MySQLPort, clusterInstance.TmpDirectory)
+	require.NoError(t, err)
+
+	tablet.MysqlctlProcess = *mysqlctlProcess
+	err = tablet.MysqlctlProcess.Start()
+	require.NoError(t, err)
+
+	log.Info(fmt.Sprintf("Started vttablet %v", tablet))
+	// Start vttablet process as replica. It won't be able to serve because there's no db.
+	err = clusterInstance.StartVttablet(tablet, false, "SERVING", false, cell, "dbtest", hostname, "0")
+	require.NoError(t, err)
+
+	// check ShutdownTime is nil
+	vttablet := getTablet(tablet.GrpcPort)
+	require.Nil(t, vttablet.ShutdownTime)
+
+	// stop the vttablet process
+	tablet.VttabletProcess.Stop()
+
+	// check ShutdownTime is not-nil
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		vttablet := getTablet(tablet.GrpcPort)
+		assert.NotNil(c, vttablet.ShutdownTime)
+	}, time.Second, time.Second*10)
+}
