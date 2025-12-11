@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template"
@@ -255,15 +256,30 @@ func getGitRefSHA(ctx context.Context, url, branchOrTag string) (string, error) 
 		return "", err
 	}
 
-	// git ls-remote returns two text columns: a commit SHA and a reference.
+	// 'git ls-remote <url> <branchOrTag>' returns two text columns: a commit
+	// SHA and a reference. We expect the stdout to be a single line, which
+	// should always be true but we still validate.
 	// Example:
 	//    $ git ls-remote https://github.com/vitessio/go-junit-report HEAD
 	//    99fa7f0daf16db969f54a49139a14471e633e6e8	HEAD
-	fields := strings.Fields(stdout.String())
-	if len(fields) != 2 {
-		return "", fmt.Errorf("cannot parse output of 'git ls-remote' for %q", url)
+	for line := range strings.Lines(stdout.String()) {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		if fields[1] != branchOrTag && !strings.HasSuffix(fields[1], "/"+branchOrTag) {
+			continue
+		}
+
+		// git SHA1 hashes are 40 hex characters.
+		sha := fields[0]
+		match, err := regexp.MatchString(`^[a-zA-Z0-9]{40}$`, sha)
+		if !match || err != nil {
+			continue
+		}
+		return sha, nil
 	}
-	return fields[0], nil
+	return "", fmt.Errorf("cannot parse output of 'git ls-remote' for %q", url)
 }
 
 // getGitMetas concurrently fetches Git metadata for workflow dependencies.
@@ -282,7 +298,7 @@ func getGitMetas(ctx context.Context) (*GitMetas, error) {
 		metasMu.Lock()
 		defer metasMu.Unlock()
 		metas.GoJunitReport = &GitMeta{SHA: sha, Comment: "HEAD"}
-		return err
+		return nil
 	})
 
 	// goimports tool
@@ -294,7 +310,7 @@ func getGitMetas(ctx context.Context) (*GitMetas, error) {
 		metasMu.Lock()
 		defer metasMu.Unlock()
 		metas.Goimports = &GitMeta{SHA: sha, Comment: goimportsTag}
-		return err
+		return nil
 	})
 
 	return &metas, eg.Wait()
