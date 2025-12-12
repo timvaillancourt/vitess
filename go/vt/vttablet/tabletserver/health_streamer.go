@@ -191,7 +191,7 @@ func (hs *healthStreamer) unregister(ch chan *querypb.StreamHealthResponse) {
 	delete(hs.clients, ch)
 }
 
-func (hs *healthStreamer) ChangeState(tabletType topodatapb.TabletType, ptsTimestamp time.Time, lag time.Duration, err error, serving bool) {
+func (hs *healthStreamer) ChangeState(tabletType topodatapb.TabletType, ptsTimestamp time.Time, lag time.Duration, err error, serving bool, queryConnPoolUsage float64) {
 	hs.fieldsMu.Lock()
 	defer hs.fieldsMu.Unlock()
 
@@ -211,6 +211,7 @@ func (hs *healthStreamer) ChangeState(tabletType topodatapb.TabletType, ptsTimes
 
 	hs.state.RealtimeStats.FilteredReplicationLagSeconds, hs.state.RealtimeStats.BinlogPlayersCount = blpFunc()
 	hs.state.RealtimeStats.Qps = hs.stats.QPSRates.TotalRate()
+	hs.state.RealtimeStats.QueryConnPoolUsage = queryConnPoolUsage
 	shr := hs.state.CloneVT()
 	hs.broadCastToClients(shr)
 	hs.history.Add(&historyRecord{

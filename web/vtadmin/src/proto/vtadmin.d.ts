@@ -48673,6 +48673,9 @@ export namespace query {
 
         /** RealtimeStats tx_unresolved */
         tx_unresolved?: (boolean|null);
+
+        /** RealtimeStats query_conn_pool_usage */
+        query_conn_pool_usage?: (number|null);
     }
 
     /** Represents a RealtimeStats. */
@@ -48713,6 +48716,9 @@ export namespace query {
 
         /** RealtimeStats tx_unresolved. */
         public tx_unresolved: boolean;
+
+        /** RealtimeStats query_conn_pool_usage. */
+        public query_conn_pool_usage: number;
 
         /**
          * Creates a new RealtimeStats instance using the specified properties.

@@ -5229,10 +5229,12 @@ type RealtimeStats struct {
 	// view_schema_changed is to provide list of views that have schema changes detected by the tablet.
 	ViewSchemaChanged []string `protobuf:"bytes,8,rep,name=view_schema_changed,json=viewSchemaChanged,proto3" json:"view_schema_changed,omitempty"`
 	// udfs_changed is used to signal that the UDFs have changed on the tablet.
-	UdfsChanged   bool `protobuf:"varint,9,opt,name=udfs_changed,json=udfsChanged,proto3" json:"udfs_changed,omitempty"`
-	TxUnresolved  bool `protobuf:"varint,10,opt,name=tx_unresolved,json=txUnresolved,proto3" json:"tx_unresolved,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	UdfsChanged  bool `protobuf:"varint,9,opt,name=udfs_changed,json=udfsChanged,proto3" json:"udfs_changed,omitempty"`
+	TxUnresolved bool `protobuf:"varint,10,opt,name=tx_unresolved,json=txUnresolved,proto3" json:"tx_unresolved,omitempty"`
+	// query_conn_pool_usage represents the usage percent of the query conn pool.
+	QueryConnPoolUsage float64 `protobuf:"fixed64,11,opt,name=query_conn_pool_usage,json=queryConnPoolUsage,proto3" json:"query_conn_pool_usage,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *RealtimeStats) Reset() {
@@ -5333,6 +5335,13 @@ func (x *RealtimeStats) GetTxUnresolved() bool {
 		return x.TxUnresolved
 	}
 	return false
+}
+
+func (x *RealtimeStats) GetQueryConnPoolUsage() float64 {
+	if x != nil {
+		return x.QueryConnPoolUsage
+	}
+	return 0
 }
 
 // AggregateStats contains information about the health of a group of
@@ -6238,7 +6247,7 @@ const file_query_proto_rawDesc = "" +
 	"\vreserved_id\x18\x05 \x01(\x03R\n" +
 	"reservedId\"\x11\n" +
 	"\x0fReleaseResponse\"\x15\n" +
-	"\x13StreamHealthRequest\"\xbe\x03\n" +
+	"\x13StreamHealthRequest\"\xf1\x03\n" +
 	"\rRealtimeStats\x12!\n" +
 	"\fhealth_error\x18\x01 \x01(\tR\vhealthError\x126\n" +
 	"\x17replication_lag_seconds\x18\x02 \x01(\rR\x15replicationLagSeconds\x120\n" +
@@ -6250,7 +6259,8 @@ const file_query_proto_rawDesc = "" +
 	"\x13view_schema_changed\x18\b \x03(\tR\x11viewSchemaChanged\x12!\n" +
 	"\fudfs_changed\x18\t \x01(\bR\vudfsChanged\x12#\n" +
 	"\rtx_unresolved\x18\n" +
-	" \x01(\bR\ftxUnresolved\"\xf6\x01\n" +
+	" \x01(\bR\ftxUnresolved\x121\n" +
+	"\x15query_conn_pool_usage\x18\v \x01(\x01R\x12queryConnPoolUsage\"\xf6\x01\n" +
 	"\x0eAggregateStats\x120\n" +
 	"\x14healthy_tablet_count\x18\x01 \x01(\x05R\x12healthyTabletCount\x124\n" +
 	"\x16unhealthy_tablet_count\x18\x02 \x01(\x05R\x14unhealthyTabletCount\x12=\n" +

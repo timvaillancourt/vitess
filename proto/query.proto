@@ -954,6 +954,9 @@ message RealtimeStats {
   bool udfs_changed = 9;
 
   bool tx_unresolved = 10;
+
+  // query_conn_pool_usage represents the usage percent of the query conn pool.
+  double query_conn_pool_usage = 11;
 }
 
 // AggregateStats contains information about the health of a group of

@@ -547,6 +547,11 @@ func (qe *QueryEngine) IsMySQLReachable() error {
 	return nil
 }
 
+// GetQueryConnPoolUsage returns usage percent for the query connection pool.
+func (qe *QueryEngine) GetQueryConnPoolUsage() float64 {
+	return float64(qe.conns.Capacity()) / float64(qe.conns.InUse())
+}
+
 func (qe *QueryEngine) schemaChanged(tables map[string]*schema.Table, created, altered, dropped []*schema.Table, _ bool) {
 	qe.schemaMu.Lock()
 	defer qe.schemaMu.Unlock()

@@ -159,6 +159,7 @@ type (
 
 	queryEngine interface {
 		Open() error
+		GetQueryConnPoolUsage() float64
 		IsMySQLReachable() error
 		Close()
 	}
@@ -731,7 +732,7 @@ func (sm *stateManager) Broadcast() {
 		// If we are stalled while demoting primary, we should send an error for it.
 		err = vterrors.VT09031()
 	}
-	sm.hs.ChangeState(sm.target.TabletType, sm.ptsTimestamp, lag, err, sm.isServingLocked())
+	sm.hs.ChangeState(sm.target.TabletType, sm.ptsTimestamp, lag, err, sm.isServingLocked(), sm.qe.GetQueryConnPoolUsage())
 }
 
 func (sm *stateManager) refreshReplHealthLocked() (time.Duration, error) {

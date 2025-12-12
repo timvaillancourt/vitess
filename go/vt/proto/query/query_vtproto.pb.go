@@ -1396,6 +1396,7 @@ func (m *RealtimeStats) CloneVT() *RealtimeStats {
 	r.Qps = m.Qps
 	r.UdfsChanged = m.UdfsChanged
 	r.TxUnresolved = m.TxUnresolved
+	r.QueryConnPoolUsage = m.QueryConnPoolUsage
 	if rhs := m.TableSchemaChanged; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -5643,6 +5644,12 @@ func (m *RealtimeStats) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.QueryConnPoolUsage != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.QueryConnPoolUsage))))
+		i--
+		dAtA[i] = 0x59
+	}
 	if m.TxUnresolved {
 		i--
 		if m.TxUnresolved {
@@ -7700,6 +7707,9 @@ func (m *RealtimeStats) SizeVT() (n int) {
 	}
 	if m.TxUnresolved {
 		n += 2
+	}
+	if m.QueryConnPoolUsage != 0 {
+		n += 9
 	}
 	n += len(m.unknownFields)
 	return n
@@ -18571,6 +18581,17 @@ func (m *RealtimeStats) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.TxUnresolved = bool(v != 0)
+		case 11:
+			if wireType != 1 {
+				return fmt.Errorf("proto: wrong wireType = %d for field QueryConnPoolUsage", wireType)
+			}
+			var v uint64
+			if (iNdEx + 8) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
+			iNdEx += 8
+			m.QueryConnPoolUsage = float64(math.Float64frombits(v))
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
