@@ -107,6 +107,9 @@ type SandboxConn struct {
 	// UnresolvedTransactionsResult is used for returning results for UnresolvedTransactions.
 	UnresolvedTransactionsResult []*querypb.TransactionMetadata
 
+	// RealtimeStats is used for returning queryserver realtime stats.
+	RealtimeStats *querypb.QueryserverRealtimeStats
+
 	MessageIDs []*querypb.Value
 
 	// vstream expectations.
@@ -775,6 +778,11 @@ func (sbc *SandboxConn) Tablet() *topodatapb.Tablet {
 // ChangeTabletType changes the tablet type.
 func (sbc *SandboxConn) ChangeTabletType(typ topodatapb.TabletType) {
 	sbc.tablet.Type = typ
+}
+
+// RealtimeStats is part of the QueryService interface.
+func (sbc *SandboxConn) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	return sbc.RealtimeStats
 }
 
 func (sbc *SandboxConn) getNextResult(stmt sqlparser.Statement) *sqltypes.Result {

@@ -750,6 +750,11 @@ func (itc *internalTabletConn) VStreamResults(
 	return tabletconn.ErrorFromGRPC(vterrors.ToGRPC(err))
 }
 
+// GetRealtimeStats is part of the QueryService interface.
+func (itc *internalTabletConn) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	return itc.tablet.qsc.QueryService().GetRealtimeStats(ctx)
+}
+
 //
 // TabletManagerClient implementation
 //

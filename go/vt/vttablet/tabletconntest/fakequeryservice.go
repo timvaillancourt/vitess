@@ -778,6 +778,11 @@ func (f *FakeQueryService) GetSchema(ctx context.Context, target *querypb.Target
 	panic("implement me")
 }
 
+// GetRealtimeStats implements the QueryService interface
+func (f *FakeQueryService) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	panic("implement me")
+}
+
 // CreateFakeServer returns the fake server for the tests
 func CreateFakeServer(t testing.TB) *FakeQueryService {
 	return &FakeQueryService{

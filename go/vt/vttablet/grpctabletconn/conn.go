@@ -1167,3 +1167,8 @@ func (conn *gRPCQueryClient) Close(ctx context.Context) error {
 func (conn *gRPCQueryClient) Tablet() *topodatapb.Tablet {
 	return conn.tablet
 }
+
+// GetRealtimeStats is an internally only method. This is a no-op.
+func (conn *gRPCQueryClient) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	return nil
+}

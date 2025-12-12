@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
@@ -2049,6 +2050,13 @@ func (tsv *TabletServer) ConsolidatorMode() string {
 
 // GetRealtimeStats returns realtime stats for tabletserver, to be used in query responses.
 func (tsv *TabletServer) GetRealtimeStats(ctx context.Context) *querypb.QueryserverRealtimeStats {
+	statsProbability := tsv.config.RealtimeStatsProbability
+	if statsProbability == 0.0 {
+		return nil
+	}
+	if rand.Float64() > statsProbability {
+		return nil
+	}
 	return &querypb.QueryserverRealtimeStats{
 		QueryConnPoolUsage: 66.66,
 	}
