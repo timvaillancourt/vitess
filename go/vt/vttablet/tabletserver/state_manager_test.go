@@ -937,7 +937,8 @@ func (te *testReplTracker) Status() (time.Duration, error) {
 type testQueryEngine struct {
 	testOrderState
 
-	failMySQL bool
+	failMySQL          bool
+	queryConnPoolUsage float64
 }
 
 func (te *testQueryEngine) Open() error {
@@ -952,6 +953,10 @@ func (te *testQueryEngine) IsMySQLReachable() error {
 		return errors.New("intentional error")
 	}
 	return nil
+}
+
+func (te *testQueryEngine) GetQueryConnPoolUsage() float64 {
+	return te.queryConnPoolUsage
 }
 
 func (te *testQueryEngine) Close() {
