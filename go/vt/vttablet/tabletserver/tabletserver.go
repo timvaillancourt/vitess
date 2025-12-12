@@ -2058,7 +2058,7 @@ func (tsv *TabletServer) GetRealtimeStats(ctx context.Context) *querypb.Queryser
 		return nil
 	}
 	return &querypb.QueryserverRealtimeStats{
-		QueryConnPoolUsage: 66.66,
+		QueryConnPoolUsage: tsv.qe.GetQueryConnPoolUsage(),
 	}
 }
 
