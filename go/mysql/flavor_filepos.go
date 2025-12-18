@@ -291,6 +291,11 @@ func (flv *filePosFlavor) replicationNetTimeout(c *Conn) (int32, error) {
 	return 0, nil
 }
 
+// connectedReplicas is part of the Flavor interface.
+func (mysqlFlavorLegacy) connectedReplicas(c *Conn) ([]*replicationdata.ConnectedReplica, error) {
+	return nil, nil
+}
+
 // waitUntilPosition is part of the Flavor interface.
 func (flv *filePosFlavor) waitUntilPosition(ctx context.Context, c *Conn, pos replication.Position) error {
 	filePosPos, ok := pos.GTIDSet.(replication.FilePosGTID)

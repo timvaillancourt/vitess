@@ -351,6 +351,21 @@ func (mysqlFlavor) status(c *Conn) (replication.ReplicationStatus, error) {
 	return replication.ParseMysqlReplicationStatus(resultMap, true)
 }
 
+// connectedReplicas is part of the Flavor interface.
+func (mysqlFlavor) connectedReplicas(c *Conn) ([]*replicationdata.ConnectedReplica, error) {
+	qr, err := c.ExecuteFetch("SHOW REPLICAS", 1000, true /* wantFields */)
+	if err != nil {
+		return nil, err
+	}
+
+	resultMap, err := resultToMap(qr)
+	if err != nil {
+		return nil, err
+	}
+
+	return replication.ParseMysqlReplicas(resultMap, true)
+}
+
 // waitUntilPosition is part of the Flavor interface.
 func (mysqlFlavor) waitUntilPosition(ctx context.Context, c *Conn, pos replication.Position) error {
 	// A timeout of 0 means wait indefinitely.

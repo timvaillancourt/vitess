@@ -102,6 +102,12 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 		primaryStatusProto = replication.PrimaryStatusToProto(primaryStatus)
 	}
 
+	// Connected replicas
+	connectedReplicas, err := tm.MysqlDaemon.GetConnectedReplicas(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Purged GTID set
 	purgedGTIDs, err := tm.MysqlDaemon.GetGTIDPurged(ctx)
 	if err != nil {
@@ -191,6 +197,7 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 		SuperReadOnly:               superReadOnly,
 		ReplicationConfiguration:    replConfiguration,
 		TabletType:                  tm.Tablet().Type,
+		ConnectedReplicas:           connectedReplicas,
 	}, nil
 }
 

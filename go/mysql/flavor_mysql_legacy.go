@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"vitess.io/vitess/go/mysql/replication"
+	"vitess.io/vitess/go/vt/proto/replicationdata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/vterrors"
 )
@@ -177,6 +178,33 @@ func (mysqlFlavorLegacy) status(c *Conn) (replication.ReplicationStatus, error) 
 	}
 
 	return replication.ParseMysqlReplicationStatus(resultMap, false)
+}
+
+// connectedReplicas is part of the Flavor interface.
+func (mysqlFlavorLegacy) connectedReplicas(c *Conn) ([]*replicationdata.ConnectedReplica, error) {
+	qr, err := c.ExecuteFetch("SHOW SLAVE HOSTS", 1000, true /* wantFields */)
+	if err != nil {
+		return nil, err
+	}
+
+	resultMap, err := resultToMap(qr)
+	if err != nil {
+		return nil, err
+	}
+
+	// make result compatible with replication.ParseMysqlReplicas(...).
+	renamedMap := make(map[string]string, len(resultMap))
+	for k, v := range resultMap {
+		switch k {
+		case "Master_id":
+			renamedMap["Source_id"] = v
+		case "Slave_UUID":
+			renamedMap["Replica_UUID"] = v
+		default:
+			renamedMap[k] = v
+		}
+	}
+	return replication.ParseMysqlReplicas(renamedMap, true)
 }
 
 // replicationNetTimeout is part of the Flavor interface.

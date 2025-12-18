@@ -49931,6 +49931,109 @@ export namespace replicationdata {
         public static getTypeUrl(typeUrlPrefix?: string): string;
     }
 
+    /** Properties of a ConnectedReplica. */
+    interface IConnectedReplica {
+
+        /** ConnectedReplica server_id */
+        server_id?: (number|null);
+
+        /** ConnectedReplica server_uuid */
+        server_uuid?: (string|null);
+    }
+
+    /** Represents a ConnectedReplica. */
+    class ConnectedReplica implements IConnectedReplica {
+
+        /**
+         * Constructs a new ConnectedReplica.
+         * @param [properties] Properties to set
+         */
+        constructor(properties?: replicationdata.IConnectedReplica);
+
+        /** ConnectedReplica server_id. */
+        public server_id: number;
+
+        /** ConnectedReplica server_uuid. */
+        public server_uuid: string;
+
+        /**
+         * Creates a new ConnectedReplica instance using the specified properties.
+         * @param [properties] Properties to set
+         * @returns ConnectedReplica instance
+         */
+        public static create(properties?: replicationdata.IConnectedReplica): replicationdata.ConnectedReplica;
+
+        /**
+         * Encodes the specified ConnectedReplica message. Does not implicitly {@link replicationdata.ConnectedReplica.verify|verify} messages.
+         * @param message ConnectedReplica message or plain object to encode
+         * @param [writer] Writer to encode to
+         * @returns Writer
+         */
+        public static encode(message: replicationdata.IConnectedReplica, writer?: $protobuf.Writer): $protobuf.Writer;
+
+        /**
+         * Encodes the specified ConnectedReplica message, length delimited. Does not implicitly {@link replicationdata.ConnectedReplica.verify|verify} messages.
+         * @param message ConnectedReplica message or plain object to encode
+         * @param [writer] Writer to encode to
+         * @returns Writer
+         */
+        public static encodeDelimited(message: replicationdata.IConnectedReplica, writer?: $protobuf.Writer): $protobuf.Writer;
+
+        /**
+         * Decodes a ConnectedReplica message from the specified reader or buffer.
+         * @param reader Reader or buffer to decode from
+         * @param [length] Message length if known beforehand
+         * @returns ConnectedReplica
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        public static decode(reader: ($protobuf.Reader|Uint8Array), length?: number): replicationdata.ConnectedReplica;
+
+        /**
+         * Decodes a ConnectedReplica message from the specified reader or buffer, length delimited.
+         * @param reader Reader or buffer to decode from
+         * @returns ConnectedReplica
+         * @throws {Error} If the payload is not a reader or valid buffer
+         * @throws {$protobuf.util.ProtocolError} If required fields are missing
+         */
+        public static decodeDelimited(reader: ($protobuf.Reader|Uint8Array)): replicationdata.ConnectedReplica;
+
+        /**
+         * Verifies a ConnectedReplica message.
+         * @param message Plain object to verify
+         * @returns `null` if valid, otherwise the reason why it is not
+         */
+        public static verify(message: { [k: string]: any }): (string|null);
+
+        /**
+         * Creates a ConnectedReplica message from a plain object. Also converts values to their respective internal types.
+         * @param object Plain object
+         * @returns ConnectedReplica
+         */
+        public static fromObject(object: { [k: string]: any }): replicationdata.ConnectedReplica;
+
+        /**
+         * Creates a plain object from a ConnectedReplica message. Also converts values to other types if specified.
+         * @param message ConnectedReplica
+         * @param [options] Conversion options
+         * @returns Plain object
+         */
+        public static toObject(message: replicationdata.ConnectedReplica, options?: $protobuf.IConversionOptions): { [k: string]: any };
+
+        /**
+         * Converts this ConnectedReplica to JSON.
+         * @returns JSON object
+         */
+        public toJSON(): { [k: string]: any };
+
+        /**
+         * Gets the default type url for ConnectedReplica
+         * @param [typeUrlPrefix] your custom typeUrlPrefix(default "type.googleapis.com")
+         * @returns The default type url
+         */
+        public static getTypeUrl(typeUrlPrefix?: string): string;
+    }
+
     /** Properties of a FullStatus. */
     interface IFullStatus {
 
@@ -50008,6 +50111,9 @@ export namespace replicationdata {
 
         /** FullStatus tablet_type */
         tablet_type?: (topodata.TabletType|null);
+
+        /** FullStatus connected_replicas */
+        connected_replicas?: (replicationdata.IConnectedReplica[]|null);
     }
 
     /** Represents a FullStatus. */
@@ -50093,6 +50199,9 @@ export namespace replicationdata {
 
         /** FullStatus tablet_type. */
         public tablet_type: topodata.TabletType;
+
+        /** FullStatus connected_replicas. */
+        public connected_replicas: replicationdata.IConnectedReplica[];
 
         /**
          * Creates a new FullStatus instance using the specified properties.

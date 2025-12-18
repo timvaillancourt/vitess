@@ -81,6 +81,7 @@ type MysqlDaemon interface {
 	FlushBinaryLogs(ctx context.Context) (err error)
 	GetBinaryLogs(ctx context.Context) (binaryLogs []string, err error)
 	GetPreviousGTIDs(ctx context.Context, binlog string) (previousGtids string, err error)
+	GetConnectedReplicas(ctx context.Context) ([]*replicationdata.ConnectedReplica, error)
 
 	// reparenting related methods
 	ResetReplication(ctx context.Context) error

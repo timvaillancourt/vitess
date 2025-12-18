@@ -142,6 +142,9 @@ type flavor interface {
 
 	replicationNetTimeout(c *Conn) (int32, error)
 
+	// connectedReplicas returns hosts that are connected as replicas.
+	connectedReplicas(c *Conn) ([]*replicationdata.ConnectedReplica, error)
+
 	// waitUntilPosition waits until the given position is reached or
 	// until the context expires. It returns an error if we did not
 	// succeed.
@@ -418,6 +421,12 @@ func (c *Conn) ShowReplicationStatus() (replication.ReplicationStatus, error) {
 // and returns a parsed executed Position, as well as file based Position.
 func (c *Conn) ShowPrimaryStatus() (replication.PrimaryStatus, error) {
 	return c.flavor.primaryStatus(c)
+}
+
+// ShowConnectedReplicas executes the right SHOW REPLICAS command, and
+// returns a slice of replicas that are connected.
+func (c *Conn) ShowConnectedReplicas() ([]*replicationdata.ConnectedReplica, error) {
+	return c.flavor.connectedReplicas(c)
 }
 
 // ReplicationConfiguration reads the right global variables and performance schema information.

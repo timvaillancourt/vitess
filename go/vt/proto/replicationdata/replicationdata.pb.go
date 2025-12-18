@@ -479,6 +479,59 @@ func (x *PrimaryStatus) GetServerUuid() string {
 	return ""
 }
 
+// ConnectedReplica represents a replica that is connected to the primary.
+type ConnectedReplica struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServerId      uint32                 `protobuf:"varint,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerUuid    string                 `protobuf:"bytes,2,opt,name=server_uuid,json=serverUuid,proto3" json:"server_uuid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConnectedReplica) Reset() {
+	*x = ConnectedReplica{}
+	mi := &file_replicationdata_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConnectedReplica) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConnectedReplica) ProtoMessage() {}
+
+func (x *ConnectedReplica) ProtoReflect() protoreflect.Message {
+	mi := &file_replicationdata_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConnectedReplica.ProtoReflect.Descriptor instead.
+func (*ConnectedReplica) Descriptor() ([]byte, []int) {
+	return file_replicationdata_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ConnectedReplica) GetServerId() uint32 {
+	if x != nil {
+		return x.ServerId
+	}
+	return 0
+}
+
+func (x *ConnectedReplica) GetServerUuid() string {
+	if x != nil {
+		return x.ServerUuid
+	}
+	return ""
+}
+
 // FullStatus contains the full status of MySQL including the replication information, semi-sync information, GTID information among others
 type FullStatus struct {
 	state                       protoimpl.MessageState `protogen:"open.v1"`
@@ -507,13 +560,14 @@ type FullStatus struct {
 	DiskStalled                 bool                   `protobuf:"varint,23,opt,name=disk_stalled,json=diskStalled,proto3" json:"disk_stalled,omitempty"`
 	SemiSyncBlocked             bool                   `protobuf:"varint,24,opt,name=semi_sync_blocked,json=semiSyncBlocked,proto3" json:"semi_sync_blocked,omitempty"`
 	TabletType                  topodata.TabletType    `protobuf:"varint,25,opt,name=tablet_type,json=tabletType,proto3,enum=topodata.TabletType" json:"tablet_type,omitempty"`
+	ConnectedReplicas           []*ConnectedReplica    `protobuf:"bytes,26,rep,name=connected_replicas,json=connectedReplicas,proto3" json:"connected_replicas,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *FullStatus) Reset() {
 	*x = FullStatus{}
-	mi := &file_replicationdata_proto_msgTypes[4]
+	mi := &file_replicationdata_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -525,7 +579,7 @@ func (x *FullStatus) String() string {
 func (*FullStatus) ProtoMessage() {}
 
 func (x *FullStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_replicationdata_proto_msgTypes[4]
+	mi := &file_replicationdata_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -538,7 +592,7 @@ func (x *FullStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullStatus.ProtoReflect.Descriptor instead.
 func (*FullStatus) Descriptor() ([]byte, []int) {
-	return file_replicationdata_proto_rawDescGZIP(), []int{4}
+	return file_replicationdata_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FullStatus) GetServerId() uint32 {
@@ -716,6 +770,13 @@ func (x *FullStatus) GetTabletType() topodata.TabletType {
 	return topodata.TabletType(0)
 }
 
+func (x *FullStatus) GetConnectedReplicas() []*ConnectedReplica {
+	if x != nil {
+		return x.ConnectedReplicas
+	}
+	return nil
+}
+
 var File_replicationdata_proto protoreflect.FileDescriptor
 
 const file_replicationdata_proto_rawDesc = "" +
@@ -762,7 +823,12 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\bposition\x18\x01 \x01(\tR\bposition\x12#\n" +
 	"\rfile_position\x18\x02 \x01(\tR\ffilePosition\x12\x1f\n" +
 	"\vserver_uuid\x18\x03 \x01(\tR\n" +
-	"serverUuid\"\xce\t\n" +
+	"serverUuid\"P\n" +
+	"\x10ConnectedReplica\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\rR\bserverId\x12\x1f\n" +
+	"\vserver_uuid\x18\x02 \x01(\tR\n" +
+	"serverUuid\"\xa0\n" +
+	"\n" +
 	"\n" +
 	"FullStatus\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\rR\bserverId\x12\x1f\n" +
@@ -793,7 +859,8 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\fdisk_stalled\x18\x17 \x01(\bR\vdiskStalled\x12*\n" +
 	"\x11semi_sync_blocked\x18\x18 \x01(\bR\x0fsemiSyncBlocked\x125\n" +
 	"\vtablet_type\x18\x19 \x01(\x0e2\x14.topodata.TabletTypeR\n" +
-	"tabletType*;\n" +
+	"tabletType\x12P\n" +
+	"\x12connected_replicas\x18\x1a \x03(\v2!.replicationdata.ConnectedReplicaR\x11connectedReplicas*;\n" +
 	"\x13StopReplicationMode\x12\x12\n" +
 	"\x0eIOANDSQLTHREAD\x10\x00\x12\x10\n" +
 	"\fIOTHREADONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
@@ -811,15 +878,16 @@ func file_replicationdata_proto_rawDescGZIP() []byte {
 }
 
 var file_replicationdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_replicationdata_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_replicationdata_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_replicationdata_proto_goTypes = []any{
 	(StopReplicationMode)(0),      // 0: replicationdata.StopReplicationMode
 	(*Status)(nil),                // 1: replicationdata.Status
 	(*Configuration)(nil),         // 2: replicationdata.Configuration
 	(*StopReplicationStatus)(nil), // 3: replicationdata.StopReplicationStatus
 	(*PrimaryStatus)(nil),         // 4: replicationdata.PrimaryStatus
-	(*FullStatus)(nil),            // 5: replicationdata.FullStatus
-	(topodata.TabletType)(0),      // 6: topodata.TabletType
+	(*ConnectedReplica)(nil),      // 5: replicationdata.ConnectedReplica
+	(*FullStatus)(nil),            // 6: replicationdata.FullStatus
+	(topodata.TabletType)(0),      // 7: topodata.TabletType
 }
 var file_replicationdata_proto_depIdxs = []int32{
 	1, // 0: replicationdata.StopReplicationStatus.before:type_name -> replicationdata.Status
@@ -827,12 +895,13 @@ var file_replicationdata_proto_depIdxs = []int32{
 	1, // 2: replicationdata.FullStatus.replication_status:type_name -> replicationdata.Status
 	4, // 3: replicationdata.FullStatus.primary_status:type_name -> replicationdata.PrimaryStatus
 	2, // 4: replicationdata.FullStatus.replication_configuration:type_name -> replicationdata.Configuration
-	6, // 5: replicationdata.FullStatus.tablet_type:type_name -> topodata.TabletType
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	7, // 5: replicationdata.FullStatus.tablet_type:type_name -> topodata.TabletType
+	5, // 6: replicationdata.FullStatus.connected_replicas:type_name -> replicationdata.ConnectedReplica
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_replicationdata_proto_init() }
@@ -846,7 +915,7 @@ func file_replicationdata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_replicationdata_proto_rawDesc), len(file_replicationdata_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
