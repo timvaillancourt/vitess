@@ -78,6 +78,19 @@ jobs:
       with:
         flavor: mysql-8.4
         
+    - name: Setup cache for etcd binaries
+      uses: actions/checkout@v4
+      id: etcd-cache
+      with:
+        path: etcd-v3.5.25-linux-amd64.tar.gz
+        key: etcd-v3.5.25-linux-amd64.tar.gz
+
+    - name: Get etcd binaries
+      if: steps.etcd-cache.outputs.cache-hit != 'true'
+      run: |
+        curl --max-time 10 --retry 3 --retry-max-time 45 -s -L -o etcd-v3.5.25-linux-amd64.tar.gz.new https://github.com/coreos/etcd/releases/download/v3.5.25/etcd-v3.5.25-linux-amd64.tar.gz
+        mv -f etcd-v3.5.25-linux-amd64.tar.gz.new etcd-v3.5.25-linux-amd64.tar.gz
+
     - name: Get dependencies
       if: steps.changes.outputs.unit_tests == 'true'
       run: |
@@ -85,7 +98,6 @@ jobs:
         sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk
 
         mkdir -p dist bin
-        curl -s -L -o etcd-v3.5.25-linux-amd64.tar.gz https://github.com/coreos/etcd/releases/download/v3.5.25/etcd-v3.5.25-linux-amd64.tar.gz
         sha256sum etcd-v3.5.25-linux-amd64.tar.gz | grep -q 168af82b59772e1811a9af7b358d42f5c6df44e0d9767afb006ecf12c4bbd607
         tar -C dist -zxf etcd-v3.5.25-linux-amd64.tar.gz
         mv dist/etcd-*/{etcd,etcdctl} bin/
