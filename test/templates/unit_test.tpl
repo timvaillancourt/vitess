@@ -91,29 +91,11 @@ jobs:
         flavor: mysql-8.4
         {{ end }}
 
-    - name: Setup cache for etcd binaries
-      uses: actions/checkout@v4
-      id: etcd-cache
-      with:
-        path: {{.Etcd.Filename}}
-        key: {{.Etcd.Filename}}
-
-    - name: Get etcd binaries
-      if: steps.etcd-cache.outputs.cache-hit != 'true'
-      run: |
-        curl --max-time 10 --retry 3 --retry-max-time 45 -s -L -o {{.Etcd.Filename}}.new {{.Etcd.URL}}
-        mv -f {{.Etcd.Filename}}.new {{.Etcd.Filename}}
-
     - name: Get dependencies
       if: steps.changes.outputs.unit_tests == 'true'
       run: |
         export DEBIAN_FRONTEND="noninteractive"
         sudo apt-get install -y make unzip g++ curl git wget ant openjdk-11-jdk
-
-        mkdir -p dist bin
-        sha256sum {{.Etcd.Filename}} | grep -q {{.Etcd.ChecksumSHA256}}
-        tar -C dist -zxf {{.Etcd.Filename}}
-        mv dist/etcd-*/{etcd,etcdctl} bin/
 
         go mod download
         go install golang.org/x/tools/cmd/goimports@{{.Goimports.SHA}} # {{.Goimports.Comment}}
