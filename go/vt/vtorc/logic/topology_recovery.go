@@ -90,7 +90,6 @@ var (
 
 	// urgentOperations helps rate limiting some operations on replicas, such as restarting replication
 	// in an UnreachablePrimary scenario.
-	urgentOperations         *cache.Cache // key: tablet alias. value: arbitrary (we don't care)
 	urgentOperationsInterval = 1 * time.Minute
 
 	// detectedProblems is used to track the number of detected problems.
@@ -103,9 +102,6 @@ var (
 		"Keyspace",
 		"Shard",
 	})
-
-	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
-	shardsLockCounter int64
 
 	// recoveriesCounterLabels are labels for grouping the counter based stats for recoveries.
 	recoveriesCounterLabels = []string{"RecoveryType", "Keyspace", "Shard"}
@@ -455,7 +451,7 @@ func (vtorc *VTOrc) restartDirectReplicas(ctx context.Context, analysisEntry *in
 			continue
 		}
 
-		if err := urgentOperations.Add(tabletAlias, true, cache.DefaultExpiration); err != nil {
+		if err := vtorc.urgentOperations.Add(tabletAlias, true, cache.DefaultExpiration); err != nil {
 			// Rate limit interval has not passed yet
 			continue
 		}
@@ -769,7 +765,7 @@ func (vtorc *VTOrc) executeCheckAndRecoverFunction(ctx context.Context, analysis
 	// is not dead, then we will proceed with the fix for the replica. Essentially, we are trading off speed in replica recoveries (by doing an additional primary tablet reload)
 	// for speed in shard-wide recoveries (by not holding the shard lock before reloading the primary tablet information).
 	if !isShardWideRecovery(checkAndRecoverFunctionCode) {
-		if err = recheckPrimaryHealth(analysisEntry, recoveryLabels, DiscoverInstance); err != nil {
+		if err = recheckPrimaryHealth(analysisEntry, recoveryLabels, vtorc.DiscoverInstance); err != nil {
 			return err
 		}
 	}
@@ -822,7 +818,7 @@ func (vtorc *VTOrc) executeCheckAndRecoverFunction(ctx context.Context, analysis
 			logger.Info("Refreshing shard tablet info")
 			vtorc.refreshTabletInfoOfShard(ctx, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
 			logger.Info("Discovering analysis instance")
-			DiscoverInstance(analysisEntry.AnalyzedInstanceAlias, true)
+			vtorc.DiscoverInstance(analysisEntry.AnalyzedInstanceAlias, true)
 			logger.Info("Getting shard primary")
 			primaryTablet, err := shardPrimary(analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
 			if err != nil {
@@ -835,7 +831,7 @@ func (vtorc *VTOrc) executeCheckAndRecoverFunction(ctx context.Context, analysis
 			// This would be the case for PrimaryHasPrimary recovery. We don't need to refresh the same tablet twice.
 			if analysisEntry.AnalyzedInstanceAlias != primaryTabletAlias {
 				logger.Info("Discovering primary instance")
-				DiscoverInstance(primaryTabletAlias, true)
+				vtorc.DiscoverInstance(primaryTabletAlias, true)
 			}
 		}
 		alreadyFixed, err := checkIfAlreadyFixed(analysisEntry)
@@ -889,7 +885,7 @@ func (vtorc *VTOrc) executeCheckAndRecoverFunction(ctx context.Context, analysis
 		// so it doesn't hurt to re-read the information of this tablet, otherwise we'll requeue the same recovery
 		// that we just completed because we would be using stale data.
 		logger.Info("Force discovering problem instance %s post recovery", analysisEntry.AnalyzedInstanceAlias)
-		DiscoverInstance(analysisEntry.AnalyzedInstanceAlias, true)
+		vtorc.DiscoverInstance(analysisEntry.AnalyzedInstanceAlias, true)
 	}
 	return err
 }

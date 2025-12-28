@@ -37,8 +37,6 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
-var snapshotDiscoveryKeys chan string
-var snapshotDiscoveryKeysMutex sync.Mutex
 var (
 	discoveriesCounter                 = stats.NewCounter("DiscoveriesAttempt", "Number of discoveries attempted")
 	failedDiscoveriesCounter           = stats.NewCounter("DiscoveriesFail", "Number of failed discoveries")
@@ -51,8 +49,6 @@ var (
 	discoveryInstanceTimingsActions = []string{"Backend", "Instance", "Other"}
 	discoveryInstanceTimings        = stats.NewTimings("DiscoveryInstanceTimings", "Timings for instance discovery actions", "Action", discoveryInstanceTimingsActions...)
 )
-
-var recentDiscoveryOperationKeys *cache.Cache
 
 func init() {
 	snapshotDiscoveryKeys = make(chan string, 10)
@@ -68,13 +64,26 @@ func init() {
 	})
 }
 
+// VTOrc represents an instance of VTOrc.
 type VTOrc struct {
-	discoveryQueue     *DiscoveryQueue
-	tmc                tmclient.TabletManagerClient
-	ts                 *topo.Server
-	hasReceivedSIGTERM int32
+	discoveryQueue               *DiscoveryQueue
+	recentDiscoveryOperationKeys *cache.Cache
+	tmc                          tmclient.TabletManagerClient
+	ts                           *topo.Server
+
+	// urgentOperations helps rate limiting some operations on replicas, such as restarting replication
+	// in an UnreachablePrimary scenario.
+	urgentOperations *cache.Cache
+
+	hasReceivedSIGTERM         int32
+	snapshotDiscoveryKeys      chan string
+	snapshotDiscoveryKeysMutex sync.Mutex
+
+	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
+	shardsLockCounter int64
 }
 
+// NewVTOrc inits a new *VTOrc.
 func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
 	cell := config.GetCell()
 	if cell == "" {
@@ -89,7 +98,10 @@ func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
 		return nil, err
 	}
 
-	return &VTOrc{ts: ts}, nil
+	return &VTOrc{
+		ts:                           ts,
+		recentDiscoveryOperationKeys: cache.New(config.GetInstancePollTime(), time.Second),
+	}, nil
 }
 
 // Close runs all the operations required to cleanly shutdown VTOrc
@@ -99,16 +111,16 @@ func (vtorc *VTOrc) Close() {
 	// Poke other go routines to stop cleanly here ...
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
 	// wait for the locks to be released
-	waitForLocksRelease()
+	vtorc.waitForLocksRelease()
 	vtorc.ts.Close()
 	log.Infof("VTOrc closed")
 }
 
 // waitForLocksRelease is used to wait for release of locks
-func waitForLocksRelease() {
+func (vtorc *VTOrc) waitForLocksRelease() {
 	timeout := time.After(shutdownWaitTime)
 	for {
-		count := atomic.LoadInt64(&shardsLockCounter)
+		count := atomic.LoadInt64(&vtorc.shardsLockCounter)
 		if count == 0 {
 			break
 		}
@@ -142,7 +154,7 @@ func (vtorc *VTOrc) handleDiscoveryRequests() {
 					discoveryWorkersActiveGauge.Add(1)
 					defer discoveryWorkersActiveGauge.Add(-1)
 
-					DiscoverInstance(tabletAlias, false /* forceDiscovery */)
+					vtorc.DiscoverInstance(tabletAlias, false /* forceDiscovery */)
 					vtorc.discoveryQueue.Release(tabletAlias)
 				}()
 			}
@@ -153,7 +165,7 @@ func (vtorc *VTOrc) handleDiscoveryRequests() {
 // DiscoverInstance will attempt to discover (poll) an instance (unless
 // it is already up-to-date) and will also ensure that its primary and
 // replicas (if any) are also checked.
-func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
+func (vtorc *VTOrc) DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	if inst.InstanceIsForgotten(tabletAlias) {
 		log.Infof("discoverInstance: skipping discovery of %+v because it is set to be forgotten", tabletAlias)
 		return
@@ -182,7 +194,7 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	// Calculate the expiry period each time as InstancePollSeconds
 	// _may_ change during the run of the process (via SIGHUP) and
 	// it is not possible to change the cache's default expiry..
-	if existsInCacheError := recentDiscoveryOperationKeys.Add(tabletAlias, true, config.GetInstancePollTime()); existsInCacheError != nil && !forceDiscovery {
+	if existsInCacheError := vtorc.recentDiscoveryOperationKeys.Add(tabletAlias, true, config.GetInstancePollTime()); existsInCacheError != nil && !forceDiscovery {
 		// Just recently attempted
 		return
 	}
@@ -240,12 +252,12 @@ func (vtorc *VTOrc) onHealthTick() {
 	func() {
 		// Normally onHealthTick() shouldn't run concurrently. It is kicked by a ticker.
 		// However it _is_ invoked inside a goroutine. I like to be safe here.
-		snapshotDiscoveryKeysMutex.Lock()
-		defer snapshotDiscoveryKeysMutex.Unlock()
+		vtorc.snapshotDiscoveryKeysMutex.Lock()
+		defer vtorc.snapshotDiscoveryKeysMutex.Unlock()
 
-		countSnapshotKeys := len(snapshotDiscoveryKeys)
+		countSnapshotKeys := len(vtorc.snapshotDiscoveryKeys)
 		for i := 0; i < countSnapshotKeys; i++ {
-			tabletAliases = append(tabletAliases, <-snapshotDiscoveryKeys)
+			tabletAliases = append(tabletAliases, <-vtorc.snapshotDiscoveryKeys)
 		}
 	}()
 	// avoid any logging unless there's something to be done
@@ -263,7 +275,6 @@ func (vtorc *VTOrc) onHealthTick() {
 // purged and forgotten.
 func (vtorc *VTOrc) ContinuousDiscovery() {
 	log.Infof("continuous discovery: setting up")
-	recentDiscoveryOperationKeys = cache.New(config.GetInstancePollTime(), time.Second)
 
 	if !config.GetAllowRecovery() {
 		log.Info("--allow-recovery is set to 'false', disabling recovery actions")

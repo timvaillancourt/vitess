@@ -233,7 +233,7 @@ func (vtorc *VTOrc) getAllTablets(ctx context.Context, cells []string) (tabletsB
 // refreshAllTablets reloads the tablets from topo and discovers the ones which haven't been refreshed in a while
 func (vtorc *VTOrc) refreshAllTablets(ctx context.Context) error {
 	return vtorc.refreshTabletsUsing(ctx, func(tabletAlias string) {
-		DiscoverInstance(tabletAlias, false /* forceDiscovery */)
+		vtorc.DiscoverInstance(tabletAlias, false /* forceDiscovery */)
 	}, false /* forceRefresh */)
 }
 
@@ -288,7 +288,7 @@ func (vtorc *VTOrc) forceRefreshAllTabletsInShard(ctx context.Context, keyspace,
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
 	vtorc.refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
-		DiscoverInstance(tabletAlias, true)
+		vtorc.DiscoverInstance(tabletAlias, true)
 	}, true, tabletsToIgnore)
 }
 
