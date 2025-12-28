@@ -40,7 +40,7 @@ func (vtorc *VTOrc) RefreshAllKeyspacesAndShards(ctx context.Context) error {
 	defer refreshAllKeyspacesAndShardsMu.Unlock()
 
 	var keyspaces []string
-	if len(shardsToWatch) == 0 { // all known keyspaces
+	if len(vtorc.shardsToWatch) == 0 { // all known keyspaces
 		getCtx, getCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 		defer getCancel()
 		var err error
@@ -51,7 +51,7 @@ func (vtorc *VTOrc) RefreshAllKeyspacesAndShards(ctx context.Context) error {
 		}
 	} else {
 		// Get keyspaces to watch from the list of known keyspaces.
-		keyspaces = maps.Keys(shardsToWatch)
+		keyspaces = maps.Keys(vtorc.shardsToWatch)
 	}
 
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
@@ -87,12 +87,12 @@ func (vtorc *VTOrc) RefreshKeyspaceAndShard(ctx context.Context, keyspaceName, s
 
 // shouldWatchShard returns true if a shard is within the shardsToWatch
 // ranges for it's keyspace.
-func shouldWatchShard(shard *topo.ShardInfo) bool {
-	if len(shardsToWatch) == 0 {
+func (vtorc *VTOrc) shouldWatchShard(shard *topo.ShardInfo) bool {
+	if len(vtorc.shardsToWatch) == 0 {
 		return true
 	}
 
-	watchRanges, found := shardsToWatch[shard.Keyspace()]
+	watchRanges, found := vtorc.shardsToWatch[shard.Keyspace()]
 	if !found {
 		return false
 	}
@@ -150,7 +150,7 @@ func (vtorc *VTOrc) refreshAllShards(ctx context.Context, keyspaceName string) e
 	// save shards that should be watched.
 	savedShards := make(map[string]bool, len(shardInfos))
 	for _, shardInfo := range shardInfos {
-		if !shouldWatchShard(shardInfo) {
+		if !vtorc.shouldWatchShard(shardInfo) {
 			continue
 		}
 		if err = inst.SaveShard(shardInfo); err != nil {

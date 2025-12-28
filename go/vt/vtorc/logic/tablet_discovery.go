@@ -46,10 +46,6 @@ import (
 var (
 	clustersToWatch  []string
 	shutdownWaitTime = 30 * time.Second
-	// shardsToWatch is a map storing the shards for a given keyspace that need to be watched.
-	// We store the key range for all the shards that we want to watch.
-	// This is populated by parsing `--clusters_to_watch` flag.
-	shardsToWatch map[string][]*topodatapb.KeyRange
 
 	// ErrNoPrimaryTablet is a fixed error message.
 	ErrNoPrimaryTablet = errors.New("no primary tablet found")
@@ -119,14 +115,14 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	utils.SetFlagDurationVar(fs, &shutdownWaitTime, "shutdown-wait-time", shutdownWaitTime, "Maximum time to wait for VTOrc to release all the locks that it is holding before shutting down on SIGTERM")
 }
 
-// initializeShardsToWatch parses the --clusters_to_watch flag-value
+// buildShardsToWatch parses the --clusters_to_watch flag-value
 // into a map of keyspace/shards.
-func initializeShardsToWatch() error {
-	shardsToWatch = make(map[string][]*topodatapb.KeyRange)
+func buildShardsToWatch() (map[string][]*topodatapb.KeyRange, error) {
 	if len(clustersToWatch) == 0 {
-		return nil
+		return nil, nil
 	}
 
+	shardsToWatch := make(map[string][]*topodatapb.KeyRange)
 	for _, ks := range clustersToWatch {
 		if strings.Contains(ks, "/") && !strings.HasSuffix(ks, "/") {
 			// Validate keyspace/shard parses.
@@ -136,12 +132,12 @@ func initializeShardsToWatch() error {
 				continue
 			}
 			if !key.IsValidKeyRange(s) {
-				return fmt.Errorf("invalid key range %q while parsing clusters to watch", s)
+				return nil, fmt.Errorf("invalid key range %q while parsing clusters to watch", s)
 			}
 			// Parse the shard name into key range value.
 			keyRanges, err := key.ParseShardingSpec(s)
 			if err != nil {
-				return fmt.Errorf("could not parse shard name %q: %+v", s, err)
+				return nil, fmt.Errorf("could not parse shard name %q: %+v", s, err)
 			}
 			shardsToWatch[k] = append(shardsToWatch[k], keyRanges...)
 		} else {
@@ -155,16 +151,16 @@ func initializeShardsToWatch() error {
 	if len(shardsToWatch) == 0 {
 		log.Error("No keyspace/shards to watch, watching all keyspaces")
 	}
-	return nil
+	return shardsToWatch, nil
 }
 
 // shouldWatchTablet checks if the given tablet is part of the watch list.
-func shouldWatchTablet(tablet *topodatapb.Tablet) bool {
+func (vtorc *VTOrc) shouldWatchTablet(tablet *topodatapb.Tablet) bool {
 	// If we are watching all keyspaces, then we want to watch this tablet too.
-	if len(shardsToWatch) == 0 {
+	if len(vtorc.shardsToWatch) == 0 {
 		return true
 	}
-	shardRanges, ok := shardsToWatch[tablet.GetKeyspace()]
+	shardRanges, ok := vtorc.shardsToWatch[tablet.GetKeyspace()]
 	// If we don't have the keyspace in our map, then this tablet
 	// doesn't need to be watched.
 	if !ok {
@@ -183,22 +179,16 @@ func shouldWatchTablet(tablet *topodatapb.Tablet) bool {
 
 // OpenTabletDiscovery opens the vitess topo if enables and returns a ticker
 // channel for polling.
-func (vtorc *VTOrc) OpenTabletDiscovery() <-chan time.Time {
-	vtorc.tmc = inst.InitializeTMC()
+func (vtorc *VTOrc) OpenTabletDiscovery(ctx context.Context) <-chan time.Time {
 	// Clear existing cache and perform a new refresh.
 	if _, err := db.ExecVTOrc("DELETE FROM vitess_tablet"); err != nil {
 		log.Error(err)
 	}
-	// Parse --clusters_to_watch into a filter.
-	err := initializeShardsToWatch()
-	if err != nil {
-		log.Fatalf("Error parsing --clusters-to-watch: %v", err)
-	}
 	// We refresh all information from the topo once before we start the ticks to do
 	// it on a timer.
-	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
-	defer cancel()
-	if err := vtorc.refreshAllInformation(ctx); err != nil {
+	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
+	defer refreshCancel()
+	if err := vtorc.refreshAllInformation(refreshCtx); err != nil {
 		log.Errorf("failed to initialize topo information: %+v", err)
 	}
 	return time.Tick(config.GetTopoInformationRefreshDuration())
@@ -266,7 +256,7 @@ func (vtorc *VTOrc) refreshTabletsUsing(ctx context.Context, loader func(tabletA
 		matchedTablets := make([]*topo.TabletInfo, 0, len(tablets))
 		func() {
 			for _, t := range tablets {
-				if shouldWatchTablet(t.Tablet) {
+				if vtorc.shouldWatchTablet(t.Tablet) {
 					matchedTablets = append(matchedTablets, t)
 				}
 			}

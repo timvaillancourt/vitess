@@ -28,8 +28,11 @@ import (
 
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
+	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
+	"vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/vterrors"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	"vitess.io/vitess/go/vt/vtorc/process"
@@ -81,6 +84,11 @@ type VTOrc struct {
 
 	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
 	shardsLockCounter int64
+
+	// shardsToWatch is a map storing the shards for a given keyspace that need to be watched.
+	// We store the key range for all the shards that we want to watch.
+	// This is populated by parsing `--clusters_to_watch` flag.
+	shardsToWatch map[string][]*topodatapb.KeyRange
 }
 
 // NewVTOrc inits a new *VTOrc.
@@ -97,9 +105,17 @@ func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
 		return nil, err
 	}
 
+	// Parse --clusters_to_watch into a filter.
+	shardsToWatch, err := buildShardsToWatch()
+	if err != nil {
+		return nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "Error parsing --clusters-to-watch: %v", err)
+	}
+
 	return &VTOrc{
 		discoveryQueue:               NewDiscoveryQueue(),
 		recentDiscoveryOperationKeys: cache.New(config.GetInstancePollTime(), time.Second),
+		shardsToWatch:                shardsToWatch,
+		tmc:                          inst.InitializeTMC(),
 		ts:                           ts,
 		urgentOperations:             cache.New(urgentOperationsInterval, 2*urgentOperationsInterval),
 	}, nil
@@ -113,6 +129,7 @@ func (vtorc *VTOrc) Close() {
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
 	// wait for the locks to be released
 	vtorc.waitForLocksRelease()
+	vtorc.tmc.Close()
 	vtorc.ts.Close()
 	log.Infof("VTOrc closed")
 }
@@ -286,10 +303,11 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 
 	go vtorc.handleDiscoveryRequests()
 
+	ctx := context.Background()
 	healthTick := time.Tick(config.HealthPollSeconds * time.Second)
 	caretakingTick := time.Tick(time.Minute)
 	recoveryTick := time.Tick(config.GetRecoveryPollDuration())
-	tabletTopoTick := vtorc.OpenTabletDiscovery()
+	tabletTopoTick := vtorc.OpenTabletDiscovery(ctx)
 	var recoveryEntrance int64
 	var snapshotTopologiesTick <-chan time.Time
 	if config.GetSnapshotTopologyInterval() > 0 {
