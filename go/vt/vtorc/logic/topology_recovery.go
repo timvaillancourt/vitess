@@ -86,10 +86,7 @@ func (rsc RecoverySkipCode) String() string {
 }
 
 var (
-	countPendingRecoveries = stats.NewGauge("PendingRecoveries", "Count of the number of pending recoveries")
-
-	// urgentOperations helps rate limiting some operations on replicas, such as restarting replication
-	// in an UnreachablePrimary scenario.
+	countPendingRecoveries   = stats.NewGauge("PendingRecoveries", "Count of the number of pending recoveries")
 	urgentOperationsInterval = 1 * time.Minute
 
 	// detectedProblems is used to track the number of detected problems.
@@ -192,9 +189,8 @@ func NewTopologyRecoveryStep(id int64, message string) *TopologyRecoveryStep {
 func init() {
 	// ShardLocksActive is a stats representation of shardsLockCounter.
 	stats.NewGaugeFunc("ShardLocksActive", "Number of actively-held shard locks", func() int64 {
-		return atomic.LoadInt64(&shardsLockCounter)
+		return atomic.LoadInt64(&vtorc.shardsLockCounter)
 	})
-	urgentOperations = cache.New(urgentOperationsInterval, 2*urgentOperationsInterval)
 	go initializeTopologyRecoveryPostConfiguration()
 }
 
@@ -225,16 +221,16 @@ func (vtorc *VTOrc) LockShard(ctx context.Context, keyspace, shard, lockAction s
 		shardLockTimings.Add("Lock", lockTime)
 	}()
 
-	atomic.AddInt64(&shardsLockCounter, 1)
+	atomic.AddInt64(&vtorc.shardsLockCounter, 1)
 	ctx, unlock, err := vtorc.ts.TryLockShard(ctx, keyspace, shard, lockAction)
 	if err != nil {
-		atomic.AddInt64(&shardsLockCounter, -1)
+		atomic.AddInt64(&vtorc.shardsLockCounter, -1)
 		return nil, nil, err
 	}
 	return ctx, func(e *error) {
 		startTime := time.Now()
 		defer func() {
-			atomic.AddInt64(&shardsLockCounter, -1)
+			atomic.AddInt64(&vtorc.shardsLockCounter, -1)
 			shardLockTimings.Add("Unlock", time.Since(startTime))
 		}()
 		unlock(e)

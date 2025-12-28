@@ -85,22 +85,23 @@ type VTOrc struct {
 
 // NewVTOrc inits a new *VTOrc.
 func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
-	cell := config.GetCell()
-	if cell == "" {
+	if config.GetCell() == "" {
 		// TODO: remove warning in v25+, make flag required.
 		log.Warning("WARNING: --cell will become a required vtorc flag in v25 and up")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
 	defer cancel()
-	_, err := ts.GetCellInfo(ctx, cell, true /* strongRead */)
+	_, err := ts.GetCellInfo(ctx, config.GetCell(), true /* strongRead */)
 	if err != nil {
 		return nil, err
 	}
 
 	return &VTOrc{
-		ts:                           ts,
+		discoveryQueue:               NewDiscoveryQueue(),
 		recentDiscoveryOperationKeys: cache.New(config.GetInstancePollTime(), time.Second),
+		ts:                           ts,
+		urgentOperations:             cache.New(urgentOperationsInterval, 2*urgentOperationsInterval),
 	}, nil
 }
 
@@ -141,7 +142,6 @@ func (vtorc *VTOrc) handleDiscoveryRequests() {
 	if vtorc == nil {
 		return
 	}
-	vtorc.discoveryQueue = NewDiscoveryQueue()
 	// create a pool of discovery workers
 	for i := uint(0); i < config.GetDiscoveryWorkers(); i++ {
 		discoveryWorkersGauge.Add(1)
