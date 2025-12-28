@@ -787,7 +787,7 @@ func (vtorc *VTOrc) executeCheckAndRecoverFunction(ctx context.Context, analysis
 		// If they have, then recoveries like ReplicaSemiSyncMustNotBeSet, etc won't be valid anymore.
 		// Similarly, a new primary could have been elected in the mean-time that can cause
 		// a change in the recovery we run.
-		err = vtorc.RefreshKeyspaceAndShard(analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
+		err = vtorc.RefreshKeyspaceAndShard(ctx, analysisEntry.AnalyzedKeyspace, analysisEntry.AnalyzedShard)
 		if err != nil {
 			logger.Errorf("Failed to refresh keyspace and shard, aborting recovery: %v", err)
 			return err

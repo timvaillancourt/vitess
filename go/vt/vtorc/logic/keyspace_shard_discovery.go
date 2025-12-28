@@ -77,12 +77,12 @@ func (vtorc *VTOrc) RefreshAllKeyspacesAndShards(ctx context.Context) error {
 }
 
 // RefreshKeyspaceAndShard refreshes the keyspace record and shard record for the given keyspace and shard.
-func (vtorc *VTOrc) RefreshKeyspaceAndShard(keyspaceName string, shardName string) error {
-	err := vtorc.refreshKeyspace(keyspaceName)
+func (vtorc *VTOrc) RefreshKeyspaceAndShard(ctx context.Context, keyspaceName, shardName string) error {
+	err := vtorc.refreshKeyspace(ctx, keyspaceName)
 	if err != nil {
 		return err
 	}
-	return vtorc.refreshShard(keyspaceName, shardName)
+	return vtorc.refreshShard(ctx, keyspaceName, shardName)
 }
 
 // shouldWatchShard returns true if a shard is within the shardsToWatch
@@ -106,15 +106,15 @@ func shouldWatchShard(shard *topo.ShardInfo) bool {
 }
 
 // refreshKeyspace refreshes the keyspace's information for the given keyspace from the topo
-func (vtorc *VTOrc) refreshKeyspace(keyspaceName string) error {
-	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+func (vtorc *VTOrc) refreshKeyspace(ctx context.Context, keyspaceName string) error {
+	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
 	return vtorc.refreshKeyspaceHelper(refreshCtx, keyspaceName)
 }
 
 // refreshShard refreshes the shard's information for the given keyspace/shard from the topo
-func (vtorc *VTOrc) refreshShard(keyspaceName, shardName string) error {
-	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+func (vtorc *VTOrc) refreshShard(ctx context.Context, keyspaceName, shardName string) error {
+	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
 	return vtorc.refreshSingleShardHelper(refreshCtx, keyspaceName, shardName)
 }
