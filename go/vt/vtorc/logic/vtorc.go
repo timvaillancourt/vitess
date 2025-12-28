@@ -29,20 +29,16 @@ import (
 	"vitess.io/vitess/go/stats"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
+	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/inst"
 	"vitess.io/vitess/go/vt/vtorc/process"
 	"vitess.io/vitess/go/vt/vtorc/util"
+	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
-// discoveryQueue is a channel of deduplicated tablets that were
-// requested for discovery. It can be continuously updated
-// as discovery process progresses.
-var discoveryQueue *DiscoveryQueue
 var snapshotDiscoveryKeys chan string
 var snapshotDiscoveryKeysMutex sync.Mutex
-var hasReceivedSIGTERM int32
-
 var (
 	discoveriesCounter                 = stats.NewCounter("DiscoveriesAttempt", "Number of discoveries attempted")
 	failedDiscoveriesCounter           = stats.NewCounter("DiscoveriesFail", "Number of failed discoveries")
@@ -72,15 +68,39 @@ func init() {
 	})
 }
 
-// closeVTOrc runs all the operations required to cleanly shutdown VTOrc
-func closeVTOrc() {
+type VTOrc struct {
+	discoveryQueue     *DiscoveryQueue
+	tmc                tmclient.TabletManagerClient
+	ts                 *topo.Server
+	hasReceivedSIGTERM int32
+}
+
+func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
+	cell := config.GetCell()
+	if cell == "" {
+		// TODO: remove warning in v25+, make flag required.
+		log.Warning("WARNING: --cell will become a required vtorc flag in v25 and up")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
+	defer cancel()
+	_, err := ts.GetCellInfo(ctx, cell, true /* strongRead */)
+	if err != nil {
+		return nil, err
+	}
+
+	return &VTOrc{ts: ts}, nil
+}
+
+// Close runs all the operations required to cleanly shutdown VTOrc
+func (vtorc *VTOrc) Close() {
 	log.Infof("Starting VTOrc shutdown")
-	atomic.StoreInt32(&hasReceivedSIGTERM, 1)
+	atomic.StoreInt32(&vtorc.hasReceivedSIGTERM, 1)
 	// Poke other go routines to stop cleanly here ...
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
 	// wait for the locks to be released
 	waitForLocksRelease()
-	ts.Close()
+	vtorc.ts.Close()
 	log.Infof("VTOrc closed")
 }
 
@@ -105,8 +125,11 @@ func waitForLocksRelease() {
 
 // handleDiscoveryRequests iterates the discoveryQueue channel and calls upon
 // instance discovery per entry.
-func handleDiscoveryRequests() {
-	discoveryQueue = NewDiscoveryQueue()
+func (vtorc *VTOrc) handleDiscoveryRequests() {
+	if vtorc == nil {
+		return
+	}
+	vtorc.discoveryQueue = NewDiscoveryQueue()
 	// create a pool of discovery workers
 	for i := uint(0); i < config.GetDiscoveryWorkers(); i++ {
 		discoveryWorkersGauge.Add(1)
@@ -114,13 +137,13 @@ func handleDiscoveryRequests() {
 			for {
 				// .Consume() blocks until there is a new key to process.
 				// We are not "active" until we got a tablet alias.
-				tabletAlias := discoveryQueue.Consume()
+				tabletAlias := vtorc.discoveryQueue.Consume()
 				func() {
 					discoveryWorkersActiveGauge.Add(1)
 					defer discoveryWorkersActiveGauge.Add(-1)
 
 					DiscoverInstance(tabletAlias, false /* forceDiscovery */)
-					discoveryQueue.Release(tabletAlias)
+					vtorc.discoveryQueue.Release(tabletAlias)
 				}()
 			}
 		}()
@@ -208,7 +231,7 @@ func DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 }
 
 // onHealthTick handles the actions to take to discover/poll instances
-func onHealthTick() {
+func (vtorc *VTOrc) onHealthTick() {
 	tabletAliases, err := inst.ReadOutdatedInstanceKeys()
 	if err != nil {
 		log.Error(err)
@@ -229,7 +252,7 @@ func onHealthTick() {
 	if len(tabletAliases) > 0 {
 		for _, tabletAlias := range tabletAliases {
 			if tabletAlias != "" {
-				discoveryQueue.Push(tabletAlias)
+				vtorc.discoveryQueue.Push(tabletAlias)
 			}
 		}
 	}
@@ -238,7 +261,7 @@ func onHealthTick() {
 // ContinuousDiscovery starts an asynchronous infinite discovery process where instances are
 // periodically investigated and their status captured, and long since unseen instances are
 // purged and forgotten.
-func ContinuousDiscovery() {
+func (vtorc *VTOrc) ContinuousDiscovery() {
 	log.Infof("continuous discovery: setting up")
 	recentDiscoveryOperationKeys = cache.New(config.GetInstancePollTime(), time.Second)
 
@@ -250,12 +273,12 @@ func ContinuousDiscovery() {
 		}
 	}
 
-	go handleDiscoveryRequests()
+	go vtorc.handleDiscoveryRequests()
 
 	healthTick := time.Tick(config.HealthPollSeconds * time.Second)
 	caretakingTick := time.Tick(time.Minute)
 	recoveryTick := time.Tick(config.GetRecoveryPollDuration())
-	tabletTopoTick := OpenTabletDiscovery()
+	tabletTopoTick := vtorc.OpenTabletDiscovery()
 	var recoveryEntrance int64
 	var snapshotTopologiesTick <-chan time.Time
 	if config.GetSnapshotTopologyInterval() > 0 {
@@ -266,14 +289,14 @@ func ContinuousDiscovery() {
 		_ = initMetrics()
 	}()
 	// On termination of the server, we should close VTOrc cleanly
-	servenv.OnTermSync(closeVTOrc)
+	servenv.OnTermSync(vtorc.Close)
 
 	log.Infof("continuous discovery: starting")
 	for {
 		select {
 		case <-healthTick:
 			go func() {
-				onHealthTick()
+				vtorc.onHealthTick()
 			}()
 		case <-caretakingTick:
 			// Various periodic internal maintenance tasks
@@ -297,14 +320,16 @@ func ContinuousDiscovery() {
 					} else {
 						return
 					}
-					CheckAndRecover()
+					ctx, cancel := context.WithTimeout(context.Background(), config.GetRecoveryPollDuration())
+					defer cancel()
+					vtorc.CheckAndRecover(ctx)
 				}()
 			}()
 		case <-snapshotTopologiesTick:
 			go inst.SnapshotTopologies() //nolint:errcheck
 		case <-tabletTopoTick:
 			ctx, cancel := context.WithTimeout(context.Background(), config.GetTopoInformationRefreshDuration())
-			if err := refreshAllInformation(ctx); err != nil {
+			if err := vtorc.refreshAllInformation(ctx); err != nil {
 				log.Errorf("failed to refresh topo information: %+v", err)
 			}
 			cancel()
@@ -313,18 +338,18 @@ func ContinuousDiscovery() {
 }
 
 // refreshAllInformation refreshes both shard and tablet information. This is meant to be run on tablet topo ticks.
-func refreshAllInformation(ctx context.Context) error {
+func (vtorc *VTOrc) refreshAllInformation(ctx context.Context) error {
 	// Create an errgroup
 	eg, ctx := errgroup.WithContext(ctx)
 
 	// Refresh all keyspace information.
 	eg.Go(func() error {
-		return RefreshAllKeyspacesAndShards(ctx)
+		return vtorc.RefreshAllKeyspacesAndShards(ctx)
 	})
 
 	// Refresh all tablets.
 	eg.Go(func() error {
-		return refreshAllTablets(ctx)
+		return vtorc.refreshAllTablets(ctx)
 	})
 
 	// Wait for both the refreshes to complete

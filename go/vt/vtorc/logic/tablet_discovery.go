@@ -41,12 +41,9 @@ import (
 	"vitess.io/vitess/go/vt/vtorc/config"
 	"vitess.io/vitess/go/vt/vtorc/db"
 	"vitess.io/vitess/go/vt/vtorc/inst"
-	"vitess.io/vitess/go/vt/vttablet/tmclient"
 )
 
 var (
-	ts               *topo.Server
-	tmc              tmclient.TabletManagerClient
 	clustersToWatch  []string
 	shutdownWaitTime = 30 * time.Second
 	// shardsToWatch is a map storing the shards for a given keyspace that need to be watched.
@@ -186,9 +183,8 @@ func shouldWatchTablet(tablet *topodatapb.Tablet) bool {
 
 // OpenTabletDiscovery opens the vitess topo if enables and returns a ticker
 // channel for polling.
-func OpenTabletDiscovery() <-chan time.Time {
-	ts = topo.Open()
-	tmc = inst.InitializeTMC()
+func (vtorc *VTOrc) OpenTabletDiscovery() <-chan time.Time {
+	vtorc.tmc = inst.InitializeTMC()
 	// Clear existing cache and perform a new refresh.
 	if _, err := db.ExecVTOrc("DELETE FROM vitess_tablet"); err != nil {
 		log.Error(err)
@@ -202,7 +198,7 @@ func OpenTabletDiscovery() <-chan time.Time {
 	// it on a timer.
 	ctx, cancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
 	defer cancel()
-	if err := refreshAllInformation(ctx); err != nil {
+	if err := vtorc.refreshAllInformation(ctx); err != nil {
 		log.Errorf("failed to initialize topo information: %+v", err)
 	}
 	return time.Tick(config.GetTopoInformationRefreshDuration())
@@ -211,14 +207,14 @@ func OpenTabletDiscovery() <-chan time.Time {
 // getAllTablets gets all tablets from all cells using a goroutine per cell. It returns a map of
 // cells (string) to slices of tablets (as topo.TabletInfo) and a slice of cells (string) that
 // failed to return a result.
-func getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[string][]*topo.TabletInfo, failedCells []string) {
+func (vtorc *VTOrc) getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[string][]*topo.TabletInfo, failedCells []string) {
 	var mu sync.Mutex
 	failedCells = make([]string, 0, len(cells))
 	tabletsByCell = make(map[string][]*topo.TabletInfo, len(cells))
 	eg, ctx := errgroup.WithContext(ctx)
 	for _, cell := range cells {
 		eg.Go(func() error {
-			tablets, err := ts.GetTabletsByCell(ctx, cell, nil)
+			tablets, err := vtorc.ts.GetTabletsByCell(ctx, cell, nil)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -235,18 +231,18 @@ func getAllTablets(ctx context.Context, cells []string) (tabletsByCell map[strin
 }
 
 // refreshAllTablets reloads the tablets from topo and discovers the ones which haven't been refreshed in a while
-func refreshAllTablets(ctx context.Context) error {
-	return refreshTabletsUsing(ctx, func(tabletAlias string) {
+func (vtorc *VTOrc) refreshAllTablets(ctx context.Context) error {
+	return vtorc.refreshTabletsUsing(ctx, func(tabletAlias string) {
 		DiscoverInstance(tabletAlias, false /* forceDiscovery */)
 	}, false /* forceRefresh */)
 }
 
 // refreshTabletsUsing refreshes tablets using a provided loader.
-func refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), forceRefresh bool) error {
+func (vtorc *VTOrc) refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), forceRefresh bool) error {
 	// Get all cells.
 	cellsCtx, cellsCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer cellsCancel()
-	cells, err := ts.GetKnownCells(cellsCtx)
+	cells, err := vtorc.ts.GetKnownCells(cellsCtx)
 	if err != nil {
 		return err
 	}
@@ -254,7 +250,7 @@ func refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), f
 	// Get all tablets from all cells.
 	getTabletsCtx, getTabletsCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer getTabletsCancel()
-	tabletsByCell, failedCells := getAllTablets(getTabletsCtx, cells)
+	tabletsByCell, failedCells := vtorc.getAllTablets(getTabletsCtx, cells)
 	if len(tabletsByCell) == 0 {
 		log.Error("Found no cells with tablets")
 		return nil
@@ -288,26 +284,26 @@ func refreshTabletsUsing(ctx context.Context, loader func(tabletAlias string), f
 // forceRefreshAllTabletsInShard is used to refresh all the tablet's information (both MySQL information and topo records)
 // for a given shard. This function is meant to be called before or after a cluster-wide operation that we know will
 // change the replication information for the entire cluster drastically enough to warrant a full forceful refresh
-func forceRefreshAllTabletsInShard(ctx context.Context, keyspace, shard string, tabletsToIgnore []string) {
+func (vtorc *VTOrc) forceRefreshAllTabletsInShard(ctx context.Context, keyspace, shard string, tabletsToIgnore []string) {
 	refreshCtx, refreshCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer refreshCancel()
-	refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
+	vtorc.refreshTabletsInKeyspaceShard(refreshCtx, keyspace, shard, func(tabletAlias string) {
 		DiscoverInstance(tabletAlias, true)
 	}, true, tabletsToIgnore)
 }
 
 // refreshTabletInfoOfShard only refreshes the tablet records from the topo-server for all the tablets
 // of the given keyspace-shard.
-func refreshTabletInfoOfShard(ctx context.Context, keyspace, shard string) {
+func (vtorc *VTOrc) refreshTabletInfoOfShard(ctx context.Context, keyspace, shard string) {
 	log.Infof("refresh of tablet records of shard - %v/%v", keyspace, shard)
-	refreshTabletsInKeyspaceShard(ctx, keyspace, shard, func(tabletAlias string) {
+	vtorc.refreshTabletsInKeyspaceShard(ctx, keyspace, shard, func(tabletAlias string) {
 		// No-op
 		// We only want to refresh the tablet information for the given shard
 	}, false, nil)
 }
 
-func refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) {
-	tablets, err := ts.GetTabletsByShard(ctx, keyspace, shard)
+func (vtorc *VTOrc) refreshTabletsInKeyspaceShard(ctx context.Context, keyspace, shard string, loader func(tabletAlias string), forceRefresh bool, tabletsToIgnore []string) {
+	tablets, err := vtorc.ts.GetTabletsByShard(ctx, keyspace, shard)
 	if err != nil {
 		log.Errorf("Error fetching tablets for keyspace/shard %v/%v: %v", keyspace, shard, err)
 		return
@@ -369,38 +365,38 @@ func refreshTablets(tablets []*topo.TabletInfo, query string, args []any, loader
 }
 
 // tabletUndoDemotePrimary calls the said RPC for the given tablet.
-func tabletUndoDemotePrimary(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
+func (vtorc *VTOrc) tabletUndoDemotePrimary(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
 	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer tmcCancel()
-	return tmc.UndoDemotePrimary(tmcCtx, tablet, semiSync)
+	return vtorc.tmc.UndoDemotePrimary(tmcCtx, tablet, semiSync)
 }
 
 // setReadOnly calls the said RPC for the given tablet
-func setReadOnly(ctx context.Context, tablet *topodatapb.Tablet) error {
+func (vtorc *VTOrc) setReadOnly(ctx context.Context, tablet *topodatapb.Tablet) error {
 	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer tmcCancel()
-	return tmc.SetReadOnly(tmcCtx, tablet)
+	return vtorc.tmc.SetReadOnly(tmcCtx, tablet)
 }
 
 // changeTabletType calls the said RPC for the given tablet with the given parameters.
-func changeTabletType(ctx context.Context, tablet *topodatapb.Tablet, tabletType topodatapb.TabletType, semiSync bool) error {
+func (vtorc *VTOrc) changeTabletType(ctx context.Context, tablet *topodatapb.Tablet, tabletType topodatapb.TabletType, semiSync bool) error {
 	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer tmcCancel()
-	return tmc.ChangeType(tmcCtx, tablet, tabletType, semiSync)
+	return vtorc.tmc.ChangeType(tmcCtx, tablet, tabletType, semiSync)
 }
 
 // resetReplicationParameters resets the replication parameters on the given tablet.
-func resetReplicationParameters(ctx context.Context, tablet *topodatapb.Tablet) error {
+func (vtorc *VTOrc) resetReplicationParameters(ctx context.Context, tablet *topodatapb.Tablet) error {
 	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer tmcCancel()
-	return tmc.ResetReplicationParameters(tmcCtx, tablet)
+	return vtorc.tmc.ResetReplicationParameters(tmcCtx, tablet)
 }
 
 // setReplicationSource calls the said RPC with the parameters provided
-func setReplicationSource(ctx context.Context, replica *topodatapb.Tablet, primary *topodatapb.Tablet, semiSync bool, heartbeatInterval float64) error {
+func (vtorc *VTOrc) setReplicationSource(ctx context.Context, replica *topodatapb.Tablet, primary *topodatapb.Tablet, semiSync bool, heartbeatInterval float64) error {
 	tmcCtx, tmcCancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer tmcCancel()
-	return tmc.SetReplicationSource(tmcCtx, replica, primary.Alias, 0, "", true, semiSync, heartbeatInterval)
+	return vtorc.tmc.SetReplicationSource(tmcCtx, replica, primary.Alias, 0, "", true, semiSync, heartbeatInterval)
 }
 
 // shardPrimary finds the primary of the given keyspace-shard by reading the vtorc backend

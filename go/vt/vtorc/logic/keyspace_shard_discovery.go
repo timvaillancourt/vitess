@@ -35,7 +35,7 @@ import (
 var refreshAllKeyspacesAndShardsMu sync.Mutex
 
 // RefreshAllKeyspacesAndShards reloads the keyspace and shard information for the keyspaces that vtorc is concerned with.
-func RefreshAllKeyspacesAndShards(ctx context.Context) error {
+func (vtorc *VTOrc) RefreshAllKeyspacesAndShards(ctx context.Context) error {
 	refreshAllKeyspacesAndShardsMu.Lock()
 	defer refreshAllKeyspacesAndShardsMu.Unlock()
 
@@ -45,7 +45,7 @@ func RefreshAllKeyspacesAndShards(ctx context.Context) error {
 		defer getCancel()
 		var err error
 		// Get all the keyspaces
-		keyspaces, err = ts.GetKeyspaces(getCtx)
+		keyspaces, err = vtorc.ts.GetKeyspaces(getCtx)
 		if err != nil {
 			return err
 		}
@@ -67,22 +67,22 @@ func RefreshAllKeyspacesAndShards(ctx context.Context) error {
 		}
 
 		eg.Go(func() error {
-			return refreshKeyspaceHelper(egCtx, keyspace)
+			return vtorc.refreshKeyspaceHelper(egCtx, keyspace)
 		})
 		eg.Go(func() error {
-			return refreshAllShards(egCtx, keyspace)
+			return vtorc.refreshAllShards(egCtx, keyspace)
 		})
 	}
 	return eg.Wait()
 }
 
 // RefreshKeyspaceAndShard refreshes the keyspace record and shard record for the given keyspace and shard.
-func RefreshKeyspaceAndShard(keyspaceName string, shardName string) error {
-	err := refreshKeyspace(keyspaceName)
+func (vtorc *VTOrc) RefreshKeyspaceAndShard(keyspaceName string, shardName string) error {
+	err := vtorc.refreshKeyspace(keyspaceName)
 	if err != nil {
 		return err
 	}
-	return refreshShard(keyspaceName, shardName)
+	return vtorc.refreshShard(keyspaceName, shardName)
 }
 
 // shouldWatchShard returns true if a shard is within the shardsToWatch
@@ -106,22 +106,22 @@ func shouldWatchShard(shard *topo.ShardInfo) bool {
 }
 
 // refreshKeyspace refreshes the keyspace's information for the given keyspace from the topo
-func refreshKeyspace(keyspaceName string) error {
+func (vtorc *VTOrc) refreshKeyspace(keyspaceName string) error {
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
 	defer refreshCancel()
-	return refreshKeyspaceHelper(refreshCtx, keyspaceName)
+	return vtorc.refreshKeyspaceHelper(refreshCtx, keyspaceName)
 }
 
 // refreshShard refreshes the shard's information for the given keyspace/shard from the topo
-func refreshShard(keyspaceName, shardName string) error {
+func (vtorc *VTOrc) refreshShard(keyspaceName, shardName string) error {
 	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), topo.RemoteOperationTimeout)
 	defer refreshCancel()
-	return refreshSingleShardHelper(refreshCtx, keyspaceName, shardName)
+	return vtorc.refreshSingleShardHelper(refreshCtx, keyspaceName, shardName)
 }
 
 // refreshKeyspaceHelper is a helper function which reloads the given keyspace's information
-func refreshKeyspaceHelper(ctx context.Context, keyspaceName string) error {
-	keyspaceInfo, err := ts.GetKeyspace(ctx, keyspaceName)
+func (vtorc *VTOrc) refreshKeyspaceHelper(ctx context.Context, keyspaceName string) error {
+	keyspaceInfo, err := vtorc.ts.GetKeyspace(ctx, keyspaceName)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -134,9 +134,9 @@ func refreshKeyspaceHelper(ctx context.Context, keyspaceName string) error {
 }
 
 // refreshAllShards refreshes all the shard records in the given keyspace.
-func refreshAllShards(ctx context.Context, keyspaceName string) error {
+func (vtorc *VTOrc) refreshAllShards(ctx context.Context, keyspaceName string) error {
 	// get all shards for keyspace name.
-	shardInfos, err := ts.FindAllShardsInKeyspace(ctx, keyspaceName, &topo.FindAllShardsInKeyspaceOptions{
+	shardInfos, err := vtorc.ts.FindAllShardsInKeyspace(ctx, keyspaceName, &topo.FindAllShardsInKeyspaceOptions{
 		// Fetch shard records concurrently to speed up discovery. A typical
 		// Vitess cluster will have 1-3 vtorc instances deployed, so there is
 		// little risk of a thundering herd.
@@ -182,8 +182,8 @@ func refreshAllShards(ctx context.Context, keyspaceName string) error {
 }
 
 // refreshSingleShardHelper is a helper function that refreshes the shard record of the given keyspace/shard.
-func refreshSingleShardHelper(ctx context.Context, keyspaceName string, shardName string) error {
-	shardInfo, err := ts.GetShard(ctx, keyspaceName, shardName)
+func (vtorc *VTOrc) refreshSingleShardHelper(ctx context.Context, keyspaceName string, shardName string) error {
+	shardInfo, err := vtorc.ts.GetShard(ctx, keyspaceName, shardName)
 	if err != nil {
 		log.Error(err)
 		return err

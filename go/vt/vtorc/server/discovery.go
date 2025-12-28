@@ -54,7 +54,9 @@ func StartVTOrcDiscovery() error {
 		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "failed to validate cell %s: %+v", cell, err)
 	}
 
+	vtorc := logic.NewVTOrc(topo.Open())
+
 	log.Info("Starting Discovery")
-	go logic.ContinuousDiscovery()
+	go vtorc.ContinuousDiscovery()
 	return nil
 }
