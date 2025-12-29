@@ -186,16 +186,12 @@ func NewTopologyRecoveryStep(id int64, message string) *TopologyRecoveryStep {
 	}
 }
 
-func init() {
+func (vtorc *VTOrc) initTopologyRecoveryMetrics() {
 	// ShardLocksActive is a stats representation of shardsLockCounter.
 	stats.NewGaugeFunc("ShardLocksActive", "Number of actively-held shard locks", func() int64 {
 		return atomic.LoadInt64(&vtorc.shardsLockCounter)
 	})
-	go initializeTopologyRecoveryPostConfiguration()
-}
-
-func initializeTopologyRecoveryPostConfiguration() {
-	config.WaitForConfigurationToBeLoaded()
+	go config.WaitForConfigurationToBeLoaded()
 }
 
 func getLockAction(analysedInstance string, code inst.AnalysisCode) string {

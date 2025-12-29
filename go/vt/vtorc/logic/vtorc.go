@@ -53,34 +53,19 @@ var (
 	discoveryInstanceTimings        = stats.NewTimings("DiscoveryInstanceTimings", "Timings for instance discovery actions", "Action", discoveryInstanceTimingsActions...)
 )
 
-func init() {
-	snapshotDiscoveryKeys = make(chan string, 10)
-
-	onMetricsTick(func() {
-		discoveryQueueLengthGauge.Set(int64(discoveryQueue.QueueLen()))
-	})
-	onMetricsTick(func() {
-		if recentDiscoveryOperationKeys == nil {
-			return
-		}
-		discoveryRecentCountGauge.Set(int64(recentDiscoveryOperationKeys.ItemCount()))
-	})
-}
-
 // VTOrc represents an instance of VTOrc.
 type VTOrc struct {
 	discoveryQueue               *DiscoveryQueue
 	recentDiscoveryOperationKeys *cache.Cache
 	tmc                          tmclient.TabletManagerClient
 	ts                           *topo.Server
+	metricsTickCancel            context.CancelFunc
+
+	hasReceivedSIGTERM int32
 
 	// urgentOperations helps rate limiting some operations on replicas, such as restarting replication
 	// in an UnreachablePrimary scenario.
 	urgentOperations *cache.Cache
-
-	hasReceivedSIGTERM         int32
-	snapshotDiscoveryKeys      chan string
-	snapshotDiscoveryKeysMutex sync.Mutex
 
 	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
 	shardsLockCounter int64
@@ -89,6 +74,10 @@ type VTOrc struct {
 	// We store the key range for all the shards that we want to watch.
 	// This is populated by parsing `--clusters_to_watch` flag.
 	shardsToWatch map[string][]*topodatapb.KeyRange
+
+	// TODO: drop in v25.
+	snapshotDiscoveryKeys      chan string
+	snapshotDiscoveryKeysMutex sync.Mutex
 }
 
 // NewVTOrc inits a new *VTOrc.
@@ -111,14 +100,18 @@ func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
 		return nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "Error parsing --clusters-to-watch: %v", err)
 	}
 
-	return &VTOrc{
+	vtorc := &VTOrc{
 		discoveryQueue:               NewDiscoveryQueue(),
 		recentDiscoveryOperationKeys: cache.New(config.GetInstancePollTime(), time.Second),
 		shardsToWatch:                shardsToWatch,
+		snapshotDiscoveryKeys:        make(chan string, 10),
 		tmc:                          inst.InitializeTMC(),
 		ts:                           ts,
 		urgentOperations:             cache.New(urgentOperationsInterval, 2*urgentOperationsInterval),
-	}, nil
+	}
+	vtorc.initMetrics()
+	vtorc.initTopologyRecoveryMetrics()
+	return vtorc, nil
 }
 
 // Close runs all the operations required to cleanly shutdown VTOrc
@@ -131,7 +124,21 @@ func (vtorc *VTOrc) Close() {
 	vtorc.waitForLocksRelease()
 	vtorc.tmc.Close()
 	vtorc.ts.Close()
+	vtorc.metricsTickCancel()
+	resetMetricsTicks()
 	log.Infof("VTOrc closed")
+}
+
+func (vtorc *VTOrc) initMetrics() {
+	onMetricsTick(func() {
+		discoveryQueueLengthGauge.Set(int64(vtorc.discoveryQueue.QueueLen()))
+	})
+	onMetricsTick(func() {
+		if vtorc.recentDiscoveryOperationKeys == nil {
+			return
+		}
+		discoveryRecentCountGauge.Set(int64(vtorc.recentDiscoveryOperationKeys.ItemCount()))
+	})
 }
 
 // waitForLocksRelease is used to wait for release of locks
@@ -314,8 +321,10 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 		snapshotTopologiesTick = time.Tick(config.GetSnapshotTopologyInterval())
 	}
 
+	var metricsTickCtx context.Context
+	metricsTickCtx, vtorc.metricsTickCancel = context.WithCancel(ctx)
 	go func() {
-		_ = initMetrics()
+		_ = initMetricsTick(metricsTickCtx)
 	}()
 	// On termination of the server, we should close VTOrc cleanly
 	servenv.OnTermSync(vtorc.Close)

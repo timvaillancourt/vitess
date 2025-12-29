@@ -17,20 +17,33 @@
 package logic
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"vitess.io/vitess/go/vt/vtorc/config"
 )
 
-var metricTickCallbacks [](func())
+var (
+	metricTickCallbacks [](func())
+	metricTickMu        sync.Mutex
+)
 
-// initMetrics is called once in the lifetime of the app, after config has been loaded
-func initMetrics() error {
+// initMetricsTick is called once in the lifetime of the app, after config has been loaded
+func initMetricsTick(ctx context.Context) error {
 	go func() {
-		metricsCallbackTick := time.Tick(time.Duration(config.DebugMetricsIntervalSeconds) * time.Second)
-		for range metricsCallbackTick {
-			for _, f := range metricTickCallbacks {
-				go f()
+		metricsCallbackTicker := time.NewTicker(time.Duration(config.DebugMetricsIntervalSeconds) * time.Second)
+		defer metricsCallbackTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-metricsCallbackTicker.C:
+				metricTickMu.Lock()
+				defer metricTickMu.Unlock()
+				for _, f := range metricTickCallbacks {
+					go f()
+				}
 			}
 		}
 	}()
@@ -39,5 +52,13 @@ func initMetrics() error {
 }
 
 func onMetricsTick(f func()) {
+	metricTickMu.Lock()
+	defer metricTickMu.Unlock()
 	metricTickCallbacks = append(metricTickCallbacks, f)
+}
+
+func resetMetricsTicks() {
+	metricTickMu.Lock()
+	defer metricTickMu.Unlock()
+	metricTickCallbacks = [](func()){}
 }
