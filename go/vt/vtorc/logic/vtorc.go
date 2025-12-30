@@ -56,16 +56,11 @@ var (
 // VTOrc represents an instance of VTOrc.
 type VTOrc struct {
 	discoveryQueue               *DiscoveryQueue
+	hasReceivedSIGTERM           int32
+	metricsTickCancel            context.CancelFunc
 	recentDiscoveryOperationKeys *cache.Cache
 	tmc                          tmclient.TabletManagerClient
 	ts                           *topo.Server
-	metricsTickCancel            context.CancelFunc
-
-	hasReceivedSIGTERM int32
-
-	// urgentOperations helps rate limiting some operations on replicas, such as restarting replication
-	// in an UnreachablePrimary scenario.
-	urgentOperations *cache.Cache
 
 	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
 	shardsLockCounter int64
@@ -107,7 +102,6 @@ func NewVTOrc(ts *topo.Server) (*VTOrc, error) {
 		snapshotDiscoveryKeys:        make(chan string, 10),
 		tmc:                          inst.InitializeTMC(),
 		ts:                           ts,
-		urgentOperations:             cache.New(urgentOperationsInterval, 2*urgentOperationsInterval),
 	}
 	vtorc.initMetrics()
 	vtorc.initTopologyRecoveryMetrics()
@@ -120,12 +114,14 @@ func (vtorc *VTOrc) Close() {
 	atomic.StoreInt32(&vtorc.hasReceivedSIGTERM, 1)
 	// Poke other go routines to stop cleanly here ...
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
-	// wait for the locks to be released
+	// Reset and cancel metrics ticks
+	resetMetricsTicks()
+	vtorc.metricsTickCancel()
+	// Wait for the locks to be released
 	vtorc.waitForLocksRelease()
+	// Close clients
 	vtorc.tmc.Close()
 	vtorc.ts.Close()
-	vtorc.metricsTickCancel()
-	resetMetricsTicks()
 	log.Infof("VTOrc closed")
 }
 
@@ -143,27 +139,25 @@ func (vtorc *VTOrc) initMetrics() {
 
 // waitForLocksRelease is used to wait for release of locks
 func (vtorc *VTOrc) waitForLocksRelease() {
-	timeout := time.After(shutdownWaitTime)
 	for {
-		count := atomic.LoadInt64(&vtorc.shardsLockCounter)
-		if count == 0 {
-			break
-		}
 		select {
-		case <-timeout:
-			log.Infof("wait for lock release timed out. Some locks might not have been released.")
+		case <-time.After(shutdownWaitTime):
+			log.Infof("Wait for lock release timed out at %s. Some locks might not have been released.", shutdownWaitTime)
 		default:
+			count := atomic.LoadInt64(&vtorc.shardsLockCounter)
+			if count == 0 {
+				break
+			}
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		break
 	}
 }
 
 // handleDiscoveryRequests iterates the discoveryQueue channel and calls upon
 // instance discovery per entry.
 func (vtorc *VTOrc) handleDiscoveryRequests() {
-	if vtorc == nil {
+	if vtorc.discoveryQueue == nil {
 		return
 	}
 	// create a pool of discovery workers
@@ -191,7 +185,7 @@ func (vtorc *VTOrc) handleDiscoveryRequests() {
 // replicas (if any) are also checked.
 func (vtorc *VTOrc) DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 	if inst.InstanceIsForgotten(tabletAlias) {
-		log.Infof("discoverInstance: skipping discovery of %+v because it is set to be forgotten", tabletAlias)
+		log.Infof("DiscoverInstance: skipping discovery of %+v because it is set to be forgotten", tabletAlias)
 		return
 	}
 
@@ -207,7 +201,7 @@ func (vtorc *VTOrc) DiscoverInstance(tabletAlias string, forceDiscovery bool) {
 		discoveryTime := latency.Elapsed("total")
 		if discoveryTime > config.GetInstancePollTime() {
 			instancePollSecondsExceededCounter.Add(1)
-			log.Warningf("discoverInstance exceeded InstancePollSeconds for %+v, took %.4fs", tabletAlias, discoveryTime.Seconds())
+			log.Warningf("DiscoverInstance exceeded InstancePollSeconds for %+v, took %.4fs", tabletAlias, discoveryTime.Seconds())
 		}
 	}()
 
@@ -298,7 +292,7 @@ func (vtorc *VTOrc) onHealthTick() {
 // periodically investigated and their status captured, and long since unseen instances are
 // purged and forgotten.
 func (vtorc *VTOrc) ContinuousDiscovery() {
-	log.Infof("continuous discovery: setting up")
+	log.Info("Continuous discovery: setting up")
 
 	if !config.GetAllowRecovery() {
 		log.Info("--allow-recovery is set to 'false', disabling recovery actions")
@@ -329,24 +323,20 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 	// On termination of the server, we should close VTOrc cleanly
 	servenv.OnTermSync(vtorc.Close)
 
-	log.Infof("continuous discovery: starting")
+	log.Info("Continuous discovery: starting")
 	for {
 		select {
 		case <-healthTick:
-			go func() {
-				vtorc.onHealthTick()
-			}()
+			go vtorc.onHealthTick()
 		case <-caretakingTick:
 			// Various periodic internal maintenance tasks
 			//nolint:errcheck
-			go func() {
-				go inst.ForgetLongUnseenInstances()
-				go inst.ExpireAudit()
-				go inst.ExpireStaleInstanceBinlogCoordinates()
-				go ExpireRecoveryDetectionHistory()
-				go ExpireTopologyRecoveryHistory()
-				go ExpireTopologyRecoveryStepsHistory()
-			}()
+			go inst.ForgetLongUnseenInstances()
+			go inst.ExpireAudit()
+			go inst.ExpireStaleInstanceBinlogCoordinates()
+			go ExpireRecoveryDetectionHistory()
+			go ExpireTopologyRecoveryHistory()
+			go ExpireTopologyRecoveryStepsHistory()
 		case <-recoveryTick:
 			go func() {
 				go inst.ExpireInstanceAnalysisChangelog() //nolint:errcheck
@@ -358,7 +348,7 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 					} else {
 						return
 					}
-					ctx, cancel := context.WithTimeout(context.Background(), config.GetRecoveryPollDuration())
+					ctx, cancel := context.WithTimeout(ctx, config.GetRecoveryPollDuration())
 					defer cancel()
 					vtorc.CheckAndRecover(ctx)
 				}()
@@ -366,11 +356,13 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 		case <-snapshotTopologiesTick:
 			go inst.SnapshotTopologies() //nolint:errcheck
 		case <-tabletTopoTick:
-			ctx, cancel := context.WithTimeout(context.Background(), config.GetTopoInformationRefreshDuration())
-			if err := vtorc.refreshAllInformation(ctx); err != nil {
-				log.Errorf("failed to refresh topo information: %+v", err)
-			}
-			cancel()
+			func() {
+				ctx, cancel := context.WithTimeout(ctx, config.GetTopoInformationRefreshDuration())
+				defer cancel()
+				if err := vtorc.refreshAllInformation(ctx); err != nil {
+					log.Errorf("Failed to refresh topo information: %+v", err)
+				}
+			}()
 		}
 	}
 }
@@ -378,16 +370,16 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 // refreshAllInformation refreshes both shard and tablet information. This is meant to be run on tablet topo ticks.
 func (vtorc *VTOrc) refreshAllInformation(ctx context.Context) error {
 	// Create an errgroup
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, egCtx := errgroup.WithContext(ctx)
 
 	// Refresh all keyspace information.
 	eg.Go(func() error {
-		return vtorc.RefreshAllKeyspacesAndShards(ctx)
+		return vtorc.RefreshAllKeyspacesAndShards(egCtx)
 	})
 
 	// Refresh all tablets.
 	eg.Go(func() error {
-		return vtorc.refreshAllTablets(ctx)
+		return vtorc.refreshAllTablets(egCtx)
 	})
 
 	// Wait for both the refreshes to complete

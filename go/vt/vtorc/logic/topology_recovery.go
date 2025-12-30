@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/patrickmn/go-cache"
 	"golang.org/x/sync/errgroup"
 
 	"vitess.io/vitess/go/stats"
@@ -86,8 +85,7 @@ func (rsc RecoverySkipCode) String() string {
 }
 
 var (
-	countPendingRecoveries   = stats.NewGauge("PendingRecoveries", "Count of the number of pending recoveries")
-	urgentOperationsInterval = 1 * time.Minute
+	countPendingRecoveries = stats.NewGauge("PendingRecoveries", "Count of the number of pending recoveries")
 
 	// detectedProblems is used to track the number of detected problems.
 	//
@@ -440,11 +438,6 @@ func (vtorc *VTOrc) restartDirectReplicas(ctx context.Context, analysisEntry *in
 
 		// Skip the primary itself
 		if tabletAlias == analysisEntry.AnalyzedInstanceAlias {
-			continue
-		}
-
-		if err := vtorc.urgentOperations.Add(tabletAlias, true, cache.DefaultExpiration); err != nil {
-			// Rate limit interval has not passed yet
 			continue
 		}
 
