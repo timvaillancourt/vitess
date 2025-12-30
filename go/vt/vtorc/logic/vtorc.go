@@ -55,12 +55,13 @@ var (
 
 // VTOrc represents an instance of VTOrc.
 type VTOrc struct {
-	discoveryQueue               *DiscoveryQueue
-	hasReceivedSIGTERM           int32
-	metricsTickCancel            context.CancelFunc
-	recentDiscoveryOperationKeys *cache.Cache
-	tmc                          tmclient.TabletManagerClient
-	ts                           *topo.Server
+	discoveryQueue                 *DiscoveryQueue
+	hasReceivedSIGTERM             int32
+	metricsTickCancel              context.CancelFunc
+	recentDiscoveryOperationKeys   *cache.Cache
+	refreshAllKeyspacesAndShardsMu sync.Mutex
+	tmc                            tmclient.TabletManagerClient
+	ts                             *topo.Server
 
 	// shardsLockCounter is a count of in-flight shard locks. Use atomics to read/update.
 	shardsLockCounter int64
@@ -70,7 +71,7 @@ type VTOrc struct {
 	// This is populated by parsing `--clusters_to_watch` flag.
 	shardsToWatch map[string][]*topodatapb.KeyRange
 
-	// TODO: drop in v25.
+	// TODO: deprecate the snapshot discovery feature in v25+.
 	snapshotDiscoveryKeys      chan string
 	snapshotDiscoveryKeysMutex sync.Mutex
 }

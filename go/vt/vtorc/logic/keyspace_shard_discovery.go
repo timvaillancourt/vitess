@@ -18,7 +18,6 @@ package logic
 
 import (
 	"context"
-	"sync"
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -30,14 +29,10 @@ import (
 	"vitess.io/vitess/go/vt/vtorc/inst"
 )
 
-// refreshAllKeyspacesAndShardsMu ensures RefreshAllKeyspacesAndShards
-// is not executed concurrently.
-var refreshAllKeyspacesAndShardsMu sync.Mutex
-
 // RefreshAllKeyspacesAndShards reloads the keyspace and shard information for the keyspaces that vtorc is concerned with.
 func (vtorc *VTOrc) RefreshAllKeyspacesAndShards(ctx context.Context) error {
-	refreshAllKeyspacesAndShardsMu.Lock()
-	defer refreshAllKeyspacesAndShardsMu.Unlock()
+	vtorc.refreshAllKeyspacesAndShardsMu.Lock()
+	defer vtorc.refreshAllKeyspacesAndShardsMu.Unlock()
 
 	var keyspaces []string
 	if len(vtorc.shardsToWatch) == 0 { // all known keyspaces
