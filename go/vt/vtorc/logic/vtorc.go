@@ -57,7 +57,6 @@ var (
 type VTOrc struct {
 	discoveryQueue                 *DiscoveryQueue
 	hasReceivedSIGTERM             int32
-	metricsTickCancel              context.CancelFunc
 	recentDiscoveryOperationKeys   *cache.Cache
 	refreshAllKeyspacesAndShardsMu sync.Mutex
 	tmc                            tmclient.TabletManagerClient
@@ -116,8 +115,7 @@ func (vtorc *VTOrc) Close() {
 	// Poke other go routines to stop cleanly here ...
 	_ = inst.AuditOperation("shutdown", "", "Triggered via SIGTERM")
 	// Reset and cancel metrics ticks
-	resetMetricsTicks()
-	vtorc.metricsTickCancel()
+	stopAndResetMetricsTicks()
 	// Wait for the locks to be released
 	vtorc.waitForLocksRelease()
 	// Close clients
@@ -128,6 +126,9 @@ func (vtorc *VTOrc) Close() {
 
 func (vtorc *VTOrc) initMetrics() {
 	onMetricsTick(func() {
+		if vtorc.discoveryQueue == nil {
+			return
+		}
 		discoveryQueueLengthGauge.Set(int64(vtorc.discoveryQueue.QueueLen()))
 	})
 	onMetricsTick(func() {
@@ -316,10 +317,8 @@ func (vtorc *VTOrc) ContinuousDiscovery() {
 		snapshotTopologiesTick = time.Tick(config.GetSnapshotTopologyInterval())
 	}
 
-	var metricsTickCtx context.Context
-	metricsTickCtx, vtorc.metricsTickCancel = context.WithCancel(ctx)
 	go func() {
-		_ = initMetricsTick(metricsTickCtx)
+		_ = initMetricsTick()
 	}()
 	// On termination of the server, we should close VTOrc cleanly
 	servenv.OnTermSync(vtorc.Close)
