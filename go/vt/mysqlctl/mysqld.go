@@ -340,6 +340,57 @@ func (mysqld *Mysqld) RunMysqlUpgrade(ctx context.Context) error {
 	return err
 }
 
+// IsMySQLDown probes MySQL by attempting a DBA connection and returns true
+// if MySQL appears to be down. A non-nil error return indicates the MySQL
+// state could not be determined (e.g. file descriptor exhaustion, unexpected
+// socket file state).
+func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
+	ctx := context.TODO()
+	conn, err := mysqld.GetDbaConnection(ctx)
+	if err == nil {
+		conn.Close()
+		return false, nil
+	}
+	// MySQL returns "too many connections" after accepting the connection,
+	// so getting this error proves the server is alive and listening.
+	if sqlerror.IsTooManyConnectionsErr(err) {
+		return false, nil
+	}
+	// File descriptor exhaustion (EMFILE/ENFILE) is a client-side problem:
+	// we ran out of fds before we could even attempt the connection, so the
+	// failure says nothing about whether MySQL is up or down.
+	if isFileDescriptorExhausted(err) {
+		return false, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "file descriptor exhaustion detected, cannot determine MySQL state: %v", err)
+	}
+	// We only trust CRConnectionError (errno 2002) as a signal that MySQL
+	// is down. This is the unix socket "can't connect" error. We intentionally
+	// exclude CRConnHostError (errno 2003, TCP) because TCP failures can be
+	// caused by network issues unrelated to MySQL's health.
+	var sqlErr *sqlerror.SQLError
+	if !errors.As(err, &sqlErr) || sqlErr.Num != sqlerror.CRConnectionError {
+		return false, nil
+	}
+	// Corroborate by inspecting the socket file. If the file is gone, MySQL
+	// is almost certainly dead. If something unexpected occupies the path
+	// (e.g. a regular file), we can't be sure what's going on.
+	params, pErr := mysqld.dbcfgs.DbaConnector().MysqlParams()
+	if pErr == nil && params.UnixSocket != "" {
+		fi, sErr := os.Stat(params.UnixSocket)
+		if sErr != nil && !os.IsNotExist(sErr) {
+			return false, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "cannot stat socket file %q: %v", params.UnixSocket, sErr)
+		} else if sErr == nil && fi.Mode()&os.ModeSocket == 0 {
+			return false, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "%q exists but is not a socket file", params.UnixSocket)
+		}
+	}
+	return true, nil
+}
+
+// isFileDescriptorExhausted returns true if the error chain contains
+// syscall.EMFILE (process fd limit) or syscall.ENFILE (system fd limit).
+func isFileDescriptorExhausted(err error) bool {
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+}
+
 // Start will start the mysql daemon, either by running the
 // 'mysqld_start' hook, or by running mysqld_safe in the background.
 // If a mysqlctld address is provided in a flag, Start will run

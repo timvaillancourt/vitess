@@ -18,7 +18,6 @@ package tabletserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -28,7 +27,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/timer"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/servenv"
@@ -132,6 +130,7 @@ type stateManager struct {
 	throttler   lagThrottler
 	qThrottler  queryThrottler
 	tableGC     tableGarbageCollector
+	mysqld      mysqlDaemon
 
 	// hcticks starts on initialization and runs forever.
 	hcticks *timer.Timer
@@ -204,6 +203,10 @@ type (
 	queryThrottler interface {
 		Open() error
 		Close()
+	}
+
+	mysqlDaemon interface {
+		IsMySQLDown() (bool, error)
 	}
 )
 
@@ -518,13 +521,13 @@ func (sm *stateManager) serveNonPrimary(wantTabletType topodatapb.TabletType) er
 	sm.se.MakeNonPrimary()
 	sm.hs.MakeNonPrimary()
 
-	if err := closeCtx.Err(); err != nil {
+	if err := closeCtx.Err(); err != nil && sm.mysqld != nil {
 		// Close timed out. Check if MySQL is actually down (errno 2002).
-		if mysqlErr := sm.qe.IsMySQLReachable(); mysqlErr != nil {
-			var sqlErr *sqlerror.SQLError
-			if errors.As(mysqlErr, &sqlErr) && sqlErr.Num == sqlerror.CRConnectionError {
-				log.Warn(fmt.Sprintf("Component close timed out (MySQL is down: %v), proceeding with transition", mysqlErr))
-			}
+		down, checkErr := sm.mysqld.IsMySQLDown()
+		if checkErr != nil {
+			log.Warn(fmt.Sprintf("Component close timed out, cannot determine MySQL state: %v", checkErr))
+		} else if down {
+			log.Warn("Component close timed out (MySQL is down), proceeding with transition")
 		}
 	}
 

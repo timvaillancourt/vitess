@@ -18,12 +18,10 @@ package tabletmanager
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"vitess.io/vitess/go/mysql"
-	"vitess.io/vitess/go/mysql/sqlerror"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vterrors"
 
@@ -197,8 +195,12 @@ func (tm *TabletManager) RunHealthCheck(ctx context.Context) {
 func (tm *TabletManager) convertBoolToSemiSyncAction(ctx context.Context, semiSync bool) (SemiSyncAction, error) {
 	semiSyncExtensionLoaded, err := tm.MysqlDaemon.SemiSyncExtensionLoaded(ctx)
 	if err != nil {
-		var sqlErr *sqlerror.SQLError
-		if errors.As(err, &sqlErr) && sqlErr.Num == sqlerror.CRConnectionError {
+		down, checkErr := tm.MysqlDaemon.IsMySQLDown()
+		if checkErr != nil {
+			log.Warn(fmt.Sprintf("convertBoolToSemiSyncAction: cannot determine MySQL state (%v), returning SemiSyncActionNone", checkErr))
+			return SemiSyncActionNone, nil
+		}
+		if down {
 			log.Warn(fmt.Sprintf("convertBoolToSemiSyncAction: MySQL is down (%v), returning SemiSyncActionNone", err))
 			return SemiSyncActionNone, nil
 		}
