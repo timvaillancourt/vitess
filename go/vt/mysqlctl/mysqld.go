@@ -344,27 +344,29 @@ func (mysqld *Mysqld) RunMysqlUpgrade(ctx context.Context) error {
 // if MySQL appears to be down. A non-nil error return indicates the MySQL
 // state could not be determined (e.g. file descriptor exhaustion, unexpected
 // socket file state).
-func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
-	ctx := context.TODO()
+func (mysqld *Mysqld) IsMySQLDown(ctx context.Context) (bool, error) {
 	conn, err := mysqld.GetDbaConnection(ctx)
 	if err == nil {
 		conn.Close()
 		return false, nil
 	}
+
 	// MySQL returns "too many connections" after accepting the connection,
 	// so getting this error proves the server is alive and listening.
 	if sqlerror.IsTooManyConnectionsErr(err) {
 		return false, nil
 	}
+
 	// File descriptor exhaustion (EMFILE/ENFILE) is a client-side problem:
 	// we ran out of fds before we could even attempt the connection, so the
 	// failure says nothing about whether MySQL is up or down.
-	// The MySQL connector wraps the underlying syscall error into a SQLError,
-	// which loses the original EMFILE/ENFILE in the chain. So we also probe
+	// Note: the MySQL connector wraps the underlying syscall error into a
+	// SQLError, losing the original errno from the error chain. We probe
 	// directly with Dup to detect fd exhaustion independently.
-	if isFileDescriptorExhausted(err) || isFileDescriptorExhaustedProbe() {
+	if isFileDescriptorExhaustedProbe() {
 		return false, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "file descriptor exhaustion detected, cannot determine MySQL state: %v", err)
 	}
+
 	// We only trust CRConnectionError (errno 2002) as a signal that MySQL
 	// is down. This is the unix socket "can't connect" error. We intentionally
 	// exclude CRConnHostError (errno 2003, TCP) because TCP failures can be
@@ -373,6 +375,7 @@ func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
 	if !errors.As(err, &sqlErr) || sqlErr.Num != sqlerror.CRConnectionError {
 		return false, nil
 	}
+
 	// Corroborate by inspecting the socket file. If the file is gone, MySQL
 	// is almost certainly dead. If something unexpected occupies the path
 	// (e.g. a regular file), we can't be sure what's going on.
@@ -385,13 +388,8 @@ func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
 			return false, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "%q exists but is not a socket file", params.UnixSocket)
 		}
 	}
-	return true, nil
-}
 
-// isFileDescriptorExhausted returns true if the error chain contains
-// syscall.EMFILE (process fd limit) or syscall.ENFILE (system fd limit).
-func isFileDescriptorExhausted(err error) bool {
-	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+	return true, nil
 }
 
 // isFileDescriptorExhaustedProbe attempts to dup a file descriptor to detect

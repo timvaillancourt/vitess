@@ -18,13 +18,10 @@ package mysqlctl
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -367,14 +364,14 @@ func TestFakeMysqlDaemonIsMySQLDown(t *testing.T) {
 
 	t.Run("MysqlDown false", func(t *testing.T) {
 		fmd.MysqlDown = false
-		down, err := fmd.IsMySQLDown()
+		down, err := fmd.IsMySQLDown(context.Background())
 		assert.NoError(t, err)
 		assert.False(t, down)
 	})
 
 	t.Run("MysqlDown true", func(t *testing.T) {
 		fmd.MysqlDown = true
-		down, err := fmd.IsMySQLDown()
+		down, err := fmd.IsMySQLDown(context.Background())
 		assert.NoError(t, err)
 		assert.True(t, down)
 	})
@@ -391,7 +388,7 @@ func TestMysqldIsMySQLDown(t *testing.T) {
 	defer mysqld.Close()
 
 	t.Run("mysql is reachable", func(t *testing.T) {
-		down, err := mysqld.IsMySQLDown()
+		down, err := mysqld.IsMySQLDown(context.Background())
 		assert.NoError(t, err)
 		assert.False(t, down)
 	})
@@ -400,7 +397,7 @@ func TestMysqldIsMySQLDown(t *testing.T) {
 		// Close the fake MySQL server to simulate MySQL being down.
 		db.Close()
 
-		down, err := mysqld.IsMySQLDown()
+		down, err := mysqld.IsMySQLDown(context.Background())
 		assert.NoError(t, err)
 		assert.True(t, down)
 	})
@@ -421,15 +418,8 @@ func TestMysqldIsMySQLDown(t *testing.T) {
 		defer tcpMysqld.Close()
 
 		// TCP connection failure (errno 2003) should not report MySQL as down.
-		down, err := tcpMysqld.IsMySQLDown()
+		down, err := tcpMysqld.IsMySQLDown(context.Background())
 		assert.NoError(t, err)
 		assert.False(t, down)
 	})
-}
-
-func TestIsFileDescriptorExhausted(t *testing.T) {
-	assert.True(t, isFileDescriptorExhausted(syscall.EMFILE))
-	assert.True(t, isFileDescriptorExhausted(syscall.ENFILE))
-	assert.True(t, isFileDescriptorExhausted(fmt.Errorf("dial unix /tmp/mysql.sock: %w", syscall.EMFILE)))
-	assert.False(t, isFileDescriptorExhausted(errors.New("some error")))
 }

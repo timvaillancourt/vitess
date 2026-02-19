@@ -234,7 +234,7 @@ func (fmd *FakeMysqlDaemon) DB() *fakesqldb.DB {
 }
 
 // IsMySQLDown is part of the MysqlDaemon interface.
-func (fmd *FakeMysqlDaemon) IsMySQLDown() (bool, error) {
+func (fmd *FakeMysqlDaemon) IsMySQLDown(_ context.Context) (bool, error) {
 	return fmd.MysqlDown, nil
 }
 

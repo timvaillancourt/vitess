@@ -206,7 +206,7 @@ type (
 	}
 
 	mysqlDaemon interface {
-		IsMySQLDown() (bool, error)
+		IsMySQLDown(ctx context.Context) (bool, error)
 	}
 )
 
@@ -523,7 +523,10 @@ func (sm *stateManager) serveNonPrimary(wantTabletType topodatapb.TabletType) er
 
 	if err := closeCtx.Err(); err != nil && sm.mysqld != nil {
 		// Close timed out. Check if MySQL is actually down (errno 2002).
-		down, checkErr := sm.mysqld.IsMySQLDown()
+		// closeCtx is already expired, so we create a fresh context for the probe.
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), sm.shutdownGracePeriod)
+		defer probeCancel()
+		down, checkErr := sm.mysqld.IsMySQLDown(probeCtx)
 		if checkErr != nil {
 			log.Warn(fmt.Sprintf("Component close timed out, cannot determine MySQL state: %v", checkErr))
 		} else if down {

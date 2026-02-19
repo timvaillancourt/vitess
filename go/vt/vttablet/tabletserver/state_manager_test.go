@@ -1006,7 +1006,7 @@ type testMysqlDaemon struct {
 	mysqlDown bool
 }
 
-func (t *testMysqlDaemon) IsMySQLDown() (bool, error) {
+func (t *testMysqlDaemon) IsMySQLDown(_ context.Context) (bool, error) {
 	return t.mysqlDown, nil
 }
 

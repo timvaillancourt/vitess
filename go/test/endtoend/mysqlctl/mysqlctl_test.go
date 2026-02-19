@@ -179,12 +179,17 @@ func TestIsMySQLDown(t *testing.T) {
 	defer mysqld.Close()
 
 	t.Run("mysql is alive", func(t *testing.T) {
-		down, err := mysqld.IsMySQLDown()
+		down, err := mysqld.IsMySQLDown(t.Context())
 		assert.NoError(t, err)
 		assert.False(t, down)
 	})
 
 	t.Run("mysql killed with SIGKILL", func(t *testing.T) {
+		// Restore MySQL after the test so subsequent tests are not affected.
+		t.Cleanup(func() {
+			require.NoError(t, replicaTablet.MysqlctlProcess.StartProvideInit(false))
+		})
+
 		pidBytes, err := os.ReadFile(pidFile)
 		require.NoError(t, err)
 
@@ -199,13 +204,10 @@ func TestIsMySQLDown(t *testing.T) {
 			return os.IsNotExist(err)
 		}, 30*time.Second, 100*time.Millisecond, "socket file %q did not disappear after SIGKILL", socketFile)
 
-		down, err := mysqld.IsMySQLDown()
+		down, err := mysqld.IsMySQLDown(t.Context())
 		assert.NoError(t, err)
 		assert.True(t, down)
 	})
-
-	// Restore MySQL so subsequent tests are not affected.
-	require.NoError(t, replicaTablet.MysqlctlProcess.StartProvideInit(false))
 
 	t.Run("fd exhaustion", func(t *testing.T) {
 		// Lower the fd limit so we can exhaust fds without opening thousands.
@@ -233,7 +235,7 @@ func TestIsMySQLDown(t *testing.T) {
 			fds = append(fds, fd)
 		}
 
-		down, err := mysqld.IsMySQLDown()
+		down, err := mysqld.IsMySQLDown(t.Context())
 		assert.Error(t, err, "expected an error indicating fd exhaustion")
 		assert.False(t, down, "should not report MySQL as down when fds are exhausted")
 	})
