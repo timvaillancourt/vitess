@@ -264,7 +264,7 @@ func TestStreamRowsUnicode(t *testing.T) {
 		in.Charset = collations.CollationLatin1Swedish
 		return in
 	})
-	defer engine.Close()
+	defer engine.Close(context.Background())
 	// We need a latin1 connection.
 	conn, err := env.Mysqld.GetDbaConnection(context.Background())
 	if err != nil {

@@ -88,17 +88,28 @@ func (tr *Tracker) Open() {
 }
 
 // Close disables the tracker functionality
-func (tr *Tracker) Close() {
+func (tr *Tracker) Close(ctx context.Context) {
 	tr.mu.Lock()
-	defer tr.mu.Unlock()
 	if tr.cancel == nil {
+		tr.mu.Unlock()
 		return
 	}
 
 	tr.cancel()
 	tr.cancel = nil
-	tr.wg.Wait()
-	log.Info("Schema Tracker: closed")
+	tr.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		tr.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		log.Info("Schema Tracker: closed")
+	case <-ctx.Done():
+		log.Warn(fmt.Sprintf("Schema Tracker: close cancelled by context: %v", ctx.Err()))
+	}
 }
 
 // Enable forces tracking to be on or off.
@@ -110,7 +121,7 @@ func (tr *Tracker) Enable(enabled bool) {
 	if enabled {
 		tr.Open()
 	} else {
-		tr.Close()
+		tr.Close(context.Background())
 	}
 }
 
@@ -170,7 +181,11 @@ func (tr *Tracker) process(ctx context.Context) {
 				restorePreviousGTID()
 			}
 			log.Warn(fmt.Sprintf("Schema Version Tracker's vstream ended (error: %v), retrying in 5 seconds...", err))
-			time.Sleep(5 * time.Second)
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }

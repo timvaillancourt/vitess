@@ -122,7 +122,7 @@ type mysqlConnector struct {
 }
 
 func (c *mysqlConnector) shutdown() {
-	c.vstreamer.Close()
+	c.vstreamer.Close(context.Background())
 	c.se.Close()
 }
 

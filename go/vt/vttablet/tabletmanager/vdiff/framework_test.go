@@ -630,7 +630,7 @@ func (tvde *testVDiffEnv) close() {
 		tstenv.SchemaEngine.Reload(context.Background())
 	}
 	tvde.tablets = nil
-	tvde.vse.Close()
+	tvde.vse.Close(context.Background())
 	tvde.vre.Close()
 	tvde.vde.Close()
 	tvde.dbClient.Close()

@@ -70,7 +70,7 @@ func TestNoBlob(t *testing.T) {
 	newEngine(t, ctx, "noblob")
 	defer func() {
 		if engine != nil {
-			engine.Close()
+			engine.Close(context.Background())
 		}
 		if env != nil {
 			env.Close()
@@ -360,7 +360,7 @@ func TestVersion(t *testing.T) {
 	engine = NewEngine(engine.env, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
 	engine.InitDBConfig(env.KeyspaceName, env.ShardName)
 	engine.Open()
-	defer engine.Close()
+	defer engine.Close(context.Background())
 
 	execStatements(t, []string{
 		"create database if not exists _vt",
@@ -1071,7 +1071,7 @@ func TestStatements(t *testing.T) {
 		in.Flavor = "FilePos"
 		return in
 	})
-	defer engine.Close()
+	defer engine.Close(context.Background())
 	ts.Run()
 }
 
@@ -1138,7 +1138,7 @@ func TestOther(t *testing.T) {
 		in.Flavor = "FilePos"
 		return in
 	})
-	defer engine.Close()
+	defer engine.Close(context.Background())
 	customRun("filePos")
 }
 
@@ -1908,7 +1908,7 @@ func TestMinimalMode(t *testing.T) {
 	newEngine(t, ctx, "minimal")
 	defer func() {
 		if engine != nil {
-			engine.Close()
+			engine.Close(context.Background())
 		}
 		if env != nil {
 			env.Close()

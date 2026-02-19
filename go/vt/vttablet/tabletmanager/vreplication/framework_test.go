@@ -146,7 +146,7 @@ func init() {
 
 func cleanup() {
 	playerEngine.Close()
-	streamerEngine.Close()
+	streamerEngine.Close(context.Background())
 	env.Close()
 	envMu.Unlock()
 }

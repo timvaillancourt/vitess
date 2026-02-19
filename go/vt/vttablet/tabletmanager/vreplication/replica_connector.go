@@ -67,7 +67,7 @@ type ReplicaConnector struct {
 }
 
 func (c *ReplicaConnector) Close() error {
-	c.vstreamer.Close()
+	c.vstreamer.Close(context.Background())
 	c.se.Close()
 	return nil
 }

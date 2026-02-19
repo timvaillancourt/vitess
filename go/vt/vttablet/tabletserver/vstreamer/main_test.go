@@ -75,7 +75,7 @@ func TestMain(m *testing.M) {
 		engine = NewEngine(env.TabletEnv, env.SrvTopo, env.SchemaEngine, nil, env.Cells[0])
 		engine.InitDBConfig(env.KeyspaceName, env.ShardName)
 		engine.Open()
-		defer engine.Close()
+		defer engine.Close(context.Background())
 
 		return m.Run()
 	}()
@@ -84,7 +84,7 @@ func TestMain(m *testing.M) {
 
 func newEngine(t *testing.T, ctx context.Context, binlogRowImage string) {
 	if engine != nil {
-		engine.Close()
+		engine.Close(context.Background())
 	}
 	if env != nil {
 		env.Close()

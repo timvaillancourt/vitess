@@ -253,7 +253,7 @@ func adjustLifecycleForFastDrops(conn capabilityConn, lifecycleStates map[schema
 }
 
 // Close frees resources
-func (collector *TableGC) Close() {
+func (collector *TableGC) Close(ctx context.Context) {
 	log.Info("TableGC - started execution of Close. Acquiring initMutex lock")
 	collector.stateMutex.Lock()
 	defer collector.stateMutex.Unlock()
