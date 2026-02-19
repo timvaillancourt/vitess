@@ -206,4 +206,35 @@ func TestIsMySQLDown(t *testing.T) {
 
 	// Restore MySQL so subsequent tests are not affected.
 	require.NoError(t, replicaTablet.MysqlctlProcess.StartProvideInit(false))
+
+	t.Run("fd exhaustion", func(t *testing.T) {
+		// Lower the fd limit so we can exhaust fds without opening thousands.
+		var original syscall.Rlimit
+		require.NoError(t, syscall.Getrlimit(syscall.RLIMIT_NOFILE, &original))
+
+		low := syscall.Rlimit{Cur: 32, Max: original.Max}
+		require.NoError(t, syscall.Setrlimit(syscall.RLIMIT_NOFILE, &low))
+		t.Cleanup(func() {
+			syscall.Setrlimit(syscall.RLIMIT_NOFILE, &original)
+		})
+
+		// Consume all remaining fds via Dup.
+		var fds []int
+		t.Cleanup(func() {
+			for _, fd := range fds {
+				syscall.Close(fd)
+			}
+		})
+		for {
+			fd, err := syscall.Dup(0)
+			if err != nil {
+				break
+			}
+			fds = append(fds, fd)
+		}
+
+		down, err := mysqld.IsMySQLDown()
+		assert.Error(t, err, "expected an error indicating fd exhaustion")
+		assert.False(t, down, "should not report MySQL as down when fds are exhausted")
+	})
 }

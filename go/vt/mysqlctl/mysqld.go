@@ -359,8 +359,11 @@ func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
 	// File descriptor exhaustion (EMFILE/ENFILE) is a client-side problem:
 	// we ran out of fds before we could even attempt the connection, so the
 	// failure says nothing about whether MySQL is up or down.
-	if isFileDescriptorExhausted(err) {
-		return false, vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "file descriptor exhaustion detected, cannot determine MySQL state: %v", err)
+	// The MySQL connector wraps the underlying syscall error into a SQLError,
+	// which loses the original EMFILE/ENFILE in the chain. So we also probe
+	// directly with Dup to detect fd exhaustion independently.
+	if isFileDescriptorExhausted(err) || isFileDescriptorExhaustedProbe() {
+		return false, vterrors.Errorf(vtrpcpb.Code_RESOURCE_EXHAUSTED, "file descriptor exhaustion detected, cannot determine MySQL state: %v", err)
 	}
 	// We only trust CRConnectionError (errno 2002) as a signal that MySQL
 	// is down. This is the unix socket "can't connect" error. We intentionally
@@ -389,6 +392,18 @@ func (mysqld *Mysqld) IsMySQLDown() (bool, error) {
 // syscall.EMFILE (process fd limit) or syscall.ENFILE (system fd limit).
 func isFileDescriptorExhausted(err error) bool {
 	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+}
+
+// isFileDescriptorExhaustedProbe attempts to dup a file descriptor to detect
+// whether the process has run out of fds. This is needed because the MySQL
+// connector wraps the underlying syscall error, losing the EMFILE/ENFILE errno.
+func isFileDescriptorExhaustedProbe() bool {
+	fd, err := syscall.Dup(0)
+	if err != nil {
+		return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+	}
+	syscall.Close(fd)
+	return false
 }
 
 // Start will start the mysql daemon, either by running the
