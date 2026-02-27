@@ -116,6 +116,10 @@ type MysqlDaemon interface {
 	// GetFilteredConnection returns an filtered connection for use primarily in VReplication.
 	GetFilteredConnection(ctx context.Context) (*dbconnpool.DBConnection, error)
 
+	// CollectFullStatusData collects all MySQL status data needed for FullStatus
+	// using a single shared connection.
+	CollectFullStatusData(ctx context.Context) (*FullStatusData, error)
+
 	// GetVersionString returns the database version as a string
 	GetVersionString(ctx context.Context) (string, error)
 

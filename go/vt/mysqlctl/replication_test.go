@@ -744,6 +744,285 @@ func TestSemiSyncReplicationStatus(t *testing.T) {
 	assert.False(t, res)
 }
 
+func TestServerInfoGet(t *testing.T) {
+	si := &serverInfo{
+		vars: map[string]string{
+			"server_id":                     "42",
+			"server_uuid":                   "test-uuid-1234",
+			"version":                       "8.0.35",
+			"version_comment":               "MySQL Community Server - GPL",
+			"read_only":                     "ON",
+			"super_read_only":               "OFF",
+			"gtid_mode":                     "ON",
+			"binlog_format":                 "ROW",
+			"log_bin":                       "ON",
+			"log_replica_updates":           "ON",
+			"binlog_row_image":              "FULL",
+			"replica_net_timeout":           "30",
+			"rpl_semi_sync_source_enabled":  "ON",
+			"rpl_semi_sync_replica_enabled": "OFF",
+			"rpl_semi_sync_source_timeout":  "10000",
+			"rpl_semi_sync_source_wait_for_replica_count": "2",
+		},
+	}
+
+	// get: first match wins
+	assert.Equal(t, "42", si.get("server_id"))
+	assert.Equal(t, "30", si.get("replica_net_timeout", "slave_net_timeout"))
+	assert.Equal(t, "", si.get("nonexistent"))
+
+	// typed accessors
+	id, err := si.serverID()
+	assert.NoError(t, err)
+	assert.Equal(t, uint32(42), id)
+
+	assert.Equal(t, "test-uuid-1234", si.serverUUID())
+	assert.Equal(t, "Ver 8.0.35 MySQL Community Server - GPL", si.versionString())
+	assert.Equal(t, "MySQL Community Server - GPL", si.versionComment())
+	assert.True(t, si.readOnly())
+	assert.False(t, si.superReadOnly())
+	assert.Equal(t, "ON", si.gtidMode())
+	assert.Equal(t, "ROW", si.binlogFormat())
+	assert.True(t, si.logBin())
+	assert.True(t, si.logReplicaUpdates())
+	assert.Equal(t, "FULL", si.binlogRowImage())
+	assert.Equal(t, int32(30), si.replicaNetTimeout())
+	assert.True(t, si.semiSyncPrimaryEnabled())
+	assert.False(t, si.semiSyncReplicaEnabled())
+	assert.Equal(t, uint64(10000), si.semiSyncTimeout())
+	assert.Equal(t, uint32(2), si.semiSyncWaitForReplicaCount())
+}
+
+func TestServerInfoLegacyVarNames(t *testing.T) {
+	// Test with legacy (master/slave) variable names
+	si := &serverInfo{
+		vars: map[string]string{
+			"server_id":                                 "1",
+			"slave_net_timeout":                         "60",
+			"log_slave_updates":                         "ON",
+			"rpl_semi_sync_master_enabled":              "ON",
+			"rpl_semi_sync_slave_enabled":               "ON",
+			"rpl_semi_sync_master_timeout":              "5000",
+			"rpl_semi_sync_master_wait_for_slave_count": "1",
+		},
+	}
+
+	assert.Equal(t, int32(60), si.replicaNetTimeout())
+	assert.True(t, si.logReplicaUpdates())
+	assert.True(t, si.semiSyncPrimaryEnabled())
+	assert.True(t, si.semiSyncReplicaEnabled())
+	assert.Equal(t, uint64(5000), si.semiSyncTimeout())
+	assert.Equal(t, uint32(1), si.semiSyncWaitForReplicaCount())
+}
+
+func TestServerInfoEmptyServerID(t *testing.T) {
+	si := &serverInfo{vars: map[string]string{}}
+	_, err := si.serverID()
+	assert.ErrorContains(t, err, "no server_id in mysql")
+}
+
+func TestSemiSyncStatusInfoHelpers(t *testing.T) {
+	ss := &semiSyncStatusInfo{
+		vars: map[string]string{
+			"Rpl_semi_sync_source_status":  "ON",
+			"Rpl_semi_sync_replica_status": "OFF",
+			"Rpl_semi_sync_source_clients": "3",
+		},
+	}
+
+	assert.True(t, ss.primaryStatus())
+	assert.False(t, ss.replicaStatus())
+	assert.Equal(t, uint32(3), ss.clients())
+}
+
+func TestSemiSyncStatusInfoLegacyVarNames(t *testing.T) {
+	ss := &semiSyncStatusInfo{
+		vars: map[string]string{
+			"Rpl_semi_sync_master_status":  "OFF",
+			"Rpl_semi_sync_slave_status":   "ON",
+			"Rpl_semi_sync_master_clients": "5",
+		},
+	}
+
+	assert.False(t, ss.primaryStatus())
+	assert.True(t, ss.replicaStatus())
+	assert.Equal(t, uint32(5), ss.clients())
+}
+
+func TestGetServerInfo(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+
+	params := db.ConnParams()
+	cp := *params
+	dbc := dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
+
+	db.AddQuery("SELECT 1", &sqltypes.Result{})
+	db.AddQueryPattern(
+		"SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN .*",
+		sqltypes.MakeTestResult(
+			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
+			"server_id|42",
+			"server_uuid|test-uuid",
+			"version|8.0.35",
+			"version_comment|MySQL Community Server",
+			"read_only|ON",
+			"super_read_only|OFF",
+		),
+	)
+
+	testMysqld := NewMysqld(dbc)
+	defer testMysqld.Close()
+
+	ctx := context.Background()
+	conn, err := getPoolReconnect(ctx, testMysqld.dbaPool)
+	require.NoError(t, err)
+	defer conn.Recycle()
+
+	si, err := testMysqld.getServerInfo(ctx, conn)
+	require.NoError(t, err)
+	assert.Equal(t, "42", si.vars["server_id"])
+	assert.Equal(t, "test-uuid", si.vars["server_uuid"])
+	assert.Equal(t, "ON", si.vars["read_only"])
+}
+
+func TestGetSemiSyncStatusInfo(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+
+	params := db.ConnParams()
+	cp := *params
+	dbc := dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
+
+	db.AddQuery("SELECT 1", &sqltypes.Result{})
+	db.AddQueryPattern(
+		"SELECT variable_name, variable_value FROM performance_schema.global_status WHERE variable_name IN .*",
+		sqltypes.MakeTestResult(
+			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
+			"Rpl_semi_sync_source_status|ON",
+			"Rpl_semi_sync_replica_status|OFF",
+			"Rpl_semi_sync_source_clients|7",
+		),
+	)
+
+	testMysqld := NewMysqld(dbc)
+	defer testMysqld.Close()
+
+	ctx := context.Background()
+	conn, err := getPoolReconnect(ctx, testMysqld.dbaPool)
+	require.NoError(t, err)
+	defer conn.Recycle()
+
+	ss, err := testMysqld.getSemiSyncStatusInfo(ctx, conn)
+	require.NoError(t, err)
+	assert.True(t, ss.primaryStatus())
+	assert.False(t, ss.replicaStatus())
+	assert.Equal(t, uint32(7), ss.clients())
+}
+
+func TestCollectFullStatusData(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+
+	params := db.ConnParams()
+	cp := *params
+	dbc := dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
+
+	db.AddQuery("SELECT 1", &sqltypes.Result{})
+
+	// serverInfo query
+	db.AddQueryPattern(
+		"SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN .*",
+		sqltypes.MakeTestResult(
+			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
+			"server_id|42",
+			"server_uuid|test-uuid-1234",
+			"version|8.0.35",
+			"version_comment|MySQL Community Server - GPL",
+			"read_only|ON",
+			"super_read_only|ON",
+			"gtid_mode|ON",
+			"binlog_format|ROW",
+			"log_bin|ON",
+			"log_replica_updates|ON",
+			"binlog_row_image|FULL",
+			"replica_net_timeout|30",
+			"rpl_semi_sync_source_enabled|ON",
+			"rpl_semi_sync_replica_enabled|OFF",
+			"rpl_semi_sync_source_timeout|10000",
+			"rpl_semi_sync_source_wait_for_replica_count|2",
+		),
+	)
+
+	// semiSyncStatusInfo query
+	db.AddQueryPattern(
+		"SELECT variable_name, variable_value FROM performance_schema.global_status WHERE variable_name IN .*",
+		sqltypes.MakeTestResult(
+			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
+			"Rpl_semi_sync_source_status|ON",
+			"Rpl_semi_sync_replica_status|OFF",
+			"Rpl_semi_sync_source_clients|3",
+		),
+	)
+
+	// Replication status - empty means not a replica
+	db.AddQuery("SHOW REPLICA STATUS", &sqltypes.Result{})
+
+	// Primary status
+	db.AddQuery("SHOW BINARY LOG STATUS", sqltypes.MakeTestResult(
+		sqltypes.MakeTestFields("File|Position|Binlog_Do_DB|Binlog_Ignore_DB|Executed_Gtid_Set", "varchar|int64|varchar|varchar|varchar"),
+		"binlog.000001|154|||8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-8",
+	))
+
+	// GTID purged
+	db.AddQuery("SELECT @@global.gtid_purged", sqltypes.MakeTestResult(
+		sqltypes.MakeTestFields("@@global.gtid_purged", "varchar"),
+		"8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-5",
+	))
+
+	// Replication configuration - not a replica
+	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", &sqltypes.Result{})
+
+	testMysqld := NewMysqld(dbc)
+	defer testMysqld.Close()
+
+	ctx := context.Background()
+	data, err := testMysqld.CollectFullStatusData(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint32(42), data.ServerID)
+	assert.Equal(t, "test-uuid-1234", data.ServerUUID)
+	assert.Equal(t, "Ver 8.0.35 MySQL Community Server - GPL", data.Version)
+	assert.Equal(t, "MySQL Community Server - GPL", data.VersionComment)
+	assert.True(t, data.ReadOnly)
+	assert.True(t, data.SuperReadOnly)
+	assert.Equal(t, "ON", data.GtidMode)
+	assert.Equal(t, "ROW", data.BinlogFormat)
+	assert.Equal(t, "FULL", data.BinlogRowImage)
+	assert.True(t, data.LogBinEnabled)
+	assert.True(t, data.LogReplicaUpdates)
+	assert.True(t, data.SemiSyncPrimaryEnabled)
+	assert.False(t, data.SemiSyncReplicaEnabled)
+	assert.Equal(t, uint64(10000), data.SemiSyncPrimaryTimeout)
+	assert.Equal(t, uint32(2), data.SemiSyncWaitForReplicaCount)
+	assert.True(t, data.SemiSyncPrimaryStatus)
+	assert.False(t, data.SemiSyncReplicaStatus)
+	assert.Equal(t, uint32(3), data.SemiSyncPrimaryClients)
+
+	// Not a replica
+	assert.Nil(t, data.ReplicationStatus)
+
+	// Primary status should be populated
+	assert.NotNil(t, data.PrimaryStatus)
+	assert.Equal(t, "test-uuid-1234", data.PrimaryStatus.ServerUUID)
+
+	// GTID purged
+	assert.Equal(t, "8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-5", data.GtidPurged.String())
+
+	// Replication configuration nil (not a replica)
+	assert.Nil(t, data.ReplicationConfiguration)
+}
+
 func TestSemiSyncExtensionLoaded(t *testing.T) {
 	db := fakesqldb.New(t)
 	defer db.Close()

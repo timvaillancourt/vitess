@@ -436,6 +436,16 @@ func (c *Conn) ReplicationConfiguration() (*replicationdata.Configuration, error
 	return replConfiguration, err
 }
 
+// ShowReplicationConfiguration reads just the replication connection configuration
+// from performance_schema, without querying replicationNetTimeout.
+func (c *Conn) ShowReplicationConfiguration() (*replicationdata.Configuration, error) {
+	replConfiguration, err := c.flavor.replicationConfiguration(c)
+	if err == ErrNotReplica {
+		return nil, nil
+	}
+	return replConfiguration, err
+}
+
 // WaitUntilPosition waits until the given position is reached or until the
 // context expires. It returns an error if we did not succeed.
 func (c *Conn) WaitUntilPosition(ctx context.Context, pos replication.Position) error {

@@ -33,6 +33,7 @@ import (
 	"vitess.io/vitess/go/mysql/replication"
 	"vitess.io/vitess/go/netutil"
 	"vitess.io/vitess/go/sqltypes"
+	"vitess.io/vitess/go/vt/dbconnpool"
 	"vitess.io/vitess/go/vt/hook"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/proto/replicationdata"
@@ -845,4 +846,365 @@ func (mysqld *Mysqld) IsSemiSyncBlocked(ctx context.Context) (bool, error) {
 	}
 	value, err := res.Rows[0][0].ToCastInt64()
 	return value != 0, err
+}
+
+// serverInfoVars is the list of MySQL global variables queried by serverInfo().
+var serverInfoVars = []string{
+	"server_id",
+	"server_uuid",
+	"version",
+	"version_comment",
+	"read_only",
+	"super_read_only",
+	"gtid_mode",
+	"binlog_format",
+	"log_bin",
+	"log_replica_updates",
+	"log_slave_updates",
+	"binlog_row_image",
+	"replica_net_timeout",
+	"slave_net_timeout",
+	"rpl_semi_sync_source_enabled",
+	"rpl_semi_sync_replica_enabled",
+	"rpl_semi_sync_master_enabled",
+	"rpl_semi_sync_slave_enabled",
+	"rpl_semi_sync_source_timeout",
+	"rpl_semi_sync_master_timeout",
+	"rpl_semi_sync_source_wait_for_replica_count",
+	"rpl_semi_sync_master_wait_for_slave_count",
+}
+
+// serverInfo holds MySQL global variable values loaded from performance_schema.global_variables.
+type serverInfo struct {
+	vars map[string]string
+}
+
+// get returns the value for the first variable name found.
+// This handles flavor differences (e.g., replica_net_timeout vs slave_net_timeout).
+func (si *serverInfo) get(names ...string) string {
+	for _, name := range names {
+		if v, ok := si.vars[name]; ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func (si *serverInfo) serverID() (uint32, error) {
+	v := si.get("server_id")
+	if v == "" {
+		return 0, errors.New("no server_id in mysql")
+	}
+	id, err := strconv.ParseUint(v, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(id), nil
+}
+
+func (si *serverInfo) serverUUID() string {
+	return si.get("server_uuid")
+}
+
+func (si *serverInfo) versionString() string {
+	return fmt.Sprintf("Ver %s %s", si.get("version"), si.get("version_comment"))
+}
+
+func (si *serverInfo) versionComment() string {
+	return si.get("version_comment")
+}
+
+func (si *serverInfo) readOnly() bool {
+	v := si.get("read_only")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) superReadOnly() bool {
+	v := si.get("super_read_only")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) gtidMode() string {
+	return si.get("gtid_mode")
+}
+
+func (si *serverInfo) binlogFormat() string {
+	return si.get("binlog_format")
+}
+
+func (si *serverInfo) logBin() bool {
+	v := si.get("log_bin")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) logReplicaUpdates() bool {
+	v := si.get("log_replica_updates", "log_slave_updates")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) binlogRowImage() string {
+	return si.get("binlog_row_image")
+}
+
+func (si *serverInfo) replicaNetTimeout() int32 {
+	v := si.get("replica_net_timeout", "slave_net_timeout")
+	timeout, _ := strconv.ParseInt(v, 10, 32)
+	return int32(timeout)
+}
+
+func (si *serverInfo) semiSyncPrimaryEnabled() bool {
+	v := si.get("rpl_semi_sync_source_enabled", "rpl_semi_sync_master_enabled")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) semiSyncReplicaEnabled() bool {
+	v := si.get("rpl_semi_sync_replica_enabled", "rpl_semi_sync_slave_enabled")
+	return v == "ON" || v == "1"
+}
+
+func (si *serverInfo) semiSyncTimeout() uint64 {
+	v := si.get("rpl_semi_sync_source_timeout", "rpl_semi_sync_master_timeout")
+	timeout, _ := strconv.ParseUint(v, 10, 64)
+	return timeout
+}
+
+func (si *serverInfo) semiSyncWaitForReplicaCount() uint32 {
+	v := si.get("rpl_semi_sync_source_wait_for_replica_count", "rpl_semi_sync_master_wait_for_slave_count")
+	count, _ := strconv.ParseUint(v, 10, 32)
+	return uint32(count)
+}
+
+// getServerInfo queries performance_schema.global_variables for all variables needed
+// by CollectFullStatusData, using the provided connection.
+func (mysqld *Mysqld) getServerInfo(ctx context.Context, conn *dbconnpool.PooledDBConnection) (*serverInfo, error) {
+	bv, err := sqltypes.BuildBindVariable(serverInfoVars)
+	if err != nil {
+		return nil, err
+	}
+	query, err := sqlparser.ParseAndBind(
+		"SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN %a",
+		bv,
+	)
+	if err != nil {
+		return nil, err
+	}
+	qr, err := mysqld.executeFetchContext(ctx, conn, query, len(serverInfoVars), false)
+	if err != nil {
+		return nil, err
+	}
+	vars := make(map[string]string, len(qr.Rows))
+	for _, row := range qr.Rows {
+		if len(row) != 2 {
+			return nil, vterrors.New(vtrpcpb.Code_INTERNAL, "incorrect number of fields in the row")
+		}
+		vars[row[0].ToString()] = row[1].ToString()
+	}
+	return &serverInfo{vars: vars}, nil
+}
+
+// semiSyncStatusVars is the list of MySQL global status variables queried by getSemiSyncStatusInfo().
+var semiSyncStatusVars = []string{
+	"Rpl_semi_sync_source_status",
+	"Rpl_semi_sync_replica_status",
+	"Rpl_semi_sync_master_status",
+	"Rpl_semi_sync_slave_status",
+	"Rpl_semi_sync_source_clients",
+	"Rpl_semi_sync_master_clients",
+}
+
+// semiSyncStatusInfo holds MySQL global status values for semi-sync replication.
+type semiSyncStatusInfo struct {
+	vars map[string]string
+}
+
+// get returns the value for the first status variable name found.
+func (ss *semiSyncStatusInfo) get(names ...string) string {
+	for _, name := range names {
+		if v, ok := ss.vars[name]; ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func (ss *semiSyncStatusInfo) primaryStatus() bool {
+	v := ss.get("Rpl_semi_sync_source_status", "Rpl_semi_sync_master_status")
+	return v == "ON"
+}
+
+func (ss *semiSyncStatusInfo) replicaStatus() bool {
+	v := ss.get("Rpl_semi_sync_replica_status", "Rpl_semi_sync_slave_status")
+	return v == "ON"
+}
+
+func (ss *semiSyncStatusInfo) clients() uint32 {
+	v := ss.get("Rpl_semi_sync_source_clients", "Rpl_semi_sync_master_clients")
+	count, _ := strconv.ParseUint(v, 10, 32)
+	return uint32(count)
+}
+
+// getSemiSyncStatusInfo queries performance_schema.global_status for semi-sync status variables,
+// using the provided connection.
+func (mysqld *Mysqld) getSemiSyncStatusInfo(ctx context.Context, conn *dbconnpool.PooledDBConnection) (*semiSyncStatusInfo, error) {
+	bv, err := sqltypes.BuildBindVariable(semiSyncStatusVars)
+	if err != nil {
+		return nil, err
+	}
+	query, err := sqlparser.ParseAndBind(
+		getGlobalStatusQuery+" WHERE variable_name IN %a",
+		bv,
+	)
+	if err != nil {
+		return nil, err
+	}
+	qr, err := mysqld.executeFetchContext(ctx, conn, query, len(semiSyncStatusVars), false)
+	if err != nil {
+		return nil, err
+	}
+	vars := make(map[string]string, len(qr.Rows))
+	for _, row := range qr.Rows {
+		if len(row) != 2 {
+			return nil, vterrors.New(vtrpcpb.Code_INTERNAL, "incorrect number of fields in the row")
+		}
+		vars[row[0].ToString()] = row[1].ToString()
+	}
+	return &semiSyncStatusInfo{vars: vars}, nil
+}
+
+// replicationStatusWithConn gets replication status using an existing connection.
+func (mysqld *Mysqld) replicationStatusWithConn(conn *dbconnpool.PooledDBConnection) (replication.ReplicationStatus, error) {
+	return conn.Conn.ShowReplicationStatus()
+}
+
+// primaryStatusWithConn gets primary status using an existing connection.
+// serverUUID is passed in to avoid an extra SELECT @@global.server_uuid query.
+func (mysqld *Mysqld) primaryStatusWithConn(conn *dbconnpool.PooledDBConnection, serverUUID string) (replication.PrimaryStatus, error) {
+	status, err := conn.Conn.ShowPrimaryStatus()
+	if err != nil {
+		return replication.PrimaryStatus{}, err
+	}
+	status.ServerUUID = serverUUID
+	return status, nil
+}
+
+// replicationConfigurationWithConn gets replication configuration using an existing connection.
+// replicaNetTimeout is passed in to avoid an extra query.
+func (mysqld *Mysqld) replicationConfigurationWithConn(conn *dbconnpool.PooledDBConnection, replicaNetTimeout int32) (*replicationdata.Configuration, error) {
+	config, err := conn.Conn.ShowReplicationConfiguration()
+	if err != nil {
+		return nil, err
+	}
+	if config != nil {
+		config.ReplicaNetTimeout = replicaNetTimeout
+	}
+	return config, nil
+}
+
+// gtidPurgedWithConn gets the GTID purged position using an existing connection.
+func (mysqld *Mysqld) gtidPurgedWithConn(conn *dbconnpool.PooledDBConnection) (replication.Position, error) {
+	return conn.Conn.GetGTIDPurged()
+}
+
+// FullStatusData holds all the data collected by CollectFullStatusData.
+type FullStatusData struct {
+	ServerID                    uint32
+	ServerUUID                  string
+	ReplicationStatus           *replication.ReplicationStatus
+	PrimaryStatus               *replication.PrimaryStatus
+	GtidPurged                  replication.Position
+	Version                     string
+	VersionComment              string
+	ReadOnly                    bool
+	SuperReadOnly               bool
+	GtidMode                    string
+	BinlogFormat                string
+	BinlogRowImage              string
+	LogBinEnabled               bool
+	LogReplicaUpdates           bool
+	SemiSyncPrimaryEnabled      bool
+	SemiSyncReplicaEnabled      bool
+	SemiSyncPrimaryStatus       bool
+	SemiSyncReplicaStatus       bool
+	SemiSyncPrimaryClients      uint32
+	SemiSyncPrimaryTimeout      uint64
+	SemiSyncWaitForReplicaCount uint32
+	ReplicationConfiguration    *replicationdata.Configuration
+}
+
+// CollectFullStatusData collects all MySQL status data needed for FullStatus using
+// a single shared connection, reducing the number of queries and connections.
+func (mysqld *Mysqld) CollectFullStatusData(ctx context.Context) (*FullStatusData, error) {
+	conn, err := getPoolReconnect(ctx, mysqld.dbaPool)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Recycle()
+
+	si, err := mysqld.getServerInfo(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+
+	ssStatus, err := mysqld.getSemiSyncStatusInfo(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+
+	serverID, err := si.serverID()
+	if err != nil {
+		return nil, err
+	}
+
+	data := &FullStatusData{
+		ServerID:                    serverID,
+		ServerUUID:                  si.serverUUID(),
+		Version:                     si.versionString(),
+		VersionComment:              si.versionComment(),
+		ReadOnly:                    si.readOnly(),
+		SuperReadOnly:               si.superReadOnly(),
+		GtidMode:                    si.gtidMode(),
+		BinlogFormat:                si.binlogFormat(),
+		BinlogRowImage:              si.binlogRowImage(),
+		LogBinEnabled:               si.logBin(),
+		LogReplicaUpdates:           si.logReplicaUpdates(),
+		SemiSyncPrimaryEnabled:      si.semiSyncPrimaryEnabled(),
+		SemiSyncReplicaEnabled:      si.semiSyncReplicaEnabled(),
+		SemiSyncPrimaryTimeout:      si.semiSyncTimeout(),
+		SemiSyncWaitForReplicaCount: si.semiSyncWaitForReplicaCount(),
+		SemiSyncPrimaryStatus:       ssStatus.primaryStatus(),
+		SemiSyncReplicaStatus:       ssStatus.replicaStatus(),
+		SemiSyncPrimaryClients:      ssStatus.clients(),
+	}
+
+	// Replication status
+	replStatus, err := mysqld.replicationStatusWithConn(conn)
+	if err != nil && err != mysql.ErrNotReplica {
+		return nil, err
+	}
+	if err == nil {
+		data.ReplicationStatus = &replStatus
+	}
+
+	// Primary status
+	primaryStatus, err := mysqld.primaryStatusWithConn(conn, si.serverUUID())
+	if err != nil && err != mysql.ErrNoPrimaryStatus {
+		return nil, err
+	}
+	if err == nil {
+		data.PrimaryStatus = &primaryStatus
+	}
+
+	// GTID purged
+	data.GtidPurged, err = mysqld.gtidPurgedWithConn(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Replication configuration
+	data.ReplicationConfiguration, err = mysqld.replicationConfigurationWithConn(conn, si.replicaNetTimeout())
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }

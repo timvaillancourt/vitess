@@ -790,6 +790,55 @@ func (fmd *FakeMysqlDaemon) IsSemiSyncBlocked(ctx context.Context) (bool, error)
 	return false, nil
 }
 
+// CollectFullStatusData is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) CollectFullStatusData(ctx context.Context) (*FullStatusData, error) {
+	serverUUID, _ := fmd.GetServerUUID(ctx)
+
+	data := &FullStatusData{
+		ServerID:                    1,
+		ServerUUID:                  serverUUID,
+		Version:                     fmt.Sprintf("Ver %s", fmd.Version),
+		ReadOnly:                    fmd.ReadOnly,
+		SuperReadOnly:               fmd.SuperReadOnly.Load(),
+		SemiSyncPrimaryEnabled:      fmd.SemiSyncPrimaryEnabled,
+		SemiSyncReplicaEnabled:      fmd.SemiSyncReplicaEnabled,
+		GtidMode:                    "ON",
+		BinlogFormat:                "ROW",
+		BinlogRowImage:              "FULL",
+		LogBinEnabled:               true,
+		LogReplicaUpdates:           true,
+		SemiSyncPrimaryTimeout:      10000000,
+		SemiSyncWaitForReplicaCount: 1,
+	}
+
+	// Replication status
+	replStatus, err := fmd.ReplicationStatus(ctx)
+	if err == nil {
+		data.ReplicationStatus = &replStatus
+	}
+
+	// Primary status
+	fmd.mu.Lock()
+	if fmd.PrimaryStatusError == nil {
+		ps := replication.PrimaryStatus{
+			Position:     fmd.CurrentPrimaryPosition,
+			FilePosition: fmd.CurrentSourceFilePosition,
+			ServerUUID:   serverUUID,
+		}
+		data.PrimaryStatus = &ps
+	}
+	fmd.mu.Unlock()
+
+	// Semi-sync status
+	if fmd.SemiSyncPrimaryEnabled {
+		data.SemiSyncPrimaryStatus = true
+	} else {
+		data.SemiSyncReplicaStatus = fmd.SemiSyncReplicaEnabled
+	}
+
+	return data, nil
+}
+
 // GetVersionString is part of the MysqlDaemon interface.
 func (fmd *FakeMysqlDaemon) GetVersionString(ctx context.Context) (string, error) {
 	return fmd.Version, nil
