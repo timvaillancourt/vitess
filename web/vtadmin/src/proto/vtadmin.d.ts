@@ -50885,6 +50885,9 @@ export namespace replicationdata {
 
         /** FullStatus tablet_type */
         tablet_type?: (topodata.TabletType|null);
+
+        /** FullStatus mysql_up */
+        mysql_up?: (boolean|null);
     }
 
     /** Represents a FullStatus. */
@@ -50970,6 +50973,9 @@ export namespace replicationdata {
 
         /** FullStatus tablet_type. */
         public tablet_type: topodata.TabletType;
+
+        /** FullStatus mysql_up. */
+        public mysql_up: boolean;
 
         /**
          * Creates a new FullStatus instance using the specified properties.
