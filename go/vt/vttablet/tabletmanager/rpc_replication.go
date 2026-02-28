@@ -187,7 +187,8 @@ func (tm *TabletManager) FullStatus(ctx context.Context) (*replicationdatapb.Ful
 		SemiSyncPrimaryClients:      semiSyncClients,
 		SemiSyncPrimaryTimeout:      semiSyncTimeout,
 		SemiSyncWaitForReplicaCount: semiSyncNumReplicas,
-		SemiSyncBlocked:             tm.SemiSyncMonitor.AllWritesBlocked(),
+		SemiSyncBlocked:             tm.MySQLMonitor.AllWritesBlocked(),
+		MysqlUp:                     tm.MySQLMonitor.MySQLAlive().Value,
 		SuperReadOnly:               superReadOnly,
 		ReplicationConfiguration:    replConfiguration,
 		TabletType:                  tm.Tablet().Type,
@@ -676,7 +677,7 @@ func (tm *TabletManager) demotePrimary(ctx context.Context, revertPartialFailure
 		// all semi-sync enabled replicas.
 		//
 		// If we can't unblock within the context timeout, the `PlannedReparentShard` operation will fail.
-		err = tm.SemiSyncMonitor.WaitUntilSemiSyncUnblocked(ctx)
+		err = tm.MySQLMonitor.WaitUntilSemiSyncUnblocked(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -1157,13 +1158,13 @@ func (tm *TabletManager) fixSemiSync(ctx context.Context, tabletType topodatapb.
 	case SemiSyncActionNone:
 		return nil
 	case SemiSyncActionSet:
-		if tm.SemiSyncMonitor != nil {
+		if tm.MySQLMonitor != nil {
 			// We want to enable the semi-sync monitor only if the tablet is going to start
 			// expecting semi-sync ACKs.
 			if tabletType == topodatapb.TabletType_PRIMARY {
-				tm.SemiSyncMonitor.Open()
+				tm.MySQLMonitor.Open()
 			} else {
-				tm.SemiSyncMonitor.Close()
+				tm.MySQLMonitor.Close()
 			}
 		}
 		// Always enable replica-side since it doesn't hurt to keep it on for a primary.
@@ -1172,8 +1173,8 @@ func (tm *TabletManager) fixSemiSync(ctx context.Context, tabletType topodatapb.
 	case SemiSyncActionUnset:
 		// The nil check is required for vtcombo, which doesn't run the semi-sync monitor
 		// but does try to turn off semi-sync.
-		if tm.SemiSyncMonitor != nil {
-			tm.SemiSyncMonitor.Close()
+		if tm.MySQLMonitor != nil {
+			tm.MySQLMonitor.Close()
 		}
 		return tm.MysqlDaemon.SetSemiSyncEnabled(ctx, false, false)
 	default:

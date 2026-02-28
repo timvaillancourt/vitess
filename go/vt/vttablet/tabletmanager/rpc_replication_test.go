@@ -30,7 +30,7 @@ import (
 	"vitess.io/vitess/go/vt/mysqlctl"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
-	"vitess.io/vitess/go/vt/vttablet/tabletmanager/semisyncmonitor"
+	"vitess.io/vitess/go/vt/vttablet/tabletmanager/mysqlmonitor"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
@@ -94,7 +94,7 @@ func TestDemotePrimaryStalled(t *testing.T) {
 			},
 		},
 		QueryServiceControl: qsc,
-		SemiSyncMonitor:     semisyncmonitor.CreateTestSemiSyncMonitor(fakeDb.DB(), exporter),
+		MySQLMonitor:        mysqlmonitor.CreateTestMySQLMonitor(fakeDb.DB(), exporter),
 	}
 
 	go func() {
@@ -129,7 +129,7 @@ func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
 	fakeDb := fakeMysqlDaemon.DB()
 	fakeDb.SetNeverFail(true)
 
-	tm.SemiSyncMonitor.Open()
+	tm.MySQLMonitor.Open()
 	// Add a universal insert query pattern that would block until we make it unblock.
 	// ExecuteFetchMulti will execute each statement separately, so we need to add SET query.
 	fakeDb.AddQueryPattern("SET SESSION lock_wait_timeout=.*", &sqltypes.Result{})
@@ -194,7 +194,7 @@ func TestDemotePrimaryWithSemiSyncProgressDetection(t *testing.T) {
 	fakeDb := fakeMysqlDaemon.DB()
 	fakeDb.SetNeverFail(true)
 
-	tm.SemiSyncMonitor.Open()
+	tm.MySQLMonitor.Open()
 
 	// Set up the query to show waiting sessions, but with progress (ackedTrxs increasing).
 	// The monitor makes TWO calls to getSemiSyncStats with a sleep between them.
@@ -254,7 +254,7 @@ func TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks(t *testing.T) {
 	fakeDb := fakeMysqlDaemon.DB()
 	fakeDb.SetNeverFail(true)
 
-	tm.SemiSyncMonitor.Open()
+	tm.MySQLMonitor.Open()
 
 	// Set up the query to show waiting sessions on first call, but 0 on second call.
 	// This simulates the semi-sync becoming unblocked between the two checks.

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package semisyncmonitor
+package mysqlmonitor
 
 import (
 	"context"
@@ -56,59 +56,89 @@ const (
 	semiSyncHeartbeatClear = "TRUNCATE TABLE %s.semisync_heartbeat"
 	maxWritesPermitted     = 15
 	clearTimerDuration     = 24 * time.Hour
+
+	mysqlAliveQuery      = "SELECT 1"
+	semiSyncEnabledQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ variable_value FROM performance_schema.global_variables WHERE variable_name IN ('rpl_semi_sync_source_enabled', 'rpl_semi_sync_master_enabled') LIMIT 1"
+	semiSyncRunningQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ variable_value FROM performance_schema.global_status WHERE variable_name IN ('Rpl_semi_sync_source_status', 'Rpl_semi_sync_master_status') LIMIT 1"
 )
 
-type semiSyncStats struct {
-	waitingSessions, ackedTrxs int64
+// TimestampedBool is a boolean value with the time it was last recorded.
+type TimestampedBool struct {
+	Value      bool
+	RecordedAt time.Time
 }
 
-// Monitor is a monitor that checks if the primary tablet
-// is blocked on a semi-sync ack from the replica.
-// If the semi-sync ACK is lost in the network,
-// it is possible that the primary is indefinitely stuck,
-// blocking PRS. The monitor looks for this situation and manufactures a write
-// periodically to unblock the primary.
-type Monitor struct {
-	// config is used to get the connection parameters.
-	config *tabletenv.TabletConfig
-	// ticks is the ticker on which we'll check
-	// if the primary is blocked on semi-sync ACKs or not.
-	ticks *timer.Timer
-	// clearTicks is the ticker to clear the data in
-	// the semisync_heartbeat table.
-	clearTicks *timer.Timer
+type (
+	semiSyncStats struct {
+		waitingSessions, ackedTrxs int64
+	}
 
-	// timerMu protects operations on the timers to prevent deadlocks
-	// This must be acquired before mu if both are needed.
-	timerMu sync.Mutex
+	// Monitor is a monitor that checks MySQL health and whether the primary tablet
+	// is blocked on a semi-sync ack from the replica.
+	// If the semi-sync ACK is lost in the network,
+	// it is possible that the primary is indefinitely stuck,
+	// blocking PRS. The monitor looks for this situation and manufactures a write
+	// periodically to unblock the primary.
+	Monitor struct {
+		// config is used to get the connection parameters.
+		config *tabletenv.TabletConfig
+		// ticks is the ticker on which we'll check
+		// if the primary is blocked on semi-sync ACKs or not.
+		ticks *timer.Timer
+		// clearTicks is the ticker to clear the data in
+		// the semisync_heartbeat table.
+		clearTicks *timer.Timer
 
-	// mu protects the fields below.
-	mu      sync.Mutex
-	appPool *dbconnpool.ConnectionPool
-	isOpen  bool
-	// isWriting stores if the monitor is currently writing to the DB.
-	// We don't want two different threads initiating writes, so we use this
-	// for synchronization.
-	isWriting atomic.Bool
-	// inProgressWriteCount is the number of writes currently in progress.
-	// The writes from the monitor themselves might get blocked and hence a count for them is required.
-	// After enough writes are blocked, we want to notify VTOrc to run an ERS.
-	inProgressWriteCount int
-	// isBlocked stores if the primary is blocked on semi-sync ack.
-	isBlocked bool
-	// waiters stores the list of waiters that are waiting for the primary to be unblocked.
-	waiters []chan struct{}
-	// writesBlockedGauge is a gauge tracking the number of writes the monitor is blocked on.
-	writesBlockedGauge *stats.Gauge
-	// errorCount is the number of errors that the semi-sync monitor ran into.
-	// We ignore some of the errors, so the counter is a good way to track how many errors we have seen.
-	errorCount *stats.Counter
+		// timerMu protects operations on the timers to prevent deadlocks
+		// This must be acquired before mu if both are needed.
+		timerMu sync.Mutex
 
-	// actionDelay is the time to wait between various actions.
-	actionDelay time.Duration
-	// actionTimeout is when we should time out a given action.
-	actionTimeout time.Duration
-}
+		// mu protects the fields below.
+		mu      sync.Mutex
+		appPool *dbconnpool.ConnectionPool
+		isOpen  bool
+		// isWriting stores if the monitor is currently writing to the DB.
+		// We don't want two different threads initiating writes, so we use this
+		// for synchronization.
+		isWriting atomic.Bool
+		// inProgressWriteCount is the number of writes currently in progress.
+		// The writes from the monitor themselves might get blocked and hence a count for them is required.
+		// After enough writes are blocked, we want to notify VTOrc to run an ERS.
+		inProgressWriteCount int
+		// isBlocked stores if the primary is blocked on semi-sync ack.
+		isBlocked bool
+		// waiters stores the list of waiters that are waiting for the primary to be unblocked.
+		waiters []chan struct{}
+		// writesBlockedGauge is a gauge tracking the number of writes the monitor is blocked on.
+		writesBlockedGauge *stats.Gauge
+		// errorCount is the number of errors that the MySQL monitor ran into.
+		// We ignore some of the errors, so the counter is a good way to track how many errors we have seen.
+		errorCount *stats.Counter
+
+		// actionDelay is the time to wait between various actions.
+		actionDelay time.Duration
+		// actionTimeout is when we should time out a given action.
+		actionTimeout time.Duration
+
+		// mysqlAlive is the last observed liveness of MySQL (SELECT 1).
+		mysqlAlive TimestampedBool
+		// semiSyncEnabled is the last observed value of whether semi-sync is administratively enabled.
+		// Set to false when MySQL is down.
+		semiSyncEnabled TimestampedBool
+		// semiSyncRunning is the last observed value of whether semi-sync is actively transmitting ACKs.
+		// Set to false when MySQL is down.
+		semiSyncRunning TimestampedBool
+		// lastAliveAt is the last time MySQL was confirmed alive (SELECT 1 succeeded).
+		// Never reset to zero — retains the last known alive time even after MySQL goes down.
+		lastAliveAt time.Time
+		// lastSemiSyncEnabledAt is the last time semi-sync was observed as administratively enabled.
+		// Never reset to zero.
+		lastSemiSyncEnabledAt time.Time
+		// lastSemiSyncRunningAt is the last time semi-sync was observed as actively transmitting ACKs.
+		// Never reset to zero.
+		lastSemiSyncRunningAt time.Time
+	}
+)
 
 // NewMonitor creates a new Monitor.
 func NewMonitor(config *tabletenv.TabletConfig, exporter *servenv.Exporter) *Monitor {
@@ -127,9 +157,9 @@ func NewMonitor(config *tabletenv.TabletConfig, exporter *servenv.Exporter) *Mon
 	}
 }
 
-// CreateTestSemiSyncMonitor created a monitor for testing.
+// CreateTestMySQLMonitor creates a monitor for testing.
 // It takes an optional fake db.
-func CreateTestSemiSyncMonitor(db *fakesqldb.DB, exporter *servenv.Exporter) *Monitor {
+func CreateTestMySQLMonitor(db *fakesqldb.DB, exporter *servenv.Exporter) *Monitor {
 	var dbc *dbconfigs.DBConfigs
 	if db != nil {
 		params := db.ConnParams()
@@ -160,7 +190,7 @@ func (m *Monitor) Open() {
 	}
 	// Set the monitor to be open.
 	m.isOpen = true
-	log.Info("SemiSync Monitor: opening")
+	log.Info("MySQL Monitor: opening")
 
 	// This function could be running from within a unit test scope, in which case we use
 	// mock pools that are already open. This is why we test for the pool being open.
@@ -168,7 +198,7 @@ func (m *Monitor) Open() {
 		m.appPool.Open(m.config.DB.AppWithDB())
 	}
 	m.clearTicks.Start(m.clearAllData)
-	m.ticks.Start(m.checkAndFixSemiSyncBlocked)
+	m.ticks.Start(m.checkMySQL)
 }
 
 // Close stops the monitor.
@@ -176,7 +206,7 @@ func (m *Monitor) Close() {
 	// First acquire the timer mutex to prevent deadlock - we acquire in a consistent order
 	m.timerMu.Lock()
 	defer m.timerMu.Unlock()
-	log.Info("SemiSync Monitor: closing")
+	log.Info("MySQL Monitor: closing")
 	// We close the ticks before we acquire the mu mutex to prevent deadlock.
 	// The timer Close should not be called while holding a mutex that the function
 	// the timer runs also acquires.
@@ -189,28 +219,175 @@ func (m *Monitor) Close() {
 	m.appPool.Close()
 }
 
-// checkAndFixSemiSyncBlocked checks if the primary is blocked on semi-sync ack
-// and manufactures a write to unblock the primary. This function is safe to
-// be called multiple times in parallel.
-func (m *Monitor) checkAndFixSemiSyncBlocked() {
-	// Check if semi-sync is blocked or not.
-	isBlocked, err := m.isSemiSyncBlocked()
+// checkMySQL is the periodic tick function. It checks MySQL liveness, semi-sync
+// configuration, and whether the primary is blocked on semi-sync ACKs.
+func (m *Monitor) checkMySQL() {
+	ctx, cancel := context.WithTimeout(context.Background(), m.ticks.Interval())
+	defer cancel()
+
+	conn, err := m.appPool.Get(ctx)
 	if err != nil {
+		m.mu.Lock()
+		m.mysqlAlive = TimestampedBool{Value: false, RecordedAt: time.Now()}
+		m.mu.Unlock()
 		m.errorCount.Add(1)
-		// If we are unable to determine whether the primary is blocked or not,
-		// then we can just abort the function and try again later.
-		log.Error(fmt.Sprintf("SemiSync Monitor: failed to check if primary is blocked on semi-sync: %v", err))
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to get a connection: %v", err))
 		return
 	}
-	// Set the isBlocked state.
+	defer conn.Recycle()
+
+	alive := m.checkMySQLAlive(conn)
+	now := time.Now()
+	m.mu.Lock()
+	m.mysqlAlive = TimestampedBool{Value: alive, RecordedAt: now}
+	if alive {
+		m.lastAliveAt = now
+	} else {
+		m.semiSyncEnabled = TimestampedBool{Value: false, RecordedAt: now}
+		m.semiSyncRunning = TimestampedBool{Value: false, RecordedAt: now}
+	}
+	m.mu.Unlock()
+
+	if !alive {
+		return
+	}
+
+	enabled := m.checkSemiSyncEnabled(conn)
+	now = time.Now()
+	m.mu.Lock()
+	m.semiSyncEnabled = TimestampedBool{Value: enabled, RecordedAt: now}
+	if enabled {
+		m.lastSemiSyncEnabledAt = now
+	}
+	m.mu.Unlock()
+
+	running := m.checkSemiSyncRunning(conn)
+	now = time.Now()
+	m.mu.Lock()
+	m.semiSyncRunning = TimestampedBool{Value: running, RecordedAt: now}
+	if running {
+		m.lastSemiSyncRunningAt = now
+	}
+	m.mu.Unlock()
+
+	isBlocked, err := m.isSemiSyncBlockedWithConn(conn)
+	if err != nil {
+		m.errorCount.Add(1)
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to check if primary is blocked on semi-sync: %v", err))
+		return
+	}
 	m.setIsBlocked(isBlocked)
 	if isBlocked {
-		// If we are blocked, then we want to start the writes.
-		// That function is re-entrant. If we are already writing, then it will just return.
-		// We start it in a go-routine, because we want to continue to check for when
-		// we get unblocked.
 		go m.startWrites()
 	}
+}
+
+// MySQLAlive returns the last observed liveness of MySQL.
+func (m *Monitor) MySQLAlive() TimestampedBool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mysqlAlive
+}
+
+// IsMySQLAlive returns true if MySQL was alive on the last check.
+func (m *Monitor) IsMySQLAlive() bool {
+	return m.MySQLAlive().Value
+}
+
+// SemiSyncEnabled returns the last observed value of whether semi-sync is administratively enabled.
+// Set to false when MySQL is down.
+func (m *Monitor) SemiSyncEnabled() TimestampedBool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.semiSyncEnabled
+}
+
+// IsSemiSyncEnabled returns true if semi-sync was enabled on the last check.
+func (m *Monitor) IsSemiSyncEnabled() bool {
+	return m.SemiSyncEnabled().Value
+}
+
+// LastSemiSyncEnabledAt returns the last time semi-sync was observed as administratively enabled.
+// The zero value means semi-sync has never been observed enabled since the monitor started.
+func (m *Monitor) LastSemiSyncEnabledAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastSemiSyncEnabledAt
+}
+
+// SemiSyncRunning returns the last observed value of whether semi-sync is actively transmitting ACKs.
+// Set to false when MySQL is down.
+func (m *Monitor) SemiSyncRunning() TimestampedBool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.semiSyncRunning
+}
+
+// IsSemiSyncRunning returns true if semi-sync was actively transmitting ACKs on the last check.
+func (m *Monitor) IsSemiSyncRunning() bool {
+	return m.SemiSyncRunning().Value
+}
+
+// LastSemiSyncRunningAt returns the last time semi-sync was observed as actively transmitting ACKs.
+// The zero value means semi-sync has never been observed running since the monitor started.
+func (m *Monitor) LastSemiSyncRunningAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastSemiSyncRunningAt
+}
+
+// LastAliveAt returns the last time MySQL was confirmed alive (SELECT 1 succeeded).
+// The zero value means MySQL has never been observed alive since the monitor started.
+// This value is never reset to zero, so callers can determine how long MySQL has been
+// unavailable even after it stops responding.
+func (m *Monitor) LastAliveAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastAliveAt
+}
+
+// checkMySQLAlive runs SELECT 1 and returns true if MySQL responds.
+// Errors are absorbed: logged and counted.
+func (m *Monitor) checkMySQLAlive(conn *dbconnpool.PooledDBConnection) bool {
+	_, err := conn.Conn.ExecuteFetch(mysqlAliveQuery, 1, false)
+	if err != nil {
+		m.errorCount.Add(1)
+		log.Error(fmt.Sprintf("MySQL Monitor: SELECT 1 failed: %v", err))
+		return false
+	}
+	return true
+}
+
+// checkSemiSyncEnabled returns true if the semi-sync source plugin is administratively enabled.
+// Errors are absorbed: logged and counted.
+func (m *Monitor) checkSemiSyncEnabled(conn *dbconnpool.PooledDBConnection) bool {
+	query := fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds())
+	res, err := conn.Conn.ExecuteFetch(query, 1, false)
+	if err != nil {
+		m.errorCount.Add(1)
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to check semi-sync enabled: %v", err))
+		return false
+	}
+	if len(res.Rows) == 0 {
+		return false
+	}
+	return res.Rows[0][0].ToString() == "ON"
+}
+
+// checkSemiSyncRunning returns true if semi-sync is actively transmitting ACKs.
+// Errors are absorbed: logged and counted.
+func (m *Monitor) checkSemiSyncRunning(conn *dbconnpool.PooledDBConnection) bool {
+	query := fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds())
+	res, err := conn.Conn.ExecuteFetch(query, 1, false)
+	if err != nil {
+		m.errorCount.Add(1)
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to check semi-sync running: %v", err))
+		return false
+	}
+	if len(res.Rows) == 0 {
+		return false
+	}
+	return res.Rows[0][0].ToString() == "ON"
 }
 
 // isSemiSyncBlocked checks if the primary is blocked on semi-sync.
@@ -224,6 +401,11 @@ func (m *Monitor) isSemiSyncBlocked() (bool, error) {
 	}
 	defer conn.Recycle()
 
+	return m.isSemiSyncBlockedWithConn(conn)
+}
+
+// isSemiSyncBlockedWithConn checks if the primary is blocked on semi-sync using an existing connection.
+func (m *Monitor) isSemiSyncBlockedWithConn(conn *dbconnpool.PooledDBConnection) (bool, error) {
 	stats, err := m.getSemiSyncStats(conn)
 	if err != nil || stats.waitingSessions == 0 {
 		return false, err
@@ -246,13 +428,13 @@ func (m *Monitor) isClosed() bool {
 // WaitUntilSemiSyncUnblocked waits until the primary is not blocked
 // on semi-sync or until the context expires.
 func (m *Monitor) WaitUntilSemiSyncUnblocked(ctx context.Context) error {
-	// SemiSyncMonitor is closed, which means semi-sync is not enabled.
+	// MySQL Monitor is closed, which means semi-sync is not enabled.
 	// We don't have anything to wait for.
 	if m.isClosed() {
 		return nil
 	}
-	// run one iteration of checking if semi-sync is blocked or not.
-	m.checkAndFixSemiSyncBlocked()
+	// run one iteration of checking MySQL health and semi-sync state.
+	m.checkMySQL()
 	if !m.stillBlocked() {
 		// If we find that the primary isn't blocked, we're good,
 		// we don't need to wait for anything.
@@ -373,14 +555,14 @@ func (m *Monitor) write() {
 	conn, err := m.appPool.Get(ctx)
 	if err != nil {
 		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("SemiSync Monitor: failed to get a connection when writing to semisync_heartbeat table: %v", err))
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to get a connection when writing to semisync_heartbeat table: %v", err))
 		return
 	}
 	err = conn.Conn.ExecuteFetchMultiDrain(m.addLockWaitTimeout(m.bindSideCarDBName(semiSyncHeartbeatWrite)))
 	conn.Recycle()
 	if err != nil {
 		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("SemiSync Monitor: failed to write to semisync_heartbeat table: %v", err))
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to write to semisync_heartbeat table: %v", err))
 	} else {
 		// One of the writes went through without an error.
 		// This means that we aren't blocked on semi-sync anymore.
@@ -412,14 +594,14 @@ func (m *Monitor) clearAllData() {
 	conn, err := m.appPool.Get(ctx)
 	if err != nil {
 		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("SemiSync Monitor: failed get a connection to clear semisync_heartbeat table: %v", err))
+		log.Error(fmt.Sprintf("MySQL Monitor: failed get a connection to clear semisync_heartbeat table: %v", err))
 		return
 	}
 	defer conn.Recycle()
 	_, _, err = conn.Conn.ExecuteFetchMulti(m.addLockWaitTimeout(m.bindSideCarDBName(semiSyncHeartbeatClear)), 0, false)
 	if err != nil {
 		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("SemiSync Monitor: failed to clear semisync_heartbeat table: %v", err))
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to clear semisync_heartbeat table: %v", err))
 	}
 }
 

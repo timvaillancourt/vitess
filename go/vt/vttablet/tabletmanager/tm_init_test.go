@@ -40,7 +40,7 @@ import (
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 	"vitess.io/vitess/go/vt/topotools"
-	"vitess.io/vitess/go/vt/vttablet/tabletmanager/semisyncmonitor"
+	"vitess.io/vitess/go/vt/vttablet/tabletmanager/mysqlmonitor"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletservermock"
 	"vitess.io/vitess/go/vt/vttest"
@@ -708,7 +708,7 @@ func newTestTM(t *testing.T, ts *topo.Server, uid int, keyspace, shard string, t
 		TopoServer:          ts,
 		MysqlDaemon:         fakeDb,
 		DBConfigs:           &dbconfigs.DBConfigs{},
-		SemiSyncMonitor:     semisyncmonitor.CreateTestSemiSyncMonitor(fakeDb.DB(), exporter),
+		MySQLMonitor:        mysqlmonitor.CreateTestMySQLMonitor(fakeDb.DB(), exporter),
 		QueryServiceControl: tabletservermock.NewController(),
 	}
 	err := tm.Start(tablet, nil)
