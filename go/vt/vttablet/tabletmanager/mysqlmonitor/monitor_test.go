@@ -807,9 +807,7 @@ func TestCheckMySQL(t *testing.T) {
 
 	db.SetNeverFail(true)
 	// Initially everything is unblocked (zero waiting sessions).
-	db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
-	db.AddQuery(fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
-	db.AddQuery(fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
+	db.AddQuery(fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 	db.AddQuery(fmt.Sprintf(semiSyncStatsQuery, m.actionTimeout.Milliseconds()), sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 		"Rpl_semi_sync_source_wait_sessions|0",
@@ -1148,73 +1146,40 @@ func TestMySQLMonitor(t *testing.T) {
 	}, 2*time.Second, 100*time.Millisecond)
 }
 
-// TestCheckMySQLAlive tests the checkMySQLAlive method.
-func TestCheckMySQLAlive(t *testing.T) {
+// TestCheckSemiSync tests the checkSemiSync method.
+func TestCheckSemiSync(t *testing.T) {
 	defer utils.EnsureNoLeaks(t)
 
-	t.Run("success - MySQL responds to SELECT 1", func(t *testing.T) {
-		db, m := createFakeDBAndMonitor(t)
-		defer db.Close()
-		defer func() {
-			m.Close()
-			waitUntilWritingStopped(t, m)
-		}()
-
-		db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
-
-		conn, err := m.appPool.Get(context.Background())
-		require.NoError(t, err)
-		defer conn.Recycle()
-
-		before := m.errorCount.Get()
-		result := m.checkMySQLAlive(conn)
-		require.True(t, result)
-		require.Equal(t, before, m.errorCount.Get())
-	})
-
-	t.Run("failure - SELECT 1 returns error", func(t *testing.T) {
-		db, m := createFakeDBAndMonitor(t)
-		defer db.Close()
-		defer func() {
-			m.Close()
-			waitUntilWritingStopped(t, m)
-		}()
-
-		// Do not register SELECT 1, so it returns an error.
-		conn, err := m.appPool.Get(context.Background())
-		require.NoError(t, err)
-		defer conn.Recycle()
-
-		before := m.errorCount.Get()
-		result := m.checkMySQLAlive(conn)
-		require.False(t, result)
-		require.Equal(t, before+1, m.errorCount.Get())
-	})
-}
-
-// TestCheckSemiSyncEnabled tests the checkSemiSyncEnabled method.
-func TestCheckSemiSyncEnabled(t *testing.T) {
-	defer utils.EnsureNoLeaks(t)
-
+	fields := sqltypes.MakeTestFields("name|variable_value", "varchar|varchar")
 	tests := []struct {
-		name   string
-		result *sqltypes.Result
-		want   bool
+		name        string
+		result      *sqltypes.Result
+		wantEnabled bool
+		wantRunning bool
 	}{
 		{
-			name:   "ON - semi-sync is enabled",
-			result: sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "ON"),
-			want:   true,
+			name:        "both ON",
+			result:      sqltypes.MakeTestResult(fields, "enabled|ON", "running|ON"),
+			wantEnabled: true,
+			wantRunning: true,
 		},
 		{
-			name:   "OFF - semi-sync is disabled",
-			result: sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "OFF"),
-			want:   false,
+			name:        "enabled ON, running OFF",
+			result:      sqltypes.MakeTestResult(fields, "enabled|ON", "running|OFF"),
+			wantEnabled: true,
+			wantRunning: false,
 		},
 		{
-			name:   "no rows - plugin not loaded",
-			result: &sqltypes.Result{},
-			want:   false,
+			name:        "both OFF",
+			result:      sqltypes.MakeTestResult(fields, "enabled|OFF", "running|OFF"),
+			wantEnabled: false,
+			wantRunning: false,
+		},
+		{
+			name:        "no rows - plugin not loaded",
+			result:      &sqltypes.Result{},
+			wantEnabled: false,
+			wantRunning: false,
 		},
 	}
 
@@ -1228,14 +1193,16 @@ func TestCheckSemiSyncEnabled(t *testing.T) {
 				waitUntilWritingStopped(t, m)
 			}()
 
-			db.AddQuery(fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds()), tt.result)
+			db.AddQuery(fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds()), tt.result)
 
 			conn, err := m.appPool.Get(context.Background())
 			require.NoError(t, err)
 			defer conn.Recycle()
 
-			result := m.checkSemiSyncEnabled(conn)
-			require.Equal(t, tt.want, result)
+			gotEnabled, gotRunning, err := m.checkSemiSync(conn)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEnabled, gotEnabled)
+			require.Equal(t, tt.wantRunning, gotRunning)
 		})
 	}
 
@@ -1253,78 +1220,10 @@ func TestCheckSemiSyncEnabled(t *testing.T) {
 		require.NoError(t, err)
 		defer conn.Recycle()
 
-		before := m.errorCount.Get()
-		result := m.checkSemiSyncEnabled(conn)
-		require.False(t, result)
-		require.Equal(t, before+1, m.errorCount.Get())
-	})
-}
-
-// TestCheckSemiSyncRunning tests the checkSemiSyncRunning method.
-func TestCheckSemiSyncRunning(t *testing.T) {
-	defer utils.EnsureNoLeaks(t)
-
-	tests := []struct {
-		name   string
-		result *sqltypes.Result
-		want   bool
-	}{
-		{
-			name:   "ON - semi-sync is running",
-			result: sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "ON"),
-			want:   true,
-		},
-		{
-			name:   "OFF - semi-sync is not running",
-			result: sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "OFF"),
-			want:   false,
-		},
-		{
-			name:   "no rows - plugin not loaded",
-			result: &sqltypes.Result{},
-			want:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db, m := createFakeDBAndMonitor(t)
-			m.actionTimeout = 1 * time.Second
-			defer db.Close()
-			defer func() {
-				m.Close()
-				waitUntilWritingStopped(t, m)
-			}()
-
-			db.AddQuery(fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds()), tt.result)
-
-			conn, err := m.appPool.Get(context.Background())
-			require.NoError(t, err)
-			defer conn.Recycle()
-
-			result := m.checkSemiSyncRunning(conn)
-			require.Equal(t, tt.want, result)
-		})
-	}
-
-	t.Run("error - query fails", func(t *testing.T) {
-		db, m := createFakeDBAndMonitor(t)
-		m.actionTimeout = 1 * time.Second
-		defer db.Close()
-		defer func() {
-			m.Close()
-			waitUntilWritingStopped(t, m)
-		}()
-
-		// Do not register the query, so it returns an error.
-		conn, err := m.appPool.Get(context.Background())
-		require.NoError(t, err)
-		defer conn.Recycle()
-
-		before := m.errorCount.Get()
-		result := m.checkSemiSyncRunning(conn)
-		require.False(t, result)
-		require.Equal(t, before+1, m.errorCount.Get())
+		gotEnabled, gotRunning, err := m.checkSemiSync(conn)
+		require.Error(t, err)
+		require.False(t, gotEnabled)
+		require.False(t, gotRunning)
 	})
 }
 
@@ -1346,11 +1245,8 @@ func TestAccessors(t *testing.T) {
 	require.False(t, m.IsSemiSyncRunning())
 
 	// Set up queries to return meaningful values.
-	db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
-	db.AddQuery(fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds()),
-		sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "ON"))
-	db.AddQuery(fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds()),
-		sqltypes.MakeTestResult(sqltypes.MakeTestFields("variable_value", "varchar"), "OFF"))
+	db.AddQuery(fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds()),
+		sqltypes.MakeTestResult(sqltypes.MakeTestFields("name|variable_value", "varchar|varchar"), "enabled|ON", "running|OFF"))
 	db.AddQuery(fmt.Sprintf(semiSyncStatsQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 
 	before := time.Now()
@@ -1382,8 +1278,7 @@ func TestCheckMySQLMySQLDown(t *testing.T) {
 		waitUntilWritingStopped(t, m)
 	}()
 
-	// SELECT 1 fails (not registered).
-	// Semi-sync queries should NOT be registered — if they are called, the test will notice.
+	// semiSyncStateQuery is not registered, so it returns an error — simulating MySQL being unreachable.
 
 	m.checkMySQL()
 
@@ -1405,9 +1300,7 @@ func TestTimestampsAreSetOnEachTick(t *testing.T) {
 		waitUntilWritingStopped(t, m)
 	}()
 
-	db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
-	db.AddQuery(fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
-	db.AddQuery(fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
+	db.AddQuery(fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 	db.AddQuery(fmt.Sprintf(semiSyncStatsQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 
 	m.checkMySQL()
@@ -1448,9 +1341,7 @@ func TestLastMySQLAliveAt(t *testing.T) {
 			waitUntilWritingStopped(t, m)
 		}()
 
-		db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
-		db.AddQuery(fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
-		db.AddQuery(fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
+		db.AddQuery(fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 		db.AddQuery(fmt.Sprintf(semiSyncStatsQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 
 		before := time.Now()

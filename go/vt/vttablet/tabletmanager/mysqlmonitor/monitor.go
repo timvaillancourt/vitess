@@ -57,9 +57,7 @@ const (
 	maxWritesPermitted     = 15
 	clearTimerDuration     = 24 * time.Hour
 
-	mysqlAliveQuery      = "SELECT 1"
-	semiSyncEnabledQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ variable_value FROM performance_schema.global_variables WHERE variable_name IN ('rpl_semi_sync_source_enabled', 'rpl_semi_sync_master_enabled') LIMIT 1"
-	semiSyncRunningQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ variable_value FROM performance_schema.global_status WHERE variable_name IN ('Rpl_semi_sync_source_status', 'Rpl_semi_sync_master_status') LIMIT 1"
+	semiSyncStateQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ name, variable_value FROM (SELECT 'enabled' AS name, variable_value FROM performance_schema.global_variables WHERE variable_name IN ('rpl_semi_sync_source_enabled', 'rpl_semi_sync_master_enabled') LIMIT 1 UNION ALL SELECT 'running', variable_value FROM performance_schema.global_status WHERE variable_name IN ('Rpl_semi_sync_source_status', 'Rpl_semi_sync_master_status') LIMIT 1) AS t"
 )
 
 type (
@@ -233,31 +231,23 @@ func (m *Monitor) checkMySQL() {
 	}
 	defer conn.Recycle()
 
-	alive := m.checkMySQLAlive(conn)
+	enabled, running, err := m.checkSemiSync(conn)
 	m.mu.Lock()
-	m.mysqlAlive = alive
-	if alive {
-		m.lastMySQLAliveAt = time.Now()
-	} else {
+	if err != nil {
+		m.mysqlAlive = false
 		m.semiSyncEnabled = false
 		m.semiSyncRunning = false
-	}
-	m.mu.Unlock()
-
-	if !alive {
+		m.mu.Unlock()
+		m.errorCount.Add(1)
+		log.Error(fmt.Sprintf("MySQL Monitor: failed to query MySQL state: %v", err))
 		return
 	}
-
-	enabled := m.checkSemiSyncEnabled(conn)
-	m.mu.Lock()
+	m.mysqlAlive = true
+	m.lastMySQLAliveAt = time.Now()
 	m.semiSyncEnabled = enabled
 	if enabled {
 		m.lastSemiSyncEnabledAt = time.Now()
 	}
-	m.mu.Unlock()
-
-	running := m.checkSemiSyncRunning(conn)
-	m.mu.Lock()
 	m.semiSyncRunning = running
 	if running {
 		m.lastSemiSyncRunningAt = time.Now()
@@ -323,48 +313,23 @@ func (m *Monitor) LastSemiSyncRunningAt() time.Time {
 	return m.lastSemiSyncRunningAt
 }
 
-// checkMySQLAlive runs SELECT 1 and returns true if MySQL responds.
-// Errors are absorbed: logged and counted.
-func (m *Monitor) checkMySQLAlive(conn *dbconnpool.PooledDBConnection) bool {
-	_, err := conn.Conn.ExecuteFetch(mysqlAliveQuery, 1, false)
+// checkSemiSync returns whether semi-sync is administratively enabled and actively running
+// in a single round-trip. A successful query also confirms MySQL is reachable.
+func (m *Monitor) checkSemiSync(conn *dbconnpool.PooledDBConnection) (enabled, running bool, err error) {
+	query := fmt.Sprintf(semiSyncStateQuery, m.actionTimeout.Milliseconds())
+	res, err := conn.Conn.ExecuteFetch(query, 2, false)
 	if err != nil {
-		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("MySQL Monitor: SELECT 1 failed: %v", err))
-		return false
+		return false, false, err
 	}
-	return true
-}
-
-// checkSemiSyncEnabled returns true if the semi-sync source plugin is administratively enabled.
-// Errors are absorbed: logged and counted.
-func (m *Monitor) checkSemiSyncEnabled(conn *dbconnpool.PooledDBConnection) bool {
-	query := fmt.Sprintf(semiSyncEnabledQuery, m.actionTimeout.Milliseconds())
-	res, err := conn.Conn.ExecuteFetch(query, 1, false)
-	if err != nil {
-		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("MySQL Monitor: failed to check semi-sync enabled: %v", err))
-		return false
+	for _, row := range res.Rows {
+		switch row[0].ToString() {
+		case "enabled":
+			enabled = row[1].ToString() == "ON"
+		case "running":
+			running = row[1].ToString() == "ON"
+		}
 	}
-	if len(res.Rows) == 0 {
-		return false
-	}
-	return res.Rows[0][0].ToString() == "ON"
-}
-
-// checkSemiSyncRunning returns true if semi-sync is actively transmitting ACKs.
-// Errors are absorbed: logged and counted.
-func (m *Monitor) checkSemiSyncRunning(conn *dbconnpool.PooledDBConnection) bool {
-	query := fmt.Sprintf(semiSyncRunningQuery, m.actionTimeout.Milliseconds())
-	res, err := conn.Conn.ExecuteFetch(query, 1, false)
-	if err != nil {
-		m.errorCount.Add(1)
-		log.Error(fmt.Sprintf("MySQL Monitor: failed to check semi-sync running: %v", err))
-		return false
-	}
-	if len(res.Rows) == 0 {
-		return false
-	}
-	return res.Rows[0][0].ToString() == "ON"
+	return enabled, running, nil
 }
 
 // isSemiSyncBlocked checks if the primary is blocked on semi-sync.
