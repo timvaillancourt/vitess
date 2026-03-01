@@ -30,7 +30,6 @@ import (
 	sync "sync"
 	unsafe "unsafe"
 	topodata "vitess.io/vitess/go/vt/proto/topodata"
-	vttime "vitess.io/vitess/go/vt/proto/vttime"
 )
 
 const (
@@ -540,15 +539,8 @@ type FullStatus struct {
 	DiskStalled                 bool                   `protobuf:"varint,23,opt,name=disk_stalled,json=diskStalled,proto3" json:"disk_stalled,omitempty"`
 	SemiSyncBlocked             bool                   `protobuf:"varint,24,opt,name=semi_sync_blocked,json=semiSyncBlocked,proto3" json:"semi_sync_blocked,omitempty"`
 	TabletType                  topodata.TabletType    `protobuf:"varint,25,opt,name=tablet_type,json=tabletType,proto3,enum=topodata.TabletType" json:"tablet_type,omitempty"`
-	MysqlUp                     bool                   `protobuf:"varint,26,opt,name=mysql_up,json=mysqlUp,proto3" json:"mysql_up,omitempty"`
-	// last_mysql_alive_at is the last time MySQL was confirmed alive (SELECT 1 succeeded).
-	LastMysqlAliveAt *vttime.Time `protobuf:"bytes,27,opt,name=last_mysql_alive_at,json=lastMysqlAliveAt,proto3" json:"last_mysql_alive_at,omitempty"`
-	// last_semi_sync_enabled_at is the last time semi-sync was observed as administratively enabled.
-	LastSemiSyncEnabledAt *vttime.Time `protobuf:"bytes,28,opt,name=last_semi_sync_enabled_at,json=lastSemiSyncEnabledAt,proto3" json:"last_semi_sync_enabled_at,omitempty"`
-	// last_semi_sync_running_at is the last time semi-sync was observed as actively transmitting ACKs.
-	LastSemiSyncRunningAt *vttime.Time `protobuf:"bytes,29,opt,name=last_semi_sync_running_at,json=lastSemiSyncRunningAt,proto3" json:"last_semi_sync_running_at,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *FullStatus) Reset() {
@@ -756,39 +748,11 @@ func (x *FullStatus) GetTabletType() topodata.TabletType {
 	return topodata.TabletType(0)
 }
 
-func (x *FullStatus) GetMysqlUp() bool {
-	if x != nil {
-		return x.MysqlUp
-	}
-	return false
-}
-
-func (x *FullStatus) GetLastMysqlAliveAt() *vttime.Time {
-	if x != nil {
-		return x.LastMysqlAliveAt
-	}
-	return nil
-}
-
-func (x *FullStatus) GetLastSemiSyncEnabledAt() *vttime.Time {
-	if x != nil {
-		return x.LastSemiSyncEnabledAt
-	}
-	return nil
-}
-
-func (x *FullStatus) GetLastSemiSyncRunningAt() *vttime.Time {
-	if x != nil {
-		return x.LastSemiSyncRunningAt
-	}
-	return nil
-}
-
 var File_replicationdata_proto protoreflect.FileDescriptor
 
 const file_replicationdata_proto_rawDesc = "" +
 	"\n" +
-	"\x15replicationdata.proto\x12\x0freplicationdata\x1a\x0etopodata.proto\x1a\fvttime.proto\"\xa5\t\n" +
+	"\x15replicationdata.proto\x12\x0freplicationdata\x1a\x0etopodata.proto\"\xa5\t\n" +
 	"\x06Status\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\tR\bposition\x126\n" +
 	"\x17replication_lag_seconds\x18\x04 \x01(\rR\x15replicationLagSeconds\x12\x1f\n" +
@@ -834,7 +798,7 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\bposition\x18\x01 \x01(\tR\bposition\x12#\n" +
 	"\rfile_position\x18\x02 \x01(\tR\ffilePosition\x12\x1f\n" +
 	"\vserver_uuid\x18\x03 \x01(\tR\n" +
-	"serverUuid\"\xb6\v\n" +
+	"serverUuid\"\xce\t\n" +
 	"\n" +
 	"FullStatus\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\rR\bserverId\x12\x1f\n" +
@@ -865,11 +829,7 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\fdisk_stalled\x18\x17 \x01(\bR\vdiskStalled\x12*\n" +
 	"\x11semi_sync_blocked\x18\x18 \x01(\bR\x0fsemiSyncBlocked\x125\n" +
 	"\vtablet_type\x18\x19 \x01(\x0e2\x14.topodata.TabletTypeR\n" +
-	"tabletType\x12\x19\n" +
-	"\bmysql_up\x18\x1a \x01(\bR\amysqlUp\x12;\n" +
-	"\x13last_mysql_alive_at\x18\x1b \x01(\v2\f.vttime.TimeR\x10lastMysqlAliveAt\x12F\n" +
-	"\x19last_semi_sync_enabled_at\x18\x1c \x01(\v2\f.vttime.TimeR\x15lastSemiSyncEnabledAt\x12F\n" +
-	"\x19last_semi_sync_running_at\x18\x1d \x01(\v2\f.vttime.TimeR\x15lastSemiSyncRunningAt*;\n" +
+	"tabletType*;\n" +
 	"\x13StopReplicationMode\x12\x12\n" +
 	"\x0eIOANDSQLTHREAD\x10\x00\x12\x10\n" +
 	"\fIOTHREADONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
@@ -896,7 +856,6 @@ var file_replicationdata_proto_goTypes = []any{
 	(*PrimaryStatus)(nil),         // 4: replicationdata.PrimaryStatus
 	(*FullStatus)(nil),            // 5: replicationdata.FullStatus
 	(topodata.TabletType)(0),      // 6: topodata.TabletType
-	(*vttime.Time)(nil),           // 7: vttime.Time
 }
 var file_replicationdata_proto_depIdxs = []int32{
 	1, // 0: replicationdata.StopReplicationStatus.before:type_name -> replicationdata.Status
@@ -905,14 +864,11 @@ var file_replicationdata_proto_depIdxs = []int32{
 	4, // 3: replicationdata.FullStatus.primary_status:type_name -> replicationdata.PrimaryStatus
 	2, // 4: replicationdata.FullStatus.replication_configuration:type_name -> replicationdata.Configuration
 	6, // 5: replicationdata.FullStatus.tablet_type:type_name -> topodata.TabletType
-	7, // 6: replicationdata.FullStatus.last_mysql_alive_at:type_name -> vttime.Time
-	7, // 7: replicationdata.FullStatus.last_semi_sync_enabled_at:type_name -> vttime.Time
-	7, // 8: replicationdata.FullStatus.last_semi_sync_running_at:type_name -> vttime.Time
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_replicationdata_proto_init() }
