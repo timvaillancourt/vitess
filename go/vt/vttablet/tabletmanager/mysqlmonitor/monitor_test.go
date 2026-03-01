@@ -1328,7 +1328,7 @@ func TestCheckSemiSyncRunning(t *testing.T) {
 	})
 }
 
-// TestAccessors tests that the accessor methods return the correct TimestampedBool values.
+// TestAccessors tests that the accessor methods return the correct values.
 func TestAccessors(t *testing.T) {
 	defer utils.EnsureNoLeaks(t)
 	db, m := createFakeDBAndMonitor(t)
@@ -1340,10 +1340,10 @@ func TestAccessors(t *testing.T) {
 		waitUntilWritingStopped(t, m)
 	}()
 
-	// Initially all values are zero values.
-	require.Equal(t, TimestampedBool{}, m.MySQLAlive())
-	require.Equal(t, TimestampedBool{}, m.SemiSyncEnabled())
-	require.Equal(t, TimestampedBool{}, m.SemiSyncRunning())
+	// Initially all values are false/zero.
+	require.False(t, m.IsMySQLAlive())
+	require.False(t, m.IsSemiSyncEnabled())
+	require.False(t, m.IsSemiSyncRunning())
 
 	// Set up queries to return meaningful values.
 	db.AddQuery(mysqlAliveQuery, sqltypes.MakeTestResult(sqltypes.MakeTestFields("1", "int64"), "1"))
@@ -1357,18 +1357,16 @@ func TestAccessors(t *testing.T) {
 	m.checkMySQL()
 	after := time.Now()
 
-	alive := m.MySQLAlive()
-	require.True(t, alive.Value)
-	require.True(t, alive.RecordedAt.After(before) || alive.RecordedAt.Equal(before))
-	require.True(t, alive.RecordedAt.Before(after) || alive.RecordedAt.Equal(after))
+	require.True(t, m.IsMySQLAlive())
+	lastAlive := m.LastMySQLAliveAt()
+	require.True(t, !lastAlive.Before(before))
+	require.True(t, !lastAlive.After(after))
 
-	enabled := m.SemiSyncEnabled()
-	require.True(t, enabled.Value)
-	require.False(t, enabled.RecordedAt.IsZero())
+	require.True(t, m.IsSemiSyncEnabled())
+	require.False(t, m.LastSemiSyncEnabledAt().IsZero())
 
-	running := m.SemiSyncRunning()
-	require.False(t, running.Value)
-	require.False(t, running.RecordedAt.IsZero())
+	require.False(t, m.IsSemiSyncRunning())
+	require.True(t, m.LastSemiSyncRunningAt().IsZero())
 }
 
 // TestCheckMySQLMySQLDown tests that when MySQL is down (SELECT 1 fails),
@@ -1389,20 +1387,10 @@ func TestCheckMySQLMySQLDown(t *testing.T) {
 
 	m.checkMySQL()
 
-	// mysqlAlive should be false.
-	alive := m.MySQLAlive()
-	require.False(t, alive.Value)
-	require.False(t, alive.RecordedAt.IsZero())
-
-	// semiSyncEnabled and semiSyncRunning should be false with a non-zero timestamp,
-	// because we explicitly set them to false when MySQL is down.
-	enabled := m.SemiSyncEnabled()
-	require.False(t, enabled.Value)
-	require.False(t, enabled.RecordedAt.IsZero())
-
-	running := m.SemiSyncRunning()
-	require.False(t, running.Value)
-	require.False(t, running.RecordedAt.IsZero())
+	// All booleans should be false when MySQL is down.
+	require.False(t, m.IsMySQLAlive())
+	require.False(t, m.IsSemiSyncEnabled())
+	require.False(t, m.IsSemiSyncRunning())
 }
 
 // TestTimestampsAreSetOnEachTick tests that timestamps are updated on each call to checkMySQL.
@@ -1423,20 +1411,20 @@ func TestTimestampsAreSetOnEachTick(t *testing.T) {
 	db.AddQuery(fmt.Sprintf(semiSyncStatsQuery, m.actionTimeout.Milliseconds()), &sqltypes.Result{})
 
 	m.checkMySQL()
-	first := m.MySQLAlive()
-	require.False(t, first.RecordedAt.IsZero())
+	first := m.LastMySQLAliveAt()
+	require.False(t, first.IsZero())
 
 	// Small sleep to ensure the second tick has a different timestamp.
 	time.Sleep(5 * time.Millisecond)
 
 	m.checkMySQL()
-	second := m.MySQLAlive()
-	require.False(t, second.RecordedAt.IsZero())
-	require.True(t, second.RecordedAt.After(first.RecordedAt) || second.RecordedAt.Equal(first.RecordedAt))
+	second := m.LastMySQLAliveAt()
+	require.False(t, second.IsZero())
+	require.True(t, second.After(first) || second.Equal(first))
 }
 
-// TestLastAliveAt tests the LastAliveAt accessor and the lastAliveAt field behavior.
-func TestLastAliveAt(t *testing.T) {
+// TestLastMySQLAliveAt tests the LastMySQLAliveAt accessor and the lastMySQLAliveAt field behavior.
+func TestLastMySQLAliveAt(t *testing.T) {
 	t.Run("zero before any tick", func(t *testing.T) {
 		defer utils.EnsureNoLeaks(t)
 		db, m := createFakeDBAndMonitor(t)
@@ -1446,7 +1434,7 @@ func TestLastAliveAt(t *testing.T) {
 			waitUntilWritingStopped(t, m)
 		}()
 
-		require.True(t, m.LastAliveAt().IsZero())
+		require.True(t, m.LastMySQLAliveAt().IsZero())
 	})
 
 	t.Run("updated when MySQL is alive", func(t *testing.T) {
@@ -1469,7 +1457,7 @@ func TestLastAliveAt(t *testing.T) {
 		m.checkMySQL()
 		after := time.Now()
 
-		lastAliveAt := m.LastAliveAt()
+		lastAliveAt := m.LastMySQLAliveAt()
 		require.False(t, lastAliveAt.IsZero())
 		require.True(t, !lastAliveAt.Before(before))
 		require.True(t, !lastAliveAt.After(after))
@@ -1486,20 +1474,19 @@ func TestLastAliveAt(t *testing.T) {
 			waitUntilWritingStopped(t, m)
 		}()
 
-		// Seed a known lastAliveAt value directly (same package access).
+		// Seed a known lastMySQLAliveAt value directly (same package access).
 		knownTime := time.Now().Add(-5 * time.Minute)
 		m.mu.Lock()
-		m.lastAliveAt = knownTime
+		m.lastMySQLAliveAt = knownTime
 		m.mu.Unlock()
 
 		// Do NOT register SELECT 1 — it will fail, simulating MySQL being down.
 		m.checkMySQL()
 
-		// lastAliveAt must remain unchanged.
-		require.Equal(t, knownTime, m.LastAliveAt())
-		// mysqlAlive must be updated to false.
-		require.False(t, m.MySQLAlive().Value)
-		require.False(t, m.MySQLAlive().RecordedAt.IsZero())
+		// lastMySQLAliveAt must remain unchanged.
+		require.Equal(t, knownTime, m.LastMySQLAliveAt())
+		// mysqlAlive must be false.
+		require.False(t, m.IsMySQLAlive())
 	})
 }
 

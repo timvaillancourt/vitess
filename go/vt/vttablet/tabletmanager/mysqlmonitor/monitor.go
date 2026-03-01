@@ -62,12 +62,6 @@ const (
 	semiSyncRunningQuery = "SELECT /*+ MAX_EXECUTION_TIME(%d) */ variable_value FROM performance_schema.global_status WHERE variable_name IN ('Rpl_semi_sync_source_status', 'Rpl_semi_sync_master_status') LIMIT 1"
 )
 
-// TimestampedBool is a boolean value with the time it was last recorded.
-type TimestampedBool struct {
-	Value      bool
-	RecordedAt time.Time
-}
-
 type (
 	semiSyncStats struct {
 		waitingSessions, ackedTrxs int64
@@ -121,16 +115,17 @@ type (
 		actionTimeout time.Duration
 
 		// mysqlAlive is the last observed liveness of MySQL (SELECT 1).
-		mysqlAlive TimestampedBool
+		// Set to false when the connection pool fails or SELECT 1 fails.
+		mysqlAlive bool
 		// semiSyncEnabled is the last observed value of whether semi-sync is administratively enabled.
 		// Set to false when MySQL is down.
-		semiSyncEnabled TimestampedBool
+		semiSyncEnabled bool
 		// semiSyncRunning is the last observed value of whether semi-sync is actively transmitting ACKs.
 		// Set to false when MySQL is down.
-		semiSyncRunning TimestampedBool
-		// lastAliveAt is the last time MySQL was confirmed alive (SELECT 1 succeeded).
+		semiSyncRunning bool
+		// lastMySQLAliveAt is the last time MySQL was confirmed alive (SELECT 1 succeeded).
 		// Never reset to zero — retains the last known alive time even after MySQL goes down.
-		lastAliveAt time.Time
+		lastMySQLAliveAt time.Time
 		// lastSemiSyncEnabledAt is the last time semi-sync was observed as administratively enabled.
 		// Never reset to zero.
 		lastSemiSyncEnabledAt time.Time
@@ -228,7 +223,9 @@ func (m *Monitor) checkMySQL() {
 	conn, err := m.appPool.Get(ctx)
 	if err != nil {
 		m.mu.Lock()
-		m.mysqlAlive = TimestampedBool{Value: false, RecordedAt: time.Now()}
+		m.mysqlAlive = false
+		m.semiSyncEnabled = false
+		m.semiSyncRunning = false
 		m.mu.Unlock()
 		m.errorCount.Add(1)
 		log.Error(fmt.Sprintf("MySQL Monitor: failed to get a connection: %v", err))
@@ -237,14 +234,13 @@ func (m *Monitor) checkMySQL() {
 	defer conn.Recycle()
 
 	alive := m.checkMySQLAlive(conn)
-	now := time.Now()
 	m.mu.Lock()
-	m.mysqlAlive = TimestampedBool{Value: alive, RecordedAt: now}
+	m.mysqlAlive = alive
 	if alive {
-		m.lastAliveAt = now
+		m.lastMySQLAliveAt = time.Now()
 	} else {
-		m.semiSyncEnabled = TimestampedBool{Value: false, RecordedAt: now}
-		m.semiSyncRunning = TimestampedBool{Value: false, RecordedAt: now}
+		m.semiSyncEnabled = false
+		m.semiSyncRunning = false
 	}
 	m.mu.Unlock()
 
@@ -253,20 +249,18 @@ func (m *Monitor) checkMySQL() {
 	}
 
 	enabled := m.checkSemiSyncEnabled(conn)
-	now = time.Now()
 	m.mu.Lock()
-	m.semiSyncEnabled = TimestampedBool{Value: enabled, RecordedAt: now}
+	m.semiSyncEnabled = enabled
 	if enabled {
-		m.lastSemiSyncEnabledAt = now
+		m.lastSemiSyncEnabledAt = time.Now()
 	}
 	m.mu.Unlock()
 
 	running := m.checkSemiSyncRunning(conn)
-	now = time.Now()
 	m.mu.Lock()
-	m.semiSyncRunning = TimestampedBool{Value: running, RecordedAt: now}
+	m.semiSyncRunning = running
 	if running {
-		m.lastSemiSyncRunningAt = now
+		m.lastSemiSyncRunningAt = time.Now()
 	}
 	m.mu.Unlock()
 
@@ -282,29 +276,28 @@ func (m *Monitor) checkMySQL() {
 	}
 }
 
-// MySQLAlive returns the last observed liveness of MySQL.
-func (m *Monitor) MySQLAlive() TimestampedBool {
+// IsMySQLAlive returns true if MySQL was alive on the last check.
+func (m *Monitor) IsMySQLAlive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.mysqlAlive
 }
 
-// IsMySQLAlive returns true if MySQL was alive on the last check.
-func (m *Monitor) IsMySQLAlive() bool {
-	return m.MySQLAlive().Value
+// LastMySQLAliveAt returns the last time MySQL was confirmed alive (SELECT 1 succeeded).
+// The zero value means MySQL has never been observed alive since the monitor started.
+// This value is never reset to zero, so callers can determine how long MySQL has been
+// unavailable even after it stops responding.
+func (m *Monitor) LastMySQLAliveAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastMySQLAliveAt
 }
 
-// SemiSyncEnabled returns the last observed value of whether semi-sync is administratively enabled.
-// Set to false when MySQL is down.
-func (m *Monitor) SemiSyncEnabled() TimestampedBool {
+// IsSemiSyncEnabled returns true if semi-sync was administratively enabled on the last check.
+func (m *Monitor) IsSemiSyncEnabled() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.semiSyncEnabled
-}
-
-// IsSemiSyncEnabled returns true if semi-sync was enabled on the last check.
-func (m *Monitor) IsSemiSyncEnabled() bool {
-	return m.SemiSyncEnabled().Value
 }
 
 // LastSemiSyncEnabledAt returns the last time semi-sync was observed as administratively enabled.
@@ -315,17 +308,11 @@ func (m *Monitor) LastSemiSyncEnabledAt() time.Time {
 	return m.lastSemiSyncEnabledAt
 }
 
-// SemiSyncRunning returns the last observed value of whether semi-sync is actively transmitting ACKs.
-// Set to false when MySQL is down.
-func (m *Monitor) SemiSyncRunning() TimestampedBool {
+// IsSemiSyncRunning returns true if semi-sync was actively transmitting ACKs on the last check.
+func (m *Monitor) IsSemiSyncRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.semiSyncRunning
-}
-
-// IsSemiSyncRunning returns true if semi-sync was actively transmitting ACKs on the last check.
-func (m *Monitor) IsSemiSyncRunning() bool {
-	return m.SemiSyncRunning().Value
 }
 
 // LastSemiSyncRunningAt returns the last time semi-sync was observed as actively transmitting ACKs.
@@ -334,16 +321,6 @@ func (m *Monitor) LastSemiSyncRunningAt() time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastSemiSyncRunningAt
-}
-
-// LastAliveAt returns the last time MySQL was confirmed alive (SELECT 1 succeeded).
-// The zero value means MySQL has never been observed alive since the monitor started.
-// This value is never reset to zero, so callers can determine how long MySQL has been
-// unavailable even after it stops responding.
-func (m *Monitor) LastAliveAt() time.Time {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.lastAliveAt
 }
 
 // checkMySQLAlive runs SELECT 1 and returns true if MySQL responds.

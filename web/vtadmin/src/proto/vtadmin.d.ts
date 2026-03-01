@@ -50888,6 +50888,15 @@ export namespace replicationdata {
 
         /** FullStatus mysql_up */
         mysql_up?: (boolean|null);
+
+        /** FullStatus last_mysql_alive_at */
+        last_mysql_alive_at?: (vttime.ITime|null);
+
+        /** FullStatus last_semi_sync_enabled_at */
+        last_semi_sync_enabled_at?: (vttime.ITime|null);
+
+        /** FullStatus last_semi_sync_running_at */
+        last_semi_sync_running_at?: (vttime.ITime|null);
     }
 
     /** Represents a FullStatus. */
@@ -50976,6 +50985,15 @@ export namespace replicationdata {
 
         /** FullStatus mysql_up. */
         public mysql_up: boolean;
+
+        /** FullStatus last_mysql_alive_at. */
+        public last_mysql_alive_at?: (vttime.ITime|null);
+
+        /** FullStatus last_semi_sync_enabled_at. */
+        public last_semi_sync_enabled_at?: (vttime.ITime|null);
+
+        /** FullStatus last_semi_sync_running_at. */
+        public last_semi_sync_running_at?: (vttime.ITime|null);
 
         /**
          * Creates a new FullStatus instance using the specified properties.

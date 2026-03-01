@@ -13,6 +13,7 @@ import (
 	io "io"
 	math "math"
 	topodata "vitess.io/vitess/go/vt/proto/topodata"
+	vttime "vitess.io/vitess/go/vt/proto/vttime"
 )
 
 const (
@@ -151,6 +152,9 @@ func (m *FullStatus) CloneVT() *FullStatus {
 	r.SemiSyncBlocked = m.SemiSyncBlocked
 	r.TabletType = m.TabletType
 	r.MysqlUp = m.MysqlUp
+	r.LastMysqlAliveAt = m.LastMysqlAliveAt.CloneVT()
+	r.LastSemiSyncEnabledAt = m.LastSemiSyncEnabledAt.CloneVT()
+	r.LastSemiSyncRunningAt = m.LastSemiSyncRunningAt.CloneVT()
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -608,6 +612,42 @@ func (m *FullStatus) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.LastSemiSyncRunningAt != nil {
+		size, err := m.LastSemiSyncRunningAt.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xea
+	}
+	if m.LastSemiSyncEnabledAt != nil {
+		size, err := m.LastSemiSyncEnabledAt.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xe2
+	}
+	if m.LastMysqlAliveAt != nil {
+		size, err := m.LastMysqlAliveAt.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xda
 	}
 	if m.MysqlUp {
 		i--
@@ -1098,6 +1138,18 @@ func (m *FullStatus) SizeVT() (n int) {
 	}
 	if m.MysqlUp {
 		n += 3
+	}
+	if m.LastMysqlAliveAt != nil {
+		l = m.LastMysqlAliveAt.SizeVT()
+		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.LastSemiSyncEnabledAt != nil {
+		l = m.LastSemiSyncEnabledAt.SizeVT()
+		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.LastSemiSyncRunningAt != nil {
+		l = m.LastSemiSyncRunningAt.SizeVT()
+		n += 2 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2834,6 +2886,114 @@ func (m *FullStatus) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.MysqlUp = bool(v != 0)
+		case 27:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastMysqlAliveAt", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LastMysqlAliveAt == nil {
+				m.LastMysqlAliveAt = &vttime.Time{}
+			}
+			if err := m.LastMysqlAliveAt.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 28:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastSemiSyncEnabledAt", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LastSemiSyncEnabledAt == nil {
+				m.LastSemiSyncEnabledAt = &vttime.Time{}
+			}
+			if err := m.LastSemiSyncEnabledAt.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 29:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastSemiSyncRunningAt", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LastSemiSyncRunningAt == nil {
+				m.LastSemiSyncRunningAt = &vttime.Time{}
+			}
+			if err := m.LastSemiSyncRunningAt.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
