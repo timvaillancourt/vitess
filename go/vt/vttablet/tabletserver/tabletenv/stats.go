@@ -61,7 +61,7 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 		MySQLTimings: exporter.NewTimings("Mysql", "MySQL query time", "operation"),
 		QueryTimings: exporter.NewTimings("Queries", "MySQL query timings", "plan_type"),
 		WaitTimings:  exporter.NewTimings("Waits", "Wait operations", "type"),
-		KillCounters: exporter.NewCountersWithSingleLabel("Kills", "Number of connections being killed", "query_type", "Transactions", "Queries", "ReservedConnection"),
+		KillCounters: exporter.NewCountersWithSingleLabel("Kills", "Number of connections being killed", "query_type", "Transactions", "Queries", "QueriesPushdown", "ReservedConnection"),
 		ErrorCounters: exporter.NewCountersWithSingleLabel(
 			"Errors",
 			"Critical errors",

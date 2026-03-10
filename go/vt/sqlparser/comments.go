@@ -65,6 +65,9 @@ const (
 
 	// OptimizerHintSetVar is the optimizer hint used in MySQL to set the value of a specific session variable for a query.
 	OptimizerHintSetVar = "SET_VAR"
+
+	// OptimizerHintMaxExecutionTime is the optimizer hint used in MySQL to set the maximum execution time for a SELECT query.
+	OptimizerHintMaxExecutionTime = "MAX_EXECUTION_TIME"
 )
 
 var ErrInvalidPriority = vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "Invalid priority value specified in query")
@@ -271,124 +274,134 @@ func (c *ParsedComments) Directives() *CommentDirectives {
 	return c._directives
 }
 
-// GetMySQLSetVarValue gets the value of the given variable if it is part of a /*+ SET_VAR() */ MySQL optimizer hint.
-func (c *ParsedComments) GetMySQLSetVarValue(key string) string {
+// iterateOptimizerHints iterates over all optimizer hints in the first /*+ ... */ comment block
+// and calls fn for each hint. Iteration stops early if fn returns false.
+func (c *ParsedComments) iterateOptimizerHints(fn func(hintName, hintContent string) bool) {
 	if c == nil {
-		// If we have no parsed comments, then we return an empty string.
-		return ""
+		return
 	}
 	for _, commentStr := range c.comments {
-		// Skip all the comments that don't start with the query optimizer prefix.
 		if commentStr[0:3] != queryOptimizerPrefix {
 			continue
 		}
-
 		pos := 4
 		for pos < len(commentStr) {
-			// Go over the entire comment and extract an optimizer hint.
-			// We get back the final position of the cursor, along with the start and end of
-			// the optimizer hint name and content.
 			finalPos, ohNameStart, ohNameEnd, ohContentStart, ohContentEnd := getOptimizerHint(pos, commentStr)
 			pos = finalPos + 1
-			// If we didn't find an optimizer hint or if it was malformed, we skip it.
 			if ohContentEnd == -1 {
 				break
 			}
-			// Construct the name and the content from the starts and ends.
-			ohName := commentStr[ohNameStart:ohNameEnd]
-			ohContent := commentStr[ohContentStart:ohContentEnd]
-			// Check if the optimizer hint name matches `SET_VAR`.
-			if strings.EqualFold(strings.TrimSpace(ohName), OptimizerHintSetVar) {
-				// If it does, then we cut the string at the first occurrence of "=".
-				// That gives us the name of the variable, and the value that it is being set to.
-				// If the variable matches what we are looking for, we return its value.
-				setVarName, setVarValue, isValid := strings.Cut(ohContent, "=")
-				if !isValid {
-					continue
-				}
-				if strings.EqualFold(strings.TrimSpace(setVarName), key) {
-					return strings.TrimSpace(setVarValue)
-				}
+			if !fn(commentStr[ohNameStart:ohNameEnd], commentStr[ohContentStart:ohContentEnd]) {
+				return
 			}
 		}
-
-		// MySQL only parses the first comment that has the optimizer hint prefix. The following ones are ignored.
-		return ""
-	}
-	return ""
-}
-
-// SetMySQLSetVarValue updates or sets the value of the given variable as part of a /*+ SET_VAR() */ MySQL optimizer hint.
-func (c *ParsedComments) SetMySQLSetVarValue(key string, value string) (newComments Comments) {
-	if c == nil {
-		// If we have no parsed comments, then we create a new one with the required optimizer hint and return it.
-		newComments = append(newComments, fmt.Sprintf("/*+ %v(%v=%v) */", OptimizerHintSetVar, key, value))
+		// MySQL only parses the first optimizer hint comment.
 		return
 	}
+}
+
+// setOptimizerHint sets or updates an optimizer hint in the /*+ ... */ comment block.
+// The match function is called for each hint and should return true if the hint should be replaced.
+// If no hint matches, the new hint is appended.
+func (c *ParsedComments) setOptimizerHint(hintName, value string, match func(hintName, hintContent string) bool) Comments {
+	newHint := fmt.Sprintf("%s(%s)", hintName, value)
+	if c == nil {
+		return Comments{fmt.Sprintf("/*+ %s */", newHint)}
+	}
+	var newComments Comments
 	seenFirstOhComment := false
 	for _, commentStr := range c.comments {
-		// Skip all the comments that don't start with the query optimizer prefix.
-		// Also, since MySQL only parses the first comment that has the optimizer hint prefix and ignores the following ones,
-		// we skip over all the comments that come after we have seen the first comment with the optimizer hint.
 		if seenFirstOhComment || commentStr[0:3] != queryOptimizerPrefix {
 			newComments = append(newComments, commentStr)
 			continue
 		}
 
 		seenFirstOhComment = true
-		finalComment := "/*+"
-		keyPresent := false
+		matched := false
 		pos := 4
-		var finalCommentSb342 strings.Builder
+		var sb strings.Builder
+		sb.WriteString("/*+")
 		for pos < len(commentStr) {
-			// Go over the entire comment and extract an optimizer hint.
-			// We get back the final position of the cursor, along with the start and end of
-			// the optimizer hint name and content.
 			finalPos, ohNameStart, ohNameEnd, ohContentStart, ohContentEnd := getOptimizerHint(pos, commentStr)
 			pos = finalPos + 1
-			// If we didn't find an optimizer hint or if it was malformed, we skip it.
 			if ohContentEnd == -1 {
 				break
 			}
-			// Construct the name and the content from the starts and ends.
 			ohName := commentStr[ohNameStart:ohNameEnd]
 			ohContent := commentStr[ohContentStart:ohContentEnd]
-			// Check if the optimizer hint name matches `SET_VAR`.
-			if strings.EqualFold(strings.TrimSpace(ohName), OptimizerHintSetVar) {
-				// If it does, then we cut the string at the first occurrence of "=".
-				// That gives us the name of the variable, and the value that it is being set to.
-				// If the variable matches what we are looking for, we can change its value.
-				// Otherwise we add the comment as is to our final comments and move on.
-				setVarName, _, isValid := strings.Cut(ohContent, "=")
-				if !isValid || !strings.EqualFold(strings.TrimSpace(setVarName), key) {
-					finalCommentSb342.WriteString(fmt.Sprintf(" %v(%v)", ohName, ohContent))
-					continue
-				}
-				if strings.EqualFold(strings.TrimSpace(setVarName), key) {
-					keyPresent = true
-					finalCommentSb342.WriteString(fmt.Sprintf(" %v(%v=%v)", ohName, strings.TrimSpace(setVarName), value))
-				}
+			if match(ohName, ohContent) {
+				matched = true
+				sb.WriteString(" " + newHint)
 			} else {
-				// If it doesn't match, we add it to our final comment and move on.
-				finalCommentSb342.WriteString(fmt.Sprintf(" %v(%v)", ohName, ohContent))
+				fmt.Fprintf(&sb, " %s(%s)", ohName, ohContent)
 			}
 		}
-		finalComment += finalCommentSb342.String()
-		// If we haven't found any SET_VAR optimizer hint with the matching variable,
-		// then we add a new optimizer hint to introduce this variable.
-		if !keyPresent {
-			finalComment += fmt.Sprintf(" %v(%v=%v)", OptimizerHintSetVar, key, value)
+		if !matched {
+			sb.WriteString(" " + newHint)
 		}
-
-		finalComment += " */"
-		newComments = append(newComments, finalComment)
+		sb.WriteString(" */")
+		newComments = append(newComments, sb.String())
 	}
-	// If we have not seen even a single comment that has the optimizer hint prefix,
-	// then we add a new optimizer hint to introduce this variable.
 	if !seenFirstOhComment {
-		newComments = append(newComments, fmt.Sprintf("/*+ %v(%v=%v) */", OptimizerHintSetVar, key, value))
+		newComments = append(newComments, fmt.Sprintf("/*+ %s */", newHint))
 	}
 	return newComments
+}
+
+// GetMySQLSetVarValue gets the value of the given variable if it is part of a /*+ SET_VAR() */ MySQL optimizer hint.
+func (c *ParsedComments) GetMySQLSetVarValue(key string) string {
+	var result string
+	c.iterateOptimizerHints(func(hintName, hintContent string) bool {
+		if !strings.EqualFold(strings.TrimSpace(hintName), OptimizerHintSetVar) {
+			return true
+		}
+		setVarName, setVarValue, isValid := strings.Cut(hintContent, "=")
+		if isValid && strings.EqualFold(strings.TrimSpace(setVarName), key) {
+			result = strings.TrimSpace(setVarValue)
+			return false
+		}
+		return true
+	})
+	return result
+}
+
+// SetMySQLSetVarValue updates or sets the value of the given variable as part of a /*+ SET_VAR() */ MySQL optimizer hint.
+func (c *ParsedComments) SetMySQLSetVarValue(key, value string) Comments {
+	return c.setOptimizerHint(OptimizerHintSetVar, fmt.Sprintf("%s=%s", key, value), func(hintName, hintContent string) bool {
+		if !strings.EqualFold(strings.TrimSpace(hintName), OptimizerHintSetVar) {
+			return false
+		}
+		setVarName, _, isValid := strings.Cut(hintContent, "=")
+		return isValid && strings.EqualFold(strings.TrimSpace(setVarName), key)
+	})
+}
+
+// GetMaxExecutionTime returns the MAX_EXECUTION_TIME optimizer hint value in milliseconds and
+// whether it was found. It returns (0, false) if no MAX_EXECUTION_TIME hint is present or if the
+// value cannot be parsed as an integer.
+func (c *ParsedComments) GetMaxExecutionTime() (int, bool) {
+	var result int
+	var found bool
+	c.iterateOptimizerHints(func(hintName, hintContent string) bool {
+		if !strings.EqualFold(strings.TrimSpace(hintName), OptimizerHintMaxExecutionTime) {
+			return true
+		}
+		millis, err := strconv.Atoi(strings.TrimSpace(hintContent))
+		if err != nil {
+			return false
+		}
+		result = millis
+		found = true
+		return false
+	})
+	return result, found
+}
+
+// SetMaxExecutionTime sets or updates the MAX_EXECUTION_TIME optimizer hint value in milliseconds.
+func (c *ParsedComments) SetMaxExecutionTime(millis int) Comments {
+	return c.setOptimizerHint(OptimizerHintMaxExecutionTime, strconv.Itoa(millis), func(hintName, _ string) bool {
+		return strings.EqualFold(strings.TrimSpace(hintName), OptimizerHintMaxExecutionTime)
+	})
 }
 
 // getOptimizerHint goes over the comment string from the given initial position.

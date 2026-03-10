@@ -368,6 +368,12 @@ func (qre *QueryExecutor) Stream(callback StreamCallback) error {
 	if err != nil {
 		return err
 	}
+	if qre.tsv.config.QueryKillSelectPushdown {
+		sql, err = qre.injectMaxExecutionTime(sql)
+		if err != nil {
+			return err
+		}
+	}
 
 	var replaceKeyspace string
 	if sqltypes.IncludeFieldsOrDefault(qre.options) == querypb.ExecuteOptions_ALL && qre.tsv.sm.target.Keyspace != qre.tsv.config.DB.DBName {
@@ -733,12 +739,75 @@ func (qre *QueryExecutor) execNextval() (*sqltypes.Result, error) {
 	}, nil
 }
 
+const (
+	// queryKillSelectPushdownBufferFraction is the fraction of the query timeout added as
+	// buffer to the context deadline when query-kill-select-pushdown is enabled.
+	queryKillSelectPushdownBufferFraction = 0.2
+
+	// queryKillSelectPushdownBufferMin is the minimum buffer added to the context deadline.
+	queryKillSelectPushdownBufferMin = time.Second
+
+	// queryKillSelectPushdownBufferMax is the maximum buffer added to the context deadline.
+	queryKillSelectPushdownBufferMax = 5 * time.Second
+)
+
+// QueryKillSelectPushdownBuffer returns the additional time to add to the context deadline
+// when query-kill-select-pushdown is enabled. This gives MySQL time to reach a checkpoint
+// and kill the query internally via MAX_EXECUTION_TIME before the context-based KILL QUERY
+// fires as a fallback.
+func QueryKillSelectPushdownBuffer(timeout time.Duration) time.Duration {
+	buffer := time.Duration(float64(timeout) * queryKillSelectPushdownBufferFraction)
+	return max(queryKillSelectPushdownBufferMin, min(buffer, queryKillSelectPushdownBufferMax))
+}
+
+// injectMaxExecutionTime injects a MAX_EXECUTION_TIME optimizer hint into a SELECT query
+// when query-kill-select-pushdown is enabled. The priority is:
+//  1. If QUERY_TIMEOUT_MS directive is present (options.Timeout is set), its value is used
+//     and overrides any existing MAX_EXECUTION_TIME in the query.
+//  2. If no QUERY_TIMEOUT_MS but MAX_EXECUTION_TIME already exists, leave it alone.
+//  3. If neither exists, use the configured query timeout from the VTTablet flag.
+func (qre *QueryExecutor) injectMaxExecutionTime(sql string) (string, error) {
+	timeout := qre.tsv.loadQueryTimeoutWithOptions(qre.options)
+	if timeout <= 0 {
+		return sql, nil
+	}
+
+	stmt, err := qre.tsv.env.Parser().Parse(sql)
+	if err != nil {
+		return sql, nil
+	}
+
+	sel, ok := stmt.(*sqlparser.Select)
+	if !ok {
+		return sql, nil
+	}
+
+	comments := sel.GetParsedComments()
+	hasQueryTimeoutDirective := qre.options != nil && qre.options.Timeout != nil
+	_, hasMaxExecTime := comments.GetMaxExecutionTime()
+
+	if hasMaxExecTime && !hasQueryTimeoutDirective {
+		return sql, nil
+	}
+
+	millis := int(timeout.Milliseconds())
+	newComments := comments.SetMaxExecutionTime(millis)
+	sel.SetComments(newComments)
+	return sqlparser.String(stmt), nil
+}
+
 // execSelect sends a query to mysql only if another identical query is not running. Otherwise, it waits and
 // reuses the result. If the plan is missing field info, it sends the query to mysql requesting full info.
 func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 	sql, sqlWithoutComments, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err
+	}
+	if qre.tsv.config.QueryKillSelectPushdown {
+		sql, err = qre.injectMaxExecutionTime(sql)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Check tablet type.
 	if qre.shouldConsolidate() {

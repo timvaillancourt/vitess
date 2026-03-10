@@ -196,7 +196,22 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return nil, dbcErr
 		}
+		dbc.handleMaxExecutionTimeError(r.err, now)
 		return r.result, r.err
+	}
+}
+
+// handleMaxExecutionTimeError checks if the error is a MySQL ERQueryTimeout (3024) and if so,
+// increments the kill counter and logs the event. This handles queries killed internally by MySQL
+// via the MAX_EXECUTION_TIME optimizer hint.
+func (dbc *Conn) handleMaxExecutionTimeError(err error, start time.Time) {
+	if err == nil {
+		return
+	}
+	var sqlErr *sqlerror.SQLError
+	if errors.As(err, &sqlErr) && sqlErr.Num == sqlerror.ERQueryTimeout {
+		dbc.stats.KillCounters.Add("QueriesPushdown", 1)
+		log.Info(fmt.Sprintf("Query killed by MAX_EXECUTION_TIME, elapsed time: %v, query ID %v %s", time.Since(start), dbc.conn.ID(), dbc.CurrentForLogging()))
 	}
 }
 
@@ -329,6 +344,7 @@ func (dbc *Conn) streamOnce(
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return dbcErr
 		}
+		dbc.handleMaxExecutionTimeError(err, now)
 		return err
 	}
 }

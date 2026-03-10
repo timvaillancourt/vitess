@@ -1679,6 +1679,115 @@ func newQueryExec(ctx context.Context, tsv *TabletServer, sql string, txID int64
 	}
 }
 
+func TestQueryExecutorInjectMaxExecutionTime(t *testing.T) {
+	db := setUpQueryExecutorTest(t)
+	defer db.Close()
+	ctx := context.Background()
+	tsv := newTestTabletServer(ctx, noFlags, db)
+	defer tsv.StopService()
+
+	// Set a 30s query timeout (the default).
+	tsv.QueryTimeout.Store((30 * time.Second).Nanoseconds())
+
+	testcases := []struct {
+		name    string
+		sql     string
+		options *querypb.ExecuteOptions
+		want    string
+	}{
+		{
+			name: "simple select gets MAX_EXECUTION_TIME",
+			sql:  "select * from test_table",
+			want: "select /*+ MAX_EXECUTION_TIME(30000) */ * from test_table",
+		},
+		{
+			name: "select with existing MAX_EXECUTION_TIME is left alone",
+			sql:  "select /*+ MAX_EXECUTION_TIME(500) */ * from test_table",
+			want: "select /*+ MAX_EXECUTION_TIME(500) */ * from test_table",
+		},
+		{
+			name:    "QUERY_TIMEOUT_MS overrides existing MAX_EXECUTION_TIME",
+			sql:     "select /*+ MAX_EXECUTION_TIME(500) */ * from test_table",
+			options: &querypb.ExecuteOptions{Timeout: &querypb.ExecuteOptions_AuthoritativeTimeout{AuthoritativeTimeout: 1000}},
+			want:    "select /*+ MAX_EXECUTION_TIME(1000) */ * from test_table",
+		},
+		{
+			name:    "QUERY_TIMEOUT_MS sets MAX_EXECUTION_TIME when none exists",
+			sql:     "select * from test_table",
+			options: &querypb.ExecuteOptions{Timeout: &querypb.ExecuteOptions_AuthoritativeTimeout{AuthoritativeTimeout: 2000}},
+			want:    "select /*+ MAX_EXECUTION_TIME(2000) */ * from test_table",
+		},
+		{
+			name: "select with other optimizer hints gets MAX_EXECUTION_TIME added",
+			sql:  "select /*+ SET_VAR(sort_buffer_size=16M) */ * from test_table",
+			want: "select /*+ SET_VAR(sort_buffer_size=16M) MAX_EXECUTION_TIME(30000) */ * from test_table",
+		},
+		{
+			name:    "QUERY_TIMEOUT_MS overrides MAX_EXECUTION_TIME among other hints",
+			sql:     "select /*+ SET_VAR(sort_buffer_size=16M) MAX_EXECUTION_TIME(500) */ * from test_table",
+			options: &querypb.ExecuteOptions{Timeout: &querypb.ExecuteOptions_AuthoritativeTimeout{AuthoritativeTimeout: 750}},
+			want:    "select /*+ SET_VAR(sort_buffer_size=16M) MAX_EXECUTION_TIME(750) */ * from test_table",
+		},
+		{
+			name: "non-select is returned unchanged",
+			sql:  "update test_table set a = 1",
+			want: "update test_table set a = 1",
+		},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			qre := &QueryExecutor{
+				ctx:     ctx,
+				options: tc.options,
+				tsv:     tsv,
+			}
+			got, err := qre.injectMaxExecutionTime(tc.sql)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestQueryKillSelectPushdownBuffer(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration
+	}{
+		{
+			name:    "very short timeout uses min buffer",
+			timeout: 50 * time.Millisecond,
+			want:    time.Second,
+		},
+		{
+			name:    "5s timeout uses min buffer",
+			timeout: 5 * time.Second,
+			want:    time.Second,
+		},
+		{
+			name:    "10s timeout uses 20%",
+			timeout: 10 * time.Second,
+			want:    2 * time.Second,
+		},
+		{
+			name:    "30s timeout capped at max",
+			timeout: 30 * time.Second,
+			want:    5 * time.Second,
+		},
+		{
+			name:    "60s timeout capped at max",
+			timeout: 60 * time.Second,
+			want:    5 * time.Second,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := QueryKillSelectPushdownBuffer(tc.timeout)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func setUpQueryExecutorTest(t *testing.T) *fakesqldb.DB {
 	db := fakesqldb.New(t)
 	initQueryExecutorTestDB(db)

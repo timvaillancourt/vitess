@@ -643,7 +643,7 @@ func TestSetMySQLSetVarValue(t *testing.T) {
 			comments:       []string{"/*+ SET_VAR(optimizer_switch = 'mrr_cost_b(ased=of\"f') SET_VAR( foReiGn_key_checks = On) */"},
 			key:            sysvars.ForeignKeyChecks,
 			value:          "off",
-			commentsWanted: []string{"/*+ SET_VAR(optimizer_switch = 'mrr_cost_b(ased=of\"f') SET_VAR(foReiGn_key_checks=off) */"},
+			commentsWanted: []string{"/*+ SET_VAR(optimizer_switch = 'mrr_cost_b(ased=of\"f') SET_VAR(foreign_key_checks=off) */"},
 		},
 		{
 			name:           "Leading comment is a normal comment",
@@ -662,6 +662,147 @@ func TestSetMySQLSetVarValue(t *testing.T) {
 			require.EqualValues(t, tt.commentsWanted, newComments)
 		})
 	}
+}
+
+func TestGetMaxExecutionTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		comments []string
+		want     int
+		wantOK   bool
+	}{
+		{
+			name:   "no comments",
+			want:   0,
+			wantOK: false,
+		},
+		{
+			name:     "no optimizer hint",
+			comments: []string{"/* normal comment */"},
+			want:     0,
+			wantOK:   false,
+		},
+		{
+			name:     "optimizer hint without MAX_EXECUTION_TIME",
+			comments: []string{"/*+ SET_VAR(sort_buffer_size=16M) */"},
+			want:     0,
+			wantOK:   false,
+		},
+		{
+			name:     "MAX_EXECUTION_TIME only",
+			comments: []string{"/*+ MAX_EXECUTION_TIME(1000) */"},
+			want:     1000,
+			wantOK:   true,
+		},
+		{
+			name:     "MAX_EXECUTION_TIME with other hints",
+			comments: []string{"/*+ SET_VAR(foreign_key_checks=OFF) MAX_EXECUTION_TIME(500) NO_ICP(t1) */"},
+			want:     500,
+			wantOK:   true,
+		},
+		{
+			name:     "MAX_EXECUTION_TIME first among hints",
+			comments: []string{"/*+ MAX_EXECUTION_TIME(2000) SET_VAR(sort_buffer_size=16M) */"},
+			want:     2000,
+			wantOK:   true,
+		},
+		{
+			name:     "normal comment before optimizer hint",
+			comments: []string{"/* normal comment */", "/*+ MAX_EXECUTION_TIME(750) */"},
+			want:     750,
+			wantOK:   true,
+		},
+		{
+			name:     "invalid value",
+			comments: []string{"/*+ MAX_EXECUTION_TIME(abc) */"},
+			want:     0,
+			wantOK:   false,
+		},
+		{
+			name:     "zero value",
+			comments: []string{"/*+ MAX_EXECUTION_TIME(0) */"},
+			want:     0,
+			wantOK:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &ParsedComments{
+				comments: tt.comments,
+			}
+			got, ok := c.GetMaxExecutionTime()
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("nil ParsedComments", func(t *testing.T) {
+		var c *ParsedComments
+		got, ok := c.GetMaxExecutionTime()
+		assert.False(t, ok)
+		assert.Equal(t, 0, got)
+	})
+}
+
+func TestSetMaxExecutionTime(t *testing.T) {
+	tests := []struct {
+		name           string
+		comments       []string
+		millis         int
+		commentsWanted Comments
+	}{
+		{
+			name:           "no existing comments",
+			comments:       nil,
+			millis:         1000,
+			commentsWanted: Comments{"/*+ MAX_EXECUTION_TIME(1000) */"},
+		},
+		{
+			name:           "existing optimizer hint without MAX_EXECUTION_TIME",
+			comments:       []string{"/*+ SET_VAR(sort_buffer_size=16M) */"},
+			millis:         500,
+			commentsWanted: Comments{"/*+ SET_VAR(sort_buffer_size=16M) MAX_EXECUTION_TIME(500) */"},
+		},
+		{
+			name:           "existing MAX_EXECUTION_TIME gets updated",
+			comments:       []string{"/*+ MAX_EXECUTION_TIME(1000) */"},
+			millis:         2000,
+			commentsWanted: Comments{"/*+ MAX_EXECUTION_TIME(2000) */"},
+		},
+		{
+			name:           "MAX_EXECUTION_TIME among other hints gets updated",
+			comments:       []string{"/*+ SET_VAR(foreign_key_checks=OFF) MAX_EXECUTION_TIME(1000) NO_ICP(t1) */"},
+			millis:         3000,
+			commentsWanted: Comments{"/*+ SET_VAR(foreign_key_checks=OFF) MAX_EXECUTION_TIME(3000) NO_ICP(t1) */"},
+		},
+		{
+			name:           "normal comment preserved",
+			comments:       []string{"/* normal comment */", "/*+ MAX_EXECUTION_TIME(1000) */"},
+			millis:         500,
+			commentsWanted: Comments{"/* normal comment */", "/*+ MAX_EXECUTION_TIME(500) */"},
+		},
+		{
+			name:           "zero value",
+			comments:       nil,
+			millis:         0,
+			commentsWanted: Comments{"/*+ MAX_EXECUTION_TIME(0) */"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &ParsedComments{
+				comments: tt.comments,
+			}
+			newComments := c.SetMaxExecutionTime(tt.millis)
+			assert.EqualValues(t, tt.commentsWanted, newComments)
+		})
+	}
+
+	t.Run("nil ParsedComments", func(t *testing.T) {
+		var c *ParsedComments
+		newComments := c.SetMaxExecutionTime(1000)
+		assert.EqualValues(t, Comments{"/*+ MAX_EXECUTION_TIME(1000) */"}, newComments)
+	})
 }
 
 // TestQueryTimeout tests the extraction of Query_Timeout_MS from the comments.

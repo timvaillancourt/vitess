@@ -660,6 +660,120 @@ func TestDBExecKillTimeout(t *testing.T) {
 	})
 }
 
+func TestDBConnKillCounters(t *testing.T) {
+	setupConn := func(t *testing.T, db *fakesqldb.DB) (*Conn, *Pool) {
+		t.Helper()
+		connPool := newPool()
+		params := dbconfigs.New(db.ConnParams())
+		connPool.Open(params, params, params)
+		dbConn, err := newPooledConn(context.Background(), connPool, params)
+		require.NoError(t, err)
+		return dbConn, connPool
+	}
+
+	t.Run("exec context deadline increments Queries counter", func(t *testing.T) {
+		db := fakesqldb.New(t)
+		defer db.Close()
+		db.AddQuery("sleep", &sqltypes.Result{})
+		db.SetBeforeFunc("sleep", func() {
+			time.Sleep(100 * time.Millisecond)
+		})
+		db.AddQueryPattern(`kill query \d+`, &sqltypes.Result{})
+
+		dbConn, connPool := setupConn(t, db)
+		defer connPool.Close()
+		defer dbConn.Close()
+
+		killCountsBefore := dbConn.stats.KillCounters.Counts()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
+		_, err := dbConn.Exec(ctx, "sleep", 1, false)
+		require.Error(t, err)
+
+		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
+		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
+	})
+
+	t.Run("stream context deadline increments Queries counter", func(t *testing.T) {
+		db := fakesqldb.New(t)
+		defer db.Close()
+		db.AddQuery("sleep", &sqltypes.Result{})
+		db.SetBeforeFunc("sleep", func() {
+			time.Sleep(100 * time.Millisecond)
+		})
+		db.AddQueryPattern(`kill query \d+`, &sqltypes.Result{})
+
+		dbConn, connPool := setupConn(t, db)
+		defer connPool.Close()
+		defer dbConn.Close()
+
+		killCountsBefore := dbConn.stats.KillCounters.Counts()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
+		err := dbConn.Stream(ctx, "sleep", func(r *sqltypes.Result) error { return nil }, alloc, 10, querypb.ExecuteOptions_ALL)
+		require.Error(t, err)
+
+		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
+		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
+	})
+
+	t.Run("exec ERQueryTimeout increments QueriesPushdown counter", func(t *testing.T) {
+		db := fakesqldb.New(t)
+		defer db.Close()
+		sql := "select /*+ MAX_EXECUTION_TIME(1000) */ * from test_table"
+		db.AddRejectedQuery(sql, &sqlerror.SQLError{
+			Num:     sqlerror.ERQueryTimeout,
+			State:   "HY000",
+			Message: "Query execution was interrupted, maximum statement execution time exceeded",
+		})
+
+		dbConn, connPool := setupConn(t, db)
+		defer connPool.Close()
+		defer dbConn.Close()
+
+		killCountsBefore := dbConn.stats.KillCounters.Counts()
+
+		_, err := dbConn.Exec(context.Background(), sql, 1, false)
+		require.Error(t, err)
+
+		var sqlErr *sqlerror.SQLError
+		require.True(t, errors.As(err, &sqlErr))
+		assert.Equal(t, sqlerror.ERQueryTimeout, sqlErr.Num)
+
+		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
+		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
+	})
+
+	t.Run("stream ERQueryTimeout increments QueriesPushdown counter", func(t *testing.T) {
+		db := fakesqldb.New(t)
+		defer db.Close()
+		sql := "select /*+ MAX_EXECUTION_TIME(1000) */ * from test_table"
+		db.AddRejectedQuery(sql, &sqlerror.SQLError{
+			Num:     sqlerror.ERQueryTimeout,
+			State:   "HY000",
+			Message: "Query execution was interrupted, maximum statement execution time exceeded",
+		})
+
+		dbConn, connPool := setupConn(t, db)
+		defer connPool.Close()
+		defer dbConn.Close()
+
+		killCountsBefore := dbConn.stats.KillCounters.Counts()
+
+		err := dbConn.Stream(context.Background(), sql, func(r *sqltypes.Result) error { return nil }, alloc, 10, querypb.ExecuteOptions_ALL)
+		require.Error(t, err)
+
+		var sqlErr *sqlerror.SQLError
+		require.True(t, errors.As(err, &sqlErr))
+		assert.Equal(t, sqlerror.ERQueryTimeout, sqlErr.Num)
+
+		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
+		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
+	})
+}
+
 func executeWithTimeout(
 	t *testing.T,
 	expectedKillQuery string,
