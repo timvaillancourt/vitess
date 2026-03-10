@@ -193,12 +193,12 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 
 	select {
 	case <-ctx.Done():
-		// When query-kill-select-pushdown is enabled and we're not in a transaction,
+		// When select-kill-pushdown is enabled and we're not in a transaction,
 		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
 		// MAX_EXECUTION_TIME before falling back to KILL QUERY. This avoids a race
 		// where the context cancellation fires KILL QUERY before MySQL's internal
 		// timeout has a chance to respond.
-		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().QueryKillSelectPushdown {
+		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
 			select {
 			case r := <-ch:
 				return r.result, dbc.handleMaxExecutionTimeError(r.err, now)
@@ -357,10 +357,10 @@ func (dbc *Conn) streamOnce(
 
 	select {
 	case <-ctx.Done():
-		// When query-kill-select-pushdown is enabled and we're not in a transaction,
+		// When select-kill-pushdown is enabled and we're not in a transaction,
 		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
 		// MAX_EXECUTION_TIME before falling back to KILL QUERY.
-		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().QueryKillSelectPushdown {
+		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
 			select {
 			case err := <-ch:
 				return dbc.handleMaxExecutionTimeError(err, now)

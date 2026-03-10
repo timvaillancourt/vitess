@@ -266,14 +266,14 @@ func TestQueryKillSelectPushdown(t *testing.T) {
 	// Get the unsharded keyspace primary tablet.
 	primaryTablet := clusterInstance.Keyspaces[0].Shards[0].PrimaryTablet()
 
-	// Restart the tablet with --query-kill-select-pushdown enabled.
+	// Restart the tablet with --queryserver-config-select-kill-pushdown enabled.
 	err := primaryTablet.VttabletProcess.TearDown()
 	require.NoError(t, err)
-	primaryTablet.VttabletProcess.ExtraArgs = append(primaryTablet.VttabletProcess.ExtraArgs, "--query-kill-select-pushdown")
+	primaryTablet.VttabletProcess.ExtraArgs = append(primaryTablet.VttabletProcess.ExtraArgs, "--queryserver-config-select-kill-pushdown")
 	err = primaryTablet.VttabletProcess.Setup()
 	require.NoError(t, err)
 	defer func() {
-		// Restore the tablet without --query-kill-select-pushdown.
+		// Restore the tablet without --queryserver-config-select-kill-pushdown.
 		err := primaryTablet.VttabletProcess.TearDown()
 		require.NoError(t, err)
 		args := primaryTablet.VttabletProcess.ExtraArgs

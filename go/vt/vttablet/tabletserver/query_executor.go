@@ -368,7 +368,7 @@ func (qre *QueryExecutor) Stream(callback StreamCallback) error {
 	if err != nil {
 		return err
 	}
-	if qre.tsv.config.QueryKillSelectPushdown {
+	if qre.tsv.config.Oltp.SelectKillPushdown {
 		sql, err = qre.injectMaxExecutionTime(sql)
 		if err != nil {
 			return err
@@ -741,7 +741,7 @@ func (qre *QueryExecutor) execNextval() (*sqltypes.Result, error) {
 
 const (
 	// queryKillSelectPushdownBufferFraction is the fraction of the query timeout added as
-	// buffer to the context deadline when query-kill-select-pushdown is enabled.
+	// buffer to the context deadline when select-kill-pushdown is enabled.
 	queryKillSelectPushdownBufferFraction = 0.2
 
 	// queryKillSelectPushdownBufferMin is the minimum buffer added to the context deadline.
@@ -752,7 +752,7 @@ const (
 )
 
 // QueryKillSelectPushdownBuffer returns the additional time to add to the context deadline
-// when query-kill-select-pushdown is enabled. This gives MySQL time to reach a checkpoint
+// when select-kill-pushdown is enabled. This gives MySQL time to reach a checkpoint
 // and kill the query internally via MAX_EXECUTION_TIME before the context-based KILL QUERY
 // fires as a fallback.
 func QueryKillSelectPushdownBuffer(timeout time.Duration) time.Duration {
@@ -761,7 +761,7 @@ func QueryKillSelectPushdownBuffer(timeout time.Duration) time.Duration {
 }
 
 // injectMaxExecutionTime injects a MAX_EXECUTION_TIME optimizer hint into a SELECT query
-// when query-kill-select-pushdown is enabled. The priority is:
+// when select-kill-pushdown is enabled. The priority is:
 //  1. If QUERY_TIMEOUT_MS directive is present (options.Timeout is set), its value is used
 //     and overrides any existing MAX_EXECUTION_TIME in the query.
 //  2. If no QUERY_TIMEOUT_MS but MAX_EXECUTION_TIME already exists, leave it alone.
@@ -803,7 +803,7 @@ func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if qre.tsv.config.QueryKillSelectPushdown {
+	if qre.tsv.config.Oltp.SelectKillPushdown {
 		sql, err = qre.injectMaxExecutionTime(sql)
 		if err != nil {
 			return nil, err

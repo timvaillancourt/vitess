@@ -143,7 +143,7 @@ func registerTabletEnvFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&currentConfig.SignalWhenSchemaChange, "queryserver-config-schema-change-signal", defaultConfig.SignalWhenSchemaChange, "query server schema signal, will signal connected vtgates that schema has changed whenever this is detected. VTGates will need to have -schema-change-signal enabled for this to work")
 	fs.DurationVar(&currentConfig.Olap.TxTimeout, "queryserver-config-olap-transaction-timeout", defaultConfig.Olap.TxTimeout, "query server transaction timeout (in seconds), after which a transaction in an OLAP session will be killed")
 	fs.DurationVar(&currentConfig.Oltp.QueryTimeout, "queryserver-config-query-timeout", defaultConfig.Oltp.QueryTimeout, "query server query timeout, this is the query timeout in vttablet side. If a query takes more than this timeout, it will be killed.")
-	fs.BoolVar(&currentConfig.QueryKillSelectPushdown, "query-kill-select-pushdown", defaultConfig.QueryKillSelectPushdown, "push down query killing for SELECT queries to MySQL using the MAX_EXECUTION_TIME optimizer hint")
+	fs.BoolVar(&currentConfig.Oltp.SelectKillPushdown, "queryserver-config-select-kill-pushdown", defaultConfig.Oltp.SelectKillPushdown, "push down query killing for SELECT queries to MySQL using the MAX_EXECUTION_TIME optimizer hint")
 	fs.DurationVar(&currentConfig.OltpReadPool.Timeout, "queryserver-config-query-pool-timeout", defaultConfig.OltpReadPool.Timeout, "query server query pool timeout, it is how long vttablet waits for a connection from the query pool. If set to 0 (default) then the overall query timeout is used instead.")
 	fs.DurationVar(&currentConfig.OlapReadPool.Timeout, "queryserver-config-stream-pool-timeout", defaultConfig.OlapReadPool.Timeout, "query server stream pool timeout, it is how long vttablet waits for a connection from the stream pool. If set to 0 (default) then there is no timeout.")
 	fs.DurationVar(&currentConfig.TxPool.Timeout, "queryserver-config-txpool-timeout", defaultConfig.TxPool.Timeout, "query server transaction pool timeout, it is how long vttablet waits if tx pool is full")
@@ -382,8 +382,6 @@ type TabletConfig struct {
 	EnablePerWorkloadTableMetrics       bool          `json:"-"`
 	SkipUserMetrics                     bool          `json:"-"`
 	QueryThrottlerConfigRefreshInterval time.Duration `json:"-"`
-
-	QueryKillSelectPushdown bool `json:"-"`
 }
 
 func (cfg *TabletConfig) MarshalJSON() ([]byte, error) {
@@ -565,10 +563,11 @@ func (cfg *OlapConfig) UnmarshalJSON(data []byte) (err error) {
 
 // OltpConfig contains the config for oltp settings.
 type OltpConfig struct {
-	QueryTimeout time.Duration `json:"queryTimeoutSeconds,omitempty"`
-	TxTimeout    time.Duration `json:"txTimeoutSeconds,omitempty"`
-	MaxRows      int           `json:"maxRows,omitempty"`
-	WarnRows     int           `json:"warnRows,omitempty"`
+	QueryTimeout       time.Duration `json:"queryTimeoutSeconds,omitempty"`
+	TxTimeout          time.Duration `json:"txTimeoutSeconds,omitempty"`
+	MaxRows            int           `json:"maxRows,omitempty"`
+	WarnRows           int           `json:"warnRows,omitempty"`
+	SelectKillPushdown bool          `json:"-"`
 }
 
 func (cfg *OltpConfig) MarshalJSON() ([]byte, error) {
