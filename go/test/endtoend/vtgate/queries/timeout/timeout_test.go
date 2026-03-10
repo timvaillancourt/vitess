@@ -18,6 +18,8 @@ package misc
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/mysql"
+	"vitess.io/vitess/go/test/endtoend/cluster"
 	"vitess.io/vitess/go/test/endtoend/utils"
 )
 
@@ -214,4 +217,94 @@ func TestOverallQueryTimeout(t *testing.T) {
 	// Increasing the timeout should pass the query.
 	utils.Exec(t, mcmp.VtConn, "set query_timeout=10000")
 	_ = utils.Exec(t, mcmp.VtConn, "select sleep(u2.id2), u1.id2 from t1 u1 join t1 u2 where u1.id2 = u2.id1")
+}
+
+// getKillCounter returns the value of a specific KillCounters label from vttablet debug/vars.
+func getKillCounter(t *testing.T, tablet *cluster.VttabletProcess, label string) float64 {
+	t.Helper()
+	vars := tablet.GetVars()
+	require.Contains(t, vars, "Kills")
+	kills := vars["Kills"].(map[string]any)
+	require.Contains(t, kills, label)
+	return kills[label].(float64)
+}
+
+// getMySQLStatusValue returns a MySQL global status variable value as an integer.
+func getMySQLStatusValue(t *testing.T, tablet *cluster.VttabletProcess, keyspace, statusVar string) int64 {
+	t.Helper()
+	result, err := tablet.QueryTablet(
+		fmt.Sprintf("SHOW GLOBAL STATUS LIKE '%s'", statusVar),
+		keyspace, false,
+	)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1, "expected exactly one row for status variable %s", statusVar)
+	val, err := strconv.ParseInt(result.Rows[0][1].ToString(), 10, 64)
+	require.NoError(t, err)
+	return val
+}
+
+func TestQueryKillSelectPushdown(t *testing.T) {
+	// Disable VTGate's query timeout so only the tablet-level timeout applies.
+	// This ensures VTGate's context deadline doesn't race with MySQL's MAX_EXECUTION_TIME.
+	clusterInstance.VtGateExtraArgs = append(clusterInstance.VtGateExtraArgs,
+		"--query-timeout", "0")
+	require.NoError(t, clusterInstance.RestartVtgate())
+	defer func() {
+		// Restore VTGate with original timeout.
+		clusterInstance.VtGateExtraArgs = append(clusterInstance.VtGateExtraArgs,
+			"--query-timeout", "100")
+		require.NoError(t, clusterInstance.RestartVtgate())
+	}()
+	vtParams = clusterInstance.GetVTParams(keyspaceName)
+
+	// Get the unsharded keyspace primary tablet.
+	primaryTablet := clusterInstance.Keyspaces[0].Shards[0].PrimaryTablet()
+
+	// Restart the tablet with --query-kill-select-pushdown enabled.
+	err := primaryTablet.VttabletProcess.TearDown()
+	require.NoError(t, err)
+	primaryTablet.VttabletProcess.ExtraArgs = append(primaryTablet.VttabletProcess.ExtraArgs, "--query-kill-select-pushdown")
+	err = primaryTablet.VttabletProcess.Setup()
+	require.NoError(t, err)
+	defer func() {
+		// Restore the tablet without --query-kill-select-pushdown.
+		err := primaryTablet.VttabletProcess.TearDown()
+		require.NoError(t, err)
+		args := primaryTablet.VttabletProcess.ExtraArgs
+		primaryTablet.VttabletProcess.ExtraArgs = args[:len(args)-1]
+		err = primaryTablet.VttabletProcess.Setup()
+		require.NoError(t, err)
+	}()
+
+	// Connect to VTGate targeting the unsharded keyspace.
+	conn, err := mysql.Connect(context.Background(), &vtParams)
+	require.NoError(t, err)
+	defer conn.Close()
+	utils.Exec(t, conn, "use uks")
+
+	// Record initial counters.
+	pushdownBefore := getKillCounter(t, primaryTablet.VttabletProcess, "QueriesPushdown")
+	queriesBefore := getKillCounter(t, primaryTablet.VttabletProcess, "Queries")
+	mysqlExceededBefore := getMySQLStatusValue(t, primaryTablet.VttabletProcess, uks, "Max_execution_time_exceeded")
+
+	// The tablet has --queryserver-config-query-timeout=2s, so MySQL gets MAX_EXECUTION_TIME(2000).
+	// The context gets 2s + 1s buffer = 3s. sleep(10) will be killed by MySQL at ~2s.
+	_, err = utils.ExecAllowError(t, conn, "select sleep(10) from dual")
+	require.Error(t, err)
+
+	// Verify MySQL error 3024 (ERQueryTimeout) is returned, not 1317 (ERQueryInterrupted).
+	assert.ErrorContains(t, err, "errno 3024")
+	assert.ErrorContains(t, err, "maximum statement execution time exceeded")
+
+	// Verify the QueriesPushdown kill counter was incremented.
+	pushdownAfter := getKillCounter(t, primaryTablet.VttabletProcess, "QueriesPushdown")
+	assert.Greater(t, pushdownAfter, pushdownBefore, "QueriesPushdown kill counter should have incremented")
+
+	// Verify the old Queries kill counter was NOT incremented (no fallback KILL QUERY).
+	queriesAfter := getKillCounter(t, primaryTablet.VttabletProcess, "Queries")
+	assert.Equal(t, queriesBefore, queriesAfter, "Queries kill counter should not have incremented")
+
+	// Verify MySQL's Max_execution_time_exceeded status variable was incremented.
+	mysqlExceededAfter := getMySQLStatusValue(t, primaryTablet.VttabletProcess, uks, "Max_execution_time_exceeded")
+	assert.Greater(t, mysqlExceededAfter, mysqlExceededBefore, "MySQL Max_execution_time_exceeded should have incremented")
 }
