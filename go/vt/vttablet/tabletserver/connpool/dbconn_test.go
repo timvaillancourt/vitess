@@ -738,9 +738,10 @@ func TestDBConnKillCounters(t *testing.T) {
 		_, err := dbConn.Exec(context.Background(), sql, 1, false)
 		require.Error(t, err)
 
-		var sqlErr *sqlerror.SQLError
-		require.True(t, errors.As(err, &sqlErr))
-		assert.Equal(t, sqlerror.ERQueryTimeout, sqlErr.Num)
+		// ERQueryTimeout (3024) is mapped to ERQueryInterrupted (1317) so clients
+		// see a consistent error regardless of how the query was killed.
+		assert.ErrorContains(t, err, fmt.Sprintf("errno %d", sqlerror.ERQueryInterrupted))
+		assert.Equal(t, vtrpcpb.Code_DEADLINE_EXCEEDED, vterrors.Code(err))
 
 		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
 		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
@@ -765,9 +766,10 @@ func TestDBConnKillCounters(t *testing.T) {
 		err := dbConn.Stream(context.Background(), sql, func(r *sqltypes.Result) error { return nil }, alloc, 10, querypb.ExecuteOptions_ALL)
 		require.Error(t, err)
 
-		var sqlErr *sqlerror.SQLError
-		require.True(t, errors.As(err, &sqlErr))
-		assert.Equal(t, sqlerror.ERQueryTimeout, sqlErr.Num)
+		// ERQueryTimeout (3024) is mapped to ERQueryInterrupted (1317) so clients
+		// see a consistent error regardless of how the query was killed.
+		assert.ErrorContains(t, err, fmt.Sprintf("errno %d", sqlerror.ERQueryInterrupted))
+		assert.Equal(t, vtrpcpb.Code_DEADLINE_EXCEEDED, vterrors.Code(err))
 
 		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
 		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])

@@ -41,7 +41,14 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
-const defaultKillTimeout = 5 * time.Second
+const (
+	defaultKillTimeout = 5 * time.Second
+
+	// queryKillSelectPushdownGracePeriod is the time to wait for MySQL to
+	// return an ERQueryTimeout (3024) error from MAX_EXECUTION_TIME before
+	// falling back to KILL QUERY when the context is cancelled.
+	queryKillSelectPushdownGracePeriod = time.Second
+)
 
 // Conn is a db connection for tabletserver.
 // It performs automatic reconnects as needed.
@@ -186,6 +193,18 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 
 	select {
 	case <-ctx.Done():
+		// When query-kill-select-pushdown is enabled and we're not in a transaction,
+		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
+		// MAX_EXECUTION_TIME before falling back to KILL QUERY. This avoids a race
+		// where the context cancellation fires KILL QUERY before MySQL's internal
+		// timeout has a chance to respond.
+		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().QueryKillSelectPushdown {
+			select {
+			case r := <-ch:
+				return r.result, dbc.handleMaxExecutionTimeError(r.err, now)
+			case <-time.After(queryKillSelectPushdownGracePeriod):
+			}
+		}
 		dbc.terminate(ctx, insideTxn, now)
 		if !insideTxn {
 			// wait for the execute method to finish to make connection reusable.
@@ -196,23 +215,27 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return nil, dbcErr
 		}
-		dbc.handleMaxExecutionTimeError(r.err, now)
-		return r.result, r.err
+		return r.result, dbc.handleMaxExecutionTimeError(r.err, now)
 	}
 }
 
-// handleMaxExecutionTimeError checks if the error is a MySQL ERQueryTimeout (3024) and if so,
-// increments the kill counter and logs the event. This handles queries killed internally by MySQL
-// via the MAX_EXECUTION_TIME optimizer hint.
-func (dbc *Conn) handleMaxExecutionTimeError(err error, start time.Time) {
+// handleMaxExecutionTimeError checks if the error is a MySQL ERQueryTimeout (3024)
+// from MAX_EXECUTION_TIME and if so, increments the kill counter, logs the event,
+// and returns an ERQueryInterrupted (1317) error so clients see a consistent
+// error regardless of whether the query was killed by MAX_EXECUTION_TIME or KILL QUERY.
+func (dbc *Conn) handleMaxExecutionTimeError(err error, start time.Time) error {
 	if err == nil {
-		return
+		return nil
 	}
 	var sqlErr *sqlerror.SQLError
 	if errors.As(err, &sqlErr) && sqlErr.Num == sqlerror.ERQueryTimeout {
 		dbc.stats.KillCounters.Add("QueriesPushdown", 1)
-		log.Info(fmt.Sprintf("Query killed by MAX_EXECUTION_TIME, elapsed time: %v, query ID %v %s", time.Since(start), dbc.conn.ID(), dbc.CurrentForLogging()))
+		log.Info(fmt.Sprintf("Query killed by MAX_EXECUTION_TIME, elapsed time: %v, query ID %v %s",
+			time.Since(start), dbc.conn.ID(), dbc.CurrentForLogging()))
+		return vterrors.Errorf(vtrpcpb.Code_DEADLINE_EXCEEDED,
+			"(errno %d) (sqlstate %s): %s", sqlerror.ERQueryInterrupted, sqlerror.SSQueryInterrupted, sqlErr.Message)
 	}
+	return err
 }
 
 // getErrorMessageFromContextError gets the error message from context error.
@@ -334,6 +357,16 @@ func (dbc *Conn) streamOnce(
 
 	select {
 	case <-ctx.Done():
+		// When query-kill-select-pushdown is enabled and we're not in a transaction,
+		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
+		// MAX_EXECUTION_TIME before falling back to KILL QUERY.
+		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().QueryKillSelectPushdown {
+			select {
+			case err := <-ch:
+				return dbc.handleMaxExecutionTimeError(err, now)
+			case <-time.After(queryKillSelectPushdownGracePeriod):
+			}
+		}
 		dbc.terminate(ctx, insideTxn, now)
 		if !insideTxn {
 			// wait for the execute method to finish to make connection reusable.
@@ -344,8 +377,7 @@ func (dbc *Conn) streamOnce(
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return dbcErr
 		}
-		dbc.handleMaxExecutionTimeError(err, now)
-		return err
+		return dbc.handleMaxExecutionTimeError(err, now)
 	}
 }
 

@@ -343,7 +343,9 @@ func (c *ParsedComments) setOptimizerHint(hintName, value string, match func(hin
 		newComments = append(newComments, sb.String())
 	}
 	if !seenFirstOhComment {
-		newComments = append(newComments, fmt.Sprintf("/*+ %s */", newHint))
+		// Prepend so the /*+ ... */ comment appears first.
+		// MySQL only recognizes optimizer hints in the first comment after SELECT.
+		newComments = append(Comments{fmt.Sprintf("/*+ %s */", newHint)}, newComments...)
 	}
 	return newComments
 }
