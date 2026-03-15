@@ -1748,46 +1748,6 @@ func TestQueryExecutorInjectMaxExecutionTime(t *testing.T) {
 	}
 }
 
-func TestQueryKillSelectPushdownBuffer(t *testing.T) {
-	tests := []struct {
-		name    string
-		timeout time.Duration
-		want    time.Duration
-	}{
-		{
-			name:    "very short timeout uses min buffer",
-			timeout: 50 * time.Millisecond,
-			want:    time.Second,
-		},
-		{
-			name:    "5s timeout uses min buffer",
-			timeout: 5 * time.Second,
-			want:    time.Second,
-		},
-		{
-			name:    "10s timeout uses 20%",
-			timeout: 10 * time.Second,
-			want:    2 * time.Second,
-		},
-		{
-			name:    "30s timeout capped at max",
-			timeout: 30 * time.Second,
-			want:    5 * time.Second,
-		},
-		{
-			name:    "60s timeout capped at max",
-			timeout: 60 * time.Second,
-			want:    5 * time.Second,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := QueryKillSelectPushdownBuffer(tc.timeout)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func setUpQueryExecutorTest(t *testing.T) *fakesqldb.DB {
 	db := fakesqldb.New(t)
 	initQueryExecutorTestDB(db)

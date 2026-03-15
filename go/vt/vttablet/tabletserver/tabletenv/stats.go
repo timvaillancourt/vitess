@@ -53,6 +53,9 @@ type Stats struct {
 	Unresolved         *stats.GaugesWithSingleLabel
 	CommitPreparedFail *stats.CountersWithSingleLabel
 	RedoPreparedFail   *stats.CountersWithSingleLabel
+
+	// Kill pushdown adaptive grace period
+	AdaptiveGracePeriod *AdaptiveGracePeriod
 }
 
 // NewStats instantiates a new set of stats scoped by exporter.
@@ -107,9 +110,13 @@ func NewStats(exporter *servenv.Exporter) *Stats {
 		RedoPreparedFail:   exporter.NewCountersWithSingleLabel("RedoPreparedFail", "failed prepared transactions on redo", "FailureType"),
 	}
 	stats.QPSRates = exporter.NewRates("QPS", stats.QueryTimings, 15*60/5, 5*time.Second)
+	stats.AdaptiveGracePeriod = NewAdaptiveGracePeriod(exporter)
 	return stats
 }
 
 func (st *Stats) Stop() {
 	st.QPSRates.Stop()
+	if st.AdaptiveGracePeriod != nil {
+		st.AdaptiveGracePeriod.Stop()
+	}
 }

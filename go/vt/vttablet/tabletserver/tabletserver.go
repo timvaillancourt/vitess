@@ -922,9 +922,6 @@ func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sq
 
 	allowOnShutdown := transactionID != 0
 	timeout := tsv.loadQueryTimeoutWithTxAndOptions(transactionID, options)
-	if tsv.config.Oltp.SelectKillPushdown && timeout > 0 && sqlparser.Preview(sql) == sqlparser.StmtSelect {
-		timeout += QueryKillSelectPushdownBuffer(timeout)
-	}
 	err = tsv.execRequest(
 		ctx, timeout,
 		"Execute", sql, bindVariables,
@@ -1028,10 +1025,6 @@ func (tsv *TabletServer) streamExecute(ctx context.Context, target *querypb.Targ
 		// so we can directly fetch the OLAP TX timeout.
 		timeout = getTransactionTimeout(options, tsv.config, querypb.ExecuteOptions_OLAP)
 	}
-	if tsv.config.Oltp.SelectKillPushdown && timeout > 0 && sqlparser.Preview(sql) == sqlparser.StmtSelect {
-		timeout += QueryKillSelectPushdownBuffer(timeout)
-	}
-
 	return tsv.execRequest(
 		ctx, timeout,
 		"StreamExecute", sql, bindVariables,

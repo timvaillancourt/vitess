@@ -739,26 +739,6 @@ func (qre *QueryExecutor) execNextval() (*sqltypes.Result, error) {
 	}, nil
 }
 
-const (
-	// queryKillSelectPushdownBufferFraction is the fraction of the query timeout added as
-	// buffer to the context deadline when select-kill-pushdown is enabled.
-	queryKillSelectPushdownBufferFraction = 0.2
-
-	// queryKillSelectPushdownBufferMin is the minimum buffer added to the context deadline.
-	queryKillSelectPushdownBufferMin = time.Second
-
-	// queryKillSelectPushdownBufferMax is the maximum buffer added to the context deadline.
-	queryKillSelectPushdownBufferMax = 5 * time.Second
-)
-
-// QueryKillSelectPushdownBuffer returns the additional time to add to the context deadline
-// when select-kill-pushdown is enabled. This gives MySQL time to reach a checkpoint
-// and kill the query internally via MAX_EXECUTION_TIME before the context-based KILL QUERY
-// fires as a fallback.
-func QueryKillSelectPushdownBuffer(timeout time.Duration) time.Duration {
-	buffer := time.Duration(float64(timeout) * queryKillSelectPushdownBufferFraction)
-	return max(queryKillSelectPushdownBufferMin, min(buffer, queryKillSelectPushdownBufferMax))
-}
 
 // injectMaxExecutionTime injects a MAX_EXECUTION_TIME optimizer hint into a SELECT query
 // when select-kill-pushdown is enabled. The priority is:

@@ -43,11 +43,6 @@ import (
 
 const (
 	defaultKillTimeout = 5 * time.Second
-
-	// queryKillSelectPushdownGracePeriod is the time to wait for MySQL to
-	// return an ERQueryTimeout (3024) error from MAX_EXECUTION_TIME before
-	// falling back to KILL QUERY when the context is cancelled.
-	queryKillSelectPushdownGracePeriod = time.Second
 )
 
 // Conn is a db connection for tabletserver.
@@ -199,10 +194,13 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		// where the context cancellation fires KILL QUERY before MySQL's internal
 		// timeout has a chance to respond.
 		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
+			graceStart := time.Now()
 			select {
 			case r := <-ch:
-				return r.result, dbc.handleMaxExecutionTimeError(r.err, now)
-			case <-time.After(queryKillSelectPushdownGracePeriod):
+				responseTime := time.Since(graceStart)
+				return r.result, dbc.handleMaxExecutionTimeError(r.err, now, responseTime)
+			case <-time.After(dbc.stats.AdaptiveGracePeriod.Duration()):
+				dbc.stats.AdaptiveGracePeriod.RecordFallbackKill()
 			}
 		}
 		dbc.terminate(ctx, insideTxn, now)
@@ -215,7 +213,7 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return nil, dbcErr
 		}
-		return r.result, dbc.handleMaxExecutionTimeError(r.err, now)
+		return r.result, dbc.handleMaxExecutionTimeError(r.err, now, 0)
 	}
 }
 
@@ -223,13 +221,17 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 // from MAX_EXECUTION_TIME and if so, increments the kill counter, logs the event,
 // and returns an ERQueryInterrupted (1317) error so clients see a consistent
 // error regardless of whether the query was killed by MAX_EXECUTION_TIME or KILL QUERY.
-func (dbc *Conn) handleMaxExecutionTimeError(err error, start time.Time) error {
+// If graceResponseTime > 0, the kill is recorded in the adaptive grace period tracker.
+func (dbc *Conn) handleMaxExecutionTimeError(err error, start time.Time, graceResponseTime time.Duration) error {
 	if err == nil {
 		return nil
 	}
 	var sqlErr *sqlerror.SQLError
 	if errors.As(err, &sqlErr) && sqlErr.Num == sqlerror.ERQueryTimeout {
 		dbc.stats.KillCounters.Add("QueriesPushdown", 1)
+		if graceResponseTime > 0 {
+			dbc.stats.AdaptiveGracePeriod.RecordPushdownKill(graceResponseTime)
+		}
 		log.Info(fmt.Sprintf("Query killed by MAX_EXECUTION_TIME, elapsed time: %v, query ID %v %s",
 			time.Since(start), dbc.conn.ID(), dbc.CurrentForLogging()))
 		return vterrors.Errorf(vtrpcpb.Code_DEADLINE_EXCEEDED,
@@ -361,10 +363,13 @@ func (dbc *Conn) streamOnce(
 		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
 		// MAX_EXECUTION_TIME before falling back to KILL QUERY.
 		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
+			graceStart := time.Now()
 			select {
 			case err := <-ch:
-				return dbc.handleMaxExecutionTimeError(err, now)
-			case <-time.After(queryKillSelectPushdownGracePeriod):
+				responseTime := time.Since(graceStart)
+				return dbc.handleMaxExecutionTimeError(err, now, responseTime)
+			case <-time.After(dbc.stats.AdaptiveGracePeriod.Duration()):
+				dbc.stats.AdaptiveGracePeriod.RecordFallbackKill()
 			}
 		}
 		dbc.terminate(ctx, insideTxn, now)
@@ -377,7 +382,7 @@ func (dbc *Conn) streamOnce(
 		if dbcErr := dbc.Err(); dbcErr != nil {
 			return dbcErr
 		}
-		return dbc.handleMaxExecutionTimeError(err, now)
+		return dbc.handleMaxExecutionTimeError(err, now, 0)
 	}
 }
 
