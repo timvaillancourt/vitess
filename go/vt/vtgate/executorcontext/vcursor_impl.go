@@ -88,9 +88,10 @@ type (
 		WarnShardedOnly    bool
 		PlannerVersion     plancontext.PlannerVersion
 
-		WarmingReadsPercent int
-		WarmingReadsTimeout time.Duration
-		WarmingReadsChannel chan bool
+		WarmingReadsPercent        int
+		WarmingReadsTimeout        time.Duration
+		WarmingReadsChannel        chan bool
+		QueryTimeoutSelectPushdown bool
 	}
 
 	// vcursor_impl needs these facilities to be able to be able to execute queries for vindexes
@@ -1169,6 +1170,16 @@ func (vc *VCursorImpl) SetQueryTimeout(maxExecutionTime int64) {
 	vc.SafeSession.QueryTimeout = maxExecutionTime
 }
 
+// GetQueryTimeout implements the SessionActions interface
+func (vc *VCursorImpl) GetQueryTimeout() int64 {
+	return vc.SafeSession.GetQueryTimeout()
+}
+
+// SetMaxExecutionTimeHint implements the SessionActions interface
+func (vc *VCursorImpl) SetMaxExecutionTimeHint(ms int64) {
+	vc.SafeSession.GetOrCreateOptions().MaxExecutionTimeHint = ms
+}
+
 // SetTransactionTimeout implements the SessionActions interface
 func (vc *VCursorImpl) SetTransactionTimeout(transactionTimeout int64) {
 	vc.SafeSession.GetOrCreateOptions().TransactionTimeout = &transactionTimeout
@@ -1642,6 +1653,10 @@ func (vc *VCursorImpl) GetPrepareData(stmtName string) *vtgatepb.PrepareData {
 
 func (vc *VCursorImpl) GetWarmingReadsPercent() int {
 	return vc.config.WarmingReadsPercent
+}
+
+func (vc *VCursorImpl) GetQueryTimeoutSelectPushdown() bool {
+	return vc.config.QueryTimeoutSelectPushdown
 }
 
 func (vc *VCursorImpl) GetWarmingReadsChannel() chan bool {

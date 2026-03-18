@@ -30,6 +30,7 @@ source ../common/env.sh
 
 # --- Configuration ---
 VTGATE_HOST="${VTGATE_HOST:-127.0.0.1}"
+VTGATE_WEB_PORT="${VTGATE_WEB_PORT:-15001}"
 VTGATE_MYSQL_PORT="${VTGATE_MYSQL_PORT:-15306}"
 VTGATE_GRPC_PORT="${VTGATE_GRPC_PORT:-15991}"
 POOL_SIZE="${POOL_SIZE:-10}"
@@ -215,6 +216,51 @@ restart_all_vttablets() {
     num_tablets=$(echo "$TABLET_UIDS" | wc -w | tr -d ' ')
     wait_for_healthy_shard "$BENCH_DB" 0 "$num_tablets" || fail "Shard did not become healthy"
     log "Shard is healthy"
+}
+
+# Restart vtgate with optional extra flags.
+restart_vtgate() {
+    local extra_flags=("$@")
+
+    local pid
+    pid=$(pgrep -f "vtgate.*--port $VTGATE_WEB_PORT" 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+        log "Stopping vtgate (pid $pid)..."
+        kill "$pid"
+        for _ in $(seq 1 30); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+    fi
+
+    log "Starting vtgate..."
+    # shellcheck disable=SC2086
+    vtgate \
+        $TOPOLOGY_FLAGS \
+        --log-queries-to-file "$VTDATAROOT/tmp/vtgate_querylog.txt" \
+        --port "$VTGATE_WEB_PORT" \
+        --grpc-port "$VTGATE_GRPC_PORT" \
+        --mysql-server-port "$VTGATE_MYSQL_PORT" \
+        --mysql-server-socket-path /tmp/mysql.sock \
+        --cell "$CELL" \
+        --cells-to-watch "$CELL" \
+        --tablet-types-to-wait PRIMARY,REPLICA \
+        --service-map 'grpc-vtgateservice' \
+        --pid-file "$VTDATAROOT/tmp/vtgate.pid" \
+        --enable-buffer \
+        --mysql-auth-server-impl none \
+        --pprof-http \
+        --log-format text \
+        "${extra_flags[@]}" \
+        >"$VTDATAROOT/tmp/vtgate.out" 2>&1 &
+
+    for _ in $(seq 0 300); do
+        curl -I "http://127.0.0.1:$VTGATE_WEB_PORT/debug/status" >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    curl -I "http://127.0.0.1:$VTGATE_WEB_PORT/debug/status" >/dev/null 2>&1 || fail "vtgate failed to start"
+    log "vtgate is running (port=$VTGATE_WEB_PORT, grpc=$VTGATE_GRPC_PORT, mysql=$VTGATE_MYSQL_PORT)"
 }
 
 # Convert ps cputime format (HH:MM:SS.ss or M:SS.ss) to milliseconds.
@@ -496,13 +542,16 @@ do_run() {
 
     mkdir -p "$RESULTS_DIR"
 
+    # Restart vttablets with benchmark pool size/timeout settings
+    restart_all_vttablets
+
     # Wait for system to be idle before starting
     wait_for_low_load
 
     # Run without pushdown
     log ""
     log "--- Phase 1: Pushdown DISABLED ---"
-    restart_all_vttablets
+    restart_vtgate
     run_benchmark "no_pushdown" "$slow_threads" "$fast_threads"
 
     # Cooldown between phases
@@ -514,7 +563,7 @@ do_run() {
     # Run with pushdown
     log ""
     log "--- Phase 2: Pushdown ENABLED ---"
-    restart_all_vttablets "--queryserver-config-select-kill-pushdown"
+    restart_vtgate "--query-timeout-select-pushdown"
     run_benchmark "pushdown" "$slow_threads" "$fast_threads"
 
     # Print comparison

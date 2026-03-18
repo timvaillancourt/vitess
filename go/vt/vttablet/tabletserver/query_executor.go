@@ -368,13 +368,6 @@ func (qre *QueryExecutor) Stream(callback StreamCallback) error {
 	if err != nil {
 		return err
 	}
-	if qre.tsv.config.Oltp.SelectKillPushdown {
-		sql, err = qre.injectMaxExecutionTime(sql)
-		if err != nil {
-			return err
-		}
-	}
-
 	var replaceKeyspace string
 	if sqltypes.IncludeFieldsOrDefault(qre.options) == querypb.ExecuteOptions_ALL && qre.tsv.sm.target.Keyspace != qre.tsv.config.DB.DBName {
 		replaceKeyspace = qre.tsv.sm.target.Keyspace
@@ -739,55 +732,12 @@ func (qre *QueryExecutor) execNextval() (*sqltypes.Result, error) {
 	}, nil
 }
 
-
-// injectMaxExecutionTime injects a MAX_EXECUTION_TIME optimizer hint into a SELECT query
-// when select-kill-pushdown is enabled. The priority is:
-//  1. If QUERY_TIMEOUT_MS directive is present (options.Timeout is set), its value is used
-//     and overrides any existing MAX_EXECUTION_TIME in the query.
-//  2. If no QUERY_TIMEOUT_MS but MAX_EXECUTION_TIME already exists, leave it alone.
-//  3. If neither exists, use the configured query timeout from the VTTablet flag.
-func (qre *QueryExecutor) injectMaxExecutionTime(sql string) (string, error) {
-	timeout := qre.tsv.loadQueryTimeoutWithOptions(qre.options)
-	if timeout <= 0 {
-		return sql, nil
-	}
-
-	stmt, err := qre.tsv.env.Parser().Parse(sql)
-	if err != nil {
-		return sql, nil
-	}
-
-	sel, ok := stmt.(*sqlparser.Select)
-	if !ok {
-		return sql, nil
-	}
-
-	comments := sel.GetParsedComments()
-	hasQueryTimeoutDirective := qre.options != nil && qre.options.Timeout != nil
-	_, hasMaxExecTime := comments.GetMaxExecutionTime()
-
-	if hasMaxExecTime && !hasQueryTimeoutDirective {
-		return sql, nil
-	}
-
-	millis := int(timeout.Milliseconds())
-	newComments := comments.SetMaxExecutionTime(millis)
-	sel.SetComments(newComments)
-	return sqlparser.String(stmt), nil
-}
-
 // execSelect sends a query to mysql only if another identical query is not running. Otherwise, it waits and
 // reuses the result. If the plan is missing field info, it sends the query to mysql requesting full info.
 func (qre *QueryExecutor) execSelect() (*sqltypes.Result, error) {
 	sql, sqlWithoutComments, err := qre.generateFinalSQL(qre.plan.FullQuery, qre.bindVars)
 	if err != nil {
 		return nil, err
-	}
-	if qre.tsv.config.Oltp.SelectKillPushdown {
-		sql, err = qre.injectMaxExecutionTime(sql)
-		if err != nil {
-			return nil, err
-		}
 	}
 	// Check tablet type.
 	if qre.shouldConsolidate() {
@@ -1217,6 +1167,9 @@ func (qre *QueryExecutor) getSelectLimit() int64 {
 func (qre *QueryExecutor) execDBConn(conn *connpool.Conn, sql string, wantfields bool) (*sqltypes.Result, error) {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.execDBConn")
 	defer span.Finish()
+	if hint := qre.options.GetMaxExecutionTimeHint(); hint > 0 {
+		ctx = connpool.WithMaxExecutionTimeHint(ctx, hint)
+	}
 	defer qre.logStats.AddRewrittenSQL(sql, time.Now())
 
 	qd := NewQueryDetail(qre.logStats.Ctx, conn)
@@ -1314,6 +1267,9 @@ func (qre *QueryExecutor) fetchLastInsertID(ctx context.Context, conn *connpool.
 func (qre *QueryExecutor) execStreamSQL(conn *connpool.PooledConn, isTransaction bool, sql string, callback func(*sqltypes.Result) error) error {
 	span, ctx := trace.NewSpan(qre.ctx, "QueryExecutor.execStreamSQL")
 	defer span.Finish()
+	if hint := qre.options.GetMaxExecutionTimeHint(); hint > 0 {
+		ctx = connpool.WithMaxExecutionTimeHint(ctx, hint)
+	}
 	trace.AnnotateSQL(span, sqlparser.Preview(sql))
 
 	start := time.Now()

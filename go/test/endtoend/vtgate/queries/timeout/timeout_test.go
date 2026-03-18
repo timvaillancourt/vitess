@@ -266,21 +266,16 @@ func TestQueryKillSelectPushdown(t *testing.T) {
 	// Get the unsharded keyspace primary tablet.
 	primaryTablet := clusterInstance.Keyspaces[0].Shards[0].PrimaryTablet()
 
-	// Restart the tablet with --queryserver-config-select-kill-pushdown enabled.
-	err := primaryTablet.VttabletProcess.TearDown()
-	require.NoError(t, err)
-	primaryTablet.VttabletProcess.ExtraArgs = append(primaryTablet.VttabletProcess.ExtraArgs, "--queryserver-config-select-kill-pushdown")
-	err = primaryTablet.VttabletProcess.Setup()
-	require.NoError(t, err)
+	// Restart VTGate with --query-timeout-select-pushdown enabled.
+	origVtGateExtraArgs := clusterInstance.VtGateExtraArgs
+	clusterInstance.VtGateExtraArgs = append(clusterInstance.VtGateExtraArgs, "--query-timeout-select-pushdown")
+	require.NoError(t, clusterInstance.RestartVtgate())
 	defer func() {
-		// Restore the tablet without --queryserver-config-select-kill-pushdown.
-		err := primaryTablet.VttabletProcess.TearDown()
-		require.NoError(t, err)
-		args := primaryTablet.VttabletProcess.ExtraArgs
-		primaryTablet.VttabletProcess.ExtraArgs = args[:len(args)-1]
-		err = primaryTablet.VttabletProcess.Setup()
-		require.NoError(t, err)
+		clusterInstance.VtGateExtraArgs = origVtGateExtraArgs
+		require.NoError(t, clusterInstance.RestartVtgate())
+		vtParams = clusterInstance.GetVTParams(keyspaceName)
 	}()
+	vtParams = clusterInstance.GetVTParams(keyspaceName)
 
 	// Connect to VTGate targeting the unsharded keyspace.
 	conn, err := mysql.Connect(context.Background(), &vtParams)

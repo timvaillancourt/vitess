@@ -168,6 +168,8 @@ var (
 	warmingReadsPercent      = 0
 	warmingReadsQueryTimeout = 5 * time.Second
 	warmingReadsConcurrency  = 500
+
+	queryTimeoutSelectPushdown bool
 )
 
 func registerFlags(fs *pflag.FlagSet) {
@@ -205,6 +207,7 @@ func registerFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&warmingReadsPercent, "warming-reads-percent", 0, "Percentage of reads on the primary to forward to replicas. Useful for keeping buffer pools warm")
 	fs.IntVar(&warmingReadsConcurrency, "warming-reads-concurrency", 500, "Number of concurrent warming reads allowed")
 	fs.DurationVar(&warmingReadsQueryTimeout, "warming-reads-query-timeout", 5*time.Second, "Timeout of warming read queries")
+	fs.BoolVar(&queryTimeoutSelectPushdown, "query-timeout-select-pushdown", false, "Push down timeout/kill of SELECT queries to MySQL using the MAX_EXECUTION_TIME optimizer hint")
 
 	viperutil.BindFlags(fs,
 		enableOnlineDDL,
@@ -383,11 +386,12 @@ func Init(
 	plans := DefaultPlanCache()
 
 	eConfig := ExecutorConfig{
-		Normalize:           normalizeQueries,
-		StreamSize:          streamBufferSize,
-		AllowScatter:        !noScatter,
-		WarmingReadsPercent: warmingReadsPercent,
-		QueryLogToFile:      queryLogToFile,
+		Normalize:                  normalizeQueries,
+		StreamSize:                 streamBufferSize,
+		AllowScatter:               !noScatter,
+		WarmingReadsPercent:        warmingReadsPercent,
+		QueryTimeoutSelectPushdown: queryTimeoutSelectPushdown,
+		QueryLogToFile:             queryLogToFile,
 	}
 
 	executor := NewExecutor(ctx, env, serv, cell, resolver, eConfig, warnShardedOnly, plans, si, pv, dynamicConfig)

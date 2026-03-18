@@ -158,7 +158,17 @@ func (route *Route) executeShards(
 		}
 	}
 
-	queries := getQueries(route.Query, bvs)
+	query := route.Query
+	if vcursor.GetQueryTimeoutSelectPushdown() {
+		var hintMs int64
+		query, hintMs = route.injectMaxExecutionTimeHint(vcursor)
+		if hintMs > 0 {
+			vcursor.Session().SetMaxExecutionTimeHint(hintMs)
+			defer vcursor.Session().SetMaxExecutionTimeHint(0)
+		}
+	}
+
+	queries := getQueries(query, bvs)
 	result, errs := vcursor.ExecuteMultiShard(ctx, route, rss, queries, false /*rollbackOnError*/, false /*canAutocommit*/, route.FetchLastInsertID)
 
 	route.executeWarmingReplicaRead(ctx, vcursor, bindVars, queries)
@@ -255,8 +265,18 @@ func (route *Route) streamExecuteShards(
 		}
 	}
 
+	query := route.Query
+	if vcursor.GetQueryTimeoutSelectPushdown() {
+		var hintMs int64
+		query, hintMs = route.injectMaxExecutionTimeHint(vcursor)
+		if hintMs > 0 {
+			vcursor.Session().SetMaxExecutionTimeHint(hintMs)
+			defer vcursor.Session().SetMaxExecutionTimeHint(0)
+		}
+	}
+
 	if len(route.OrderBy) == 0 || len(rss) == 1 {
-		errs := vcursor.StreamExecuteMulti(ctx, route, route.Query, rss, bvs, false /* rollbackOnError */, false /* autocommit */, route.FetchLastInsertID, func(qr *sqltypes.Result) error {
+		errs := vcursor.StreamExecuteMulti(ctx, route, query, rss, bvs, false /* rollbackOnError */, false /* autocommit */, route.FetchLastInsertID, func(qr *sqltypes.Result) error {
 			return callback(qr.Truncate(route.TruncateColumnCount))
 		})
 		if len(errs) > 0 {
@@ -273,7 +293,7 @@ func (route *Route) streamExecuteShards(
 	}
 
 	// There is an order by. We have to merge-sort.
-	return route.mergeSort(ctx, vcursor, bindVars, wantfields, callback, rss, bvs)
+	return route.mergeSort(ctx, vcursor, query, bindVars, wantfields, callback, rss, bvs)
 }
 
 // this is used to make mergeSort easy to test
@@ -294,6 +314,7 @@ var createMergeSort = func(
 func (route *Route) mergeSort(
 	ctx context.Context,
 	vcursor VCursor,
+	query string,
 	bindVars map[string]*querypb.BindVariable,
 	wantfields bool,
 	callback func(*sqltypes.Result) error,
@@ -303,7 +324,7 @@ func (route *Route) mergeSort(
 	prims := make([]StreamExecutor, 0, len(rss))
 	for i, rs := range rss {
 		prims = append(prims, &shardRoute{
-			query:     route.Query,
+			query:     query,
 			rs:        rs,
 			bv:        bvs[i],
 			primitive: route,
@@ -483,6 +504,34 @@ func execShard(
 		},
 	}, rollbackOnError, autocommit, fetchLastInsertID)
 	return result, vterrors.Aggregate(errs)
+}
+
+// injectMaxExecutionTimeHint resolves the query timeout and injects a MAX_EXECUTION_TIME
+// optimizer hint into the query if applicable. It returns the (possibly modified) query
+// and the hint value in milliseconds (0 if no hint was injected).
+func (route *Route) injectMaxExecutionTimeHint(vcursor VCursor) (string, int64) {
+	timeout := route.QueryTimeout
+	if timeout <= 0 {
+		timeout = int(vcursor.Session().GetQueryTimeout())
+	}
+	if timeout <= 0 {
+		return route.Query, 0
+	}
+
+	stmt, err := vcursor.Environment().Parser().Parse(route.Query)
+	if err != nil {
+		return route.Query, 0
+	}
+
+	sel, ok := stmt.(*sqlparser.Select)
+	if !ok {
+		return route.Query, 0
+	}
+
+	comments := sel.GetParsedComments()
+	newComments := comments.SetMaxExecutionTime(timeout)
+	sel.SetComments(newComments)
+	return sqlparser.String(sel), int64(timeout)
 }
 
 func getQueries(query string, bvs []map[string]*querypb.BindVariable) []*querypb.BoundQuery {

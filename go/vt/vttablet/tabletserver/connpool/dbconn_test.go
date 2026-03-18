@@ -774,6 +774,17 @@ func TestDBConnKillCounters(t *testing.T) {
 		assert.Equal(t, int64(0), dbConn.stats.KillCounters.Counts()["Queries"]-killCountsBefore["Queries"])
 		assert.Equal(t, int64(1), dbConn.stats.KillCounters.Counts()["QueriesPushdown"]-killCountsBefore["QueriesPushdown"])
 	})
+
+	t.Run("hasMaxExecutionTimeHint context key", func(t *testing.T) {
+		ctx := context.Background()
+		assert.False(t, hasMaxExecutionTimeHint(ctx))
+
+		ctx = WithMaxExecutionTimeHint(ctx, 0)
+		assert.False(t, hasMaxExecutionTimeHint(ctx))
+
+		ctx = WithMaxExecutionTimeHint(ctx, 5000)
+		assert.True(t, hasMaxExecutionTimeHint(ctx))
+	})
 }
 
 func executeWithTimeout(

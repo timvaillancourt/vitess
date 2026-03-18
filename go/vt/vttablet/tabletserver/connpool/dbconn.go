@@ -41,9 +41,26 @@ import (
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
+type ctxKey int
+
 const (
 	defaultKillTimeout = 5 * time.Second
+
+	// ctxKeyMaxExecutionTimeHint is a context key indicating the query has a
+	// MAX_EXECUTION_TIME optimizer hint injected by VTGate.
+	ctxKeyMaxExecutionTimeHint ctxKey = iota
 )
+
+// WithMaxExecutionTimeHint returns a context with the MAX_EXECUTION_TIME hint value set.
+func WithMaxExecutionTimeHint(ctx context.Context, ms int64) context.Context {
+	return context.WithValue(ctx, ctxKeyMaxExecutionTimeHint, ms)
+}
+
+// hasMaxExecutionTimeHint returns true if the context indicates a MAX_EXECUTION_TIME hint is present.
+func hasMaxExecutionTimeHint(ctx context.Context) bool {
+	v, ok := ctx.Value(ctxKeyMaxExecutionTimeHint).(int64)
+	return ok && v > 0
+}
 
 // Conn is a db connection for tabletserver.
 // It performs automatic reconnects as needed.
@@ -193,7 +210,7 @@ func (dbc *Conn) execOnce(ctx context.Context, query string, maxrows int, wantfi
 		// MAX_EXECUTION_TIME before falling back to KILL QUERY. This avoids a race
 		// where the context cancellation fires KILL QUERY before MySQL's internal
 		// timeout has a chance to respond.
-		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
+		if !insideTxn && hasMaxExecutionTimeHint(ctx) {
 			graceStart := time.Now()
 			select {
 			case r := <-ch:
@@ -362,7 +379,7 @@ func (dbc *Conn) streamOnce(
 		// When select-kill-pushdown is enabled and we're not in a transaction,
 		// give MySQL a grace period to return an ERQueryTimeout (3024) error from
 		// MAX_EXECUTION_TIME before falling back to KILL QUERY.
-		if !insideTxn && dbc.env.Config() != nil && dbc.env.Config().Oltp.SelectKillPushdown {
+		if !insideTxn && hasMaxExecutionTimeHint(ctx) {
 			graceStart := time.Now()
 			select {
 			case err := <-ch:

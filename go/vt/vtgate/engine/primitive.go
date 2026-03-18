@@ -123,6 +123,9 @@ type (
 		// ReleaseLock releases all the held advisory locks.
 		ReleaseLock(ctx context.Context) error
 
+		// GetQueryTimeoutSelectPushdown returns whether SELECT query timeout pushdown via MAX_EXECUTION_TIME is enabled
+		GetQueryTimeoutSelectPushdown() bool
+
 		// GetWarmingReadsPercent gets the percentage of queries to clone to replicas for bufferpool warming
 		GetWarmingReadsPercent() int
 
@@ -230,6 +233,12 @@ type (
 
 		// SetQueryTimeout sets the query timeout
 		SetQueryTimeout(queryTimeout int64)
+
+		// GetQueryTimeout returns the session query timeout in milliseconds.
+		GetQueryTimeout() int64
+
+		// SetMaxExecutionTimeHint sets the MAX_EXECUTION_TIME hint value on the session options.
+		SetMaxExecutionTimeHint(ms int64)
 
 		// SetTransactionTimeout sets the transaction timeout.
 		SetTransactionTimeout(transactionTimeout int64)

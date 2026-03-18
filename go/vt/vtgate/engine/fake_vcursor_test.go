@@ -112,6 +112,10 @@ func (t *noopVCursor) ReleaseLock(context.Context) error {
 	panic("implement me")
 }
 
+func (t *noopVCursor) GetQueryTimeoutSelectPushdown() bool {
+	return false
+}
+
 func (t *noopVCursor) GetWarmingReadsPercent() int {
 	panic("implement me")
 }
@@ -319,6 +323,13 @@ func (t *noopVCursor) SetClientFoundRows(context.Context, bool) error {
 }
 
 func (t *noopVCursor) SetQueryTimeout(maxExecutionTime int64) {
+}
+
+func (t *noopVCursor) GetQueryTimeout() int64 {
+	return 0
+}
+
+func (t *noopVCursor) SetMaxExecutionTimeHint(ms int64) {
 }
 
 func (t *noopVCursor) SetTransactionTimeout(timeout int64) {}

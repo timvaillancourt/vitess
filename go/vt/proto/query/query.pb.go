@@ -1404,8 +1404,12 @@ type ExecuteOptions struct {
 	InDmlExecution bool `protobuf:"varint,19,opt,name=in_dml_execution,json=inDmlExecution,proto3" json:"in_dml_execution,omitempty"`
 	// transaction_timeout specifies the transaction timeout in milliseconds. If not set, the default timeout is used.
 	TransactionTimeout *int64 `protobuf:"varint,20,opt,name=transaction_timeout,json=transactionTimeout,proto3,oneof" json:"transaction_timeout,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// max_execution_time_hint indicates VTGate has injected a MAX_EXECUTION_TIME(ms)
+	// optimizer hint into the query. A value of 0 means no hint was injected.
+	// VTTablet uses this to enable the adaptive kill fallback grace period.
+	MaxExecutionTimeHint int64 `protobuf:"varint,21,opt,name=max_execution_time_hint,json=maxExecutionTimeHint,proto3" json:"max_execution_time_hint,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1555,6 +1559,13 @@ func (x *ExecuteOptions) GetInDmlExecution() bool {
 func (x *ExecuteOptions) GetTransactionTimeout() int64 {
 	if x != nil && x.TransactionTimeout != nil {
 		return *x.TransactionTimeout
+	}
+	return 0
+}
+
+func (x *ExecuteOptions) GetMaxExecutionTimeHint() int64 {
+	if x != nil {
+		return x.MaxExecutionTimeHint
 	}
 	return 0
 }
@@ -5826,7 +5837,7 @@ const file_query_proto_rawDesc = "" +
 	"\x0ebind_variables\x18\x02 \x03(\v2$.query.BoundQuery.BindVariablesEntryR\rbindVariables\x1aU\n" +
 	"\x12BindVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12)\n" +
-	"\x05value\x18\x02 \x01(\v2\x13.query.BindVariableR\x05value:\x028\x01\"\x83\r\n" +
+	"\x05value\x18\x02 \x01(\v2\x13.query.BindVariableR\x05value:\x028\x01\"\xba\r\n" +
 	"\x0eExecuteOptions\x12M\n" +
 	"\x0fincluded_fields\x18\x04 \x01(\x0e2$.query.ExecuteOptions.IncludedFieldsR\x0eincludedFields\x12*\n" +
 	"\x11client_found_rows\x18\x05 \x01(\bR\x0fclientFoundRows\x12:\n" +
@@ -5844,7 +5855,8 @@ const file_query_proto_rawDesc = "" +
 	"\x15authoritative_timeout\x18\x11 \x01(\x03H\x00R\x14authoritativeTimeout\x12/\n" +
 	"\x14fetch_last_insert_id\x18\x12 \x01(\bR\x11fetchLastInsertId\x12(\n" +
 	"\x10in_dml_execution\x18\x13 \x01(\bR\x0einDmlExecution\x124\n" +
-	"\x13transaction_timeout\x18\x14 \x01(\x03H\x01R\x12transactionTimeout\x88\x01\x01\";\n" +
+	"\x13transaction_timeout\x18\x14 \x01(\x03H\x01R\x12transactionTimeout\x88\x01\x01\x125\n" +
+	"\x17max_execution_time_hint\x18\x15 \x01(\x03R\x14maxExecutionTimeHint\";\n" +
 	"\x0eIncludedFields\x12\x11\n" +
 	"\rTYPE_AND_NAME\x10\x00\x12\r\n" +
 	"\tTYPE_ONLY\x10\x01\x12\a\n" +
