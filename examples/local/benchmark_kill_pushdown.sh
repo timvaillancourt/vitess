@@ -127,11 +127,9 @@ get_primary_uid() {
 }
 
 # Restart a vttablet with benchmark flags.
-# Args: uid, extra_flags...
+# Args: uid
 restart_vttablet() {
     local uid=$1
-    shift
-    local extra_flags=("$@")
 
     local port=$((15000 + uid))
     local grpc_port=$((16000 + uid))
@@ -183,7 +181,6 @@ restart_vttablet() {
         --queryserver-config-pool-size "$POOL_SIZE" \
         --queryserver-config-query-timeout "$QUERY_TIMEOUT" \
         --enable-consolidator=false \
-        "${extra_flags[@]}" \
         >"$VTDATAROOT/$tablet_dir/vttablet.out" 2>&1 &
 
     # Wait for tablet to be up
@@ -197,9 +194,8 @@ restart_vttablet() {
 
 # Restart all vttablets with given extra flags.
 restart_all_vttablets() {
-    local extra_flags=("$@")
     for uid in $TABLET_UIDS; do
-        restart_vttablet "$uid" "${extra_flags[@]}"
+        restart_vttablet "$uid"
     done
 
     # Without vtorc, we need to ensure a primary is elected.
@@ -464,6 +460,20 @@ do_prepare() {
     local target_rows=$1
 
     log "=== PREPARE PHASE ==="
+
+    # Build vtbench from vtbench-errors branch if not already present
+    if [ ! -x /tmp/vtbench ]; then
+        log "Building vtbench from vtbench-errors branch..."
+        local worktree="/tmp/vtbench-build"
+        git worktree add "$worktree" vtbench-errors 2>/dev/null || git worktree add "$worktree" origin/vtbench-errors
+        (cd "$worktree" && source build.env && go build -o /tmp/vtbench ./go/cmd/vtbench/)
+        git worktree remove "$worktree"
+        log "vtbench built at /tmp/vtbench"
+    else
+        log "vtbench already exists at /tmp/vtbench"
+    fi
+    export PATH="/tmp:$PATH"
+
     log "Target rows: $target_rows"
 
     # Create table if it doesn't exist
