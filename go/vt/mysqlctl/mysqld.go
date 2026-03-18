@@ -349,7 +349,7 @@ func (mysqld *Mysqld) IsMySQLLocal() bool {
 // IsLocalMySQLDown probes MySQL by attempting a DBA connection and returns true
 // if MySQL appears to be down. Only meaningful when IsMySQLLocal returns true.
 func (mysqld *Mysqld) IsLocalMySQLDown(ctx context.Context) bool {
-	// Test if mysql is available by opening a new DBA connection.
+	// Test if mysql is available by attempting to establish a DBA connection.
 	conn, err := mysqld.GetDbaConnection(ctx)
 	if err == nil {
 		conn.Close()

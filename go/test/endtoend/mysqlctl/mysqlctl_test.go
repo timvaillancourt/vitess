@@ -166,9 +166,9 @@ func TestAutoDetect(t *testing.T) {
 }
 
 func TestIsLocalMySQLDown(t *testing.T) {
-	tabletDir := path.Join(os.Getenv("VTDATAROOT"), fmt.Sprintf("/vt_%010d", replicaTablet.TabletUID))
-	socketFile := path.Join(tabletDir, "/mysql.sock")
-	pidFile := path.Join(tabletDir, "/mysql.pid")
+	tabletDir := path.Join(os.Getenv("VTDATAROOT"), fmt.Sprintf("vt_%010d", replicaTablet.TabletUID))
+	socketFile := path.Join(tabletDir, "mysql.sock")
+	pidFile := path.Join(tabletDir, "mysql.pid")
 
 	connParams := mysql.ConnParams{
 		Uname:      "root",
@@ -196,13 +196,12 @@ func TestIsLocalMySQLDown(t *testing.T) {
 
 		require.NoError(t, syscall.Kill(pid, syscall.SIGKILL))
 
-		// Wait for the socket file to disappear.
+		// Wait for MySQL to be reported as down. We check IsLocalMySQLDown rather
+		// than waiting for the socket file to disappear, because SIGKILL bypasses
+		// cleanup and the socket file may persist on disk.
 		require.Eventually(t, func() bool {
-			_, err := os.Stat(socketFile)
-			return os.IsNotExist(err)
-		}, 30*time.Second, 100*time.Millisecond, "socket file %q did not disappear after SIGKILL", socketFile)
-
-		assert.True(t, mysqld.IsLocalMySQLDown(t.Context()))
+			return mysqld.IsLocalMySQLDown(t.Context())
+		}, 30*time.Second, 100*time.Millisecond, "MySQL was not reported down after SIGKILL")
 	})
 
 	t.Run("fd exhaustion", func(t *testing.T) {
