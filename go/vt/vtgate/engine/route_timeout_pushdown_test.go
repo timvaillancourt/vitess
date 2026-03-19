@@ -114,12 +114,20 @@ func TestInjectMaxExecutionTimeHint(t *testing.T) {
 			wantHintMs:   2000,
 		},
 		{
-			name:       "existing MAX_EXECUTION_TIME is overridden",
-			query:      "select /*+ MAX_EXECUTION_TIME(100) */ * from t",
+			name:       "existing higher MAX_EXECUTION_TIME is overridden",
+			query:      "select /*+ MAX_EXECUTION_TIME(5000) */ * from t",
 			sessionMs:  3000,
 			pushdown:   true,
 			wantQuery:  "select /*+ MAX_EXECUTION_TIME(3000) */ * from t",
 			wantHintMs: 3000,
+		},
+		{
+			name:       "existing lower MAX_EXECUTION_TIME is respected",
+			query:      "select /*+ MAX_EXECUTION_TIME(100) */ * from t",
+			sessionMs:  3000,
+			pushdown:   true,
+			wantQuery:  "select /*+ MAX_EXECUTION_TIME(100) */ * from t",
+			wantHintMs: 100,
 		},
 		{
 			name:       "works alongside other hints",

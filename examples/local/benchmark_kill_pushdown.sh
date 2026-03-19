@@ -35,6 +35,7 @@ VTGATE_MYSQL_PORT="${VTGATE_MYSQL_PORT:-15306}"
 VTGATE_GRPC_PORT="${VTGATE_GRPC_PORT:-15991}"
 POOL_SIZE="${POOL_SIZE:-10}"
 QUERY_TIMEOUT="${QUERY_TIMEOUT:-2s}"
+QUERY_TIMEOUT_MS="${QUERY_TIMEOUT_MS:-2000}"
 TABLET_UIDS="${TABLET_UIDS:-100 101}"
 VTBENCH_COUNT="${VTBENCH_COUNT:-100}"
 VTBENCH_DEADLINE="${VTBENCH_DEADLINE:-300s}"
@@ -248,6 +249,7 @@ restart_vtgate() {
         --mysql-auth-server-impl none \
         --pprof-http \
         --log-format text \
+        --query-timeout "$QUERY_TIMEOUT_MS" \
         "${extra_flags[@]}" \
         >"$VTDATAROOT/tmp/vtgate.out" 2>&1 &
 

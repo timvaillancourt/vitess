@@ -27,9 +27,9 @@ import (
 
 const (
 	// Adaptive grace period bounds (milliseconds).
-	adaptiveGraceDefault = adaptiveGraceMin
-	adaptiveGraceMin     = 25
-	adaptiveGraceMax     = 1000
+	adaptiveGraceDefault = 25
+	adaptiveGraceMin     = 10
+	adaptiveGraceMax     = 50
 
 	// Multiplier applied to the average MySQL response time to compute
 	// the grace period. For example, if MySQL averages 80ms to return

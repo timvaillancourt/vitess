@@ -1172,7 +1172,7 @@ func (vc *VCursorImpl) SetQueryTimeout(maxExecutionTime int64) {
 
 // GetQueryTimeout implements the SessionActions interface
 func (vc *VCursorImpl) GetQueryTimeout() int64 {
-	return vc.SafeSession.GetQueryTimeout()
+	return int64(vc.getQueryTimeout())
 }
 
 // SetMaxExecutionTimeHint implements the SessionActions interface

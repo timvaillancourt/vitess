@@ -529,6 +529,10 @@ func (route *Route) injectMaxExecutionTimeHint(vcursor VCursor) (string, int64) 
 	}
 
 	comments := sel.GetParsedComments()
+	if existing, ok := comments.GetMaxExecutionTime(); ok && existing < timeout {
+		// Respect user's lower MAX_EXECUTION_TIME hint.
+		return route.Query, int64(existing)
+	}
 	newComments := comments.SetMaxExecutionTime(timeout)
 	sel.SetComments(newComments)
 	return sqlparser.String(sel), int64(timeout)
