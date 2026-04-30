@@ -124,10 +124,7 @@ func TestGroupBy(t *testing.T) {
 		// test ordering and group by int column
 		mcmp.AssertMatches("select id6, id7, count(*) k from t3 group by id6, id7 order by k", `[[INT64(3) INT64(6) INT64(1)] [INT64(2) INT64(4) INT64(2)] [INT64(1) INT64(2) INT64(3)]]`)
 		mcmp.AssertMatches("select id6+id7, count(*) k from t3 group by id6+id7 order by k", `[[INT64(9) INT64(1)] [INT64(6) INT64(2)] [INT64(3) INT64(3)]]`)
-		if utils.BinaryIsAtLeastAtVersion(20, "vtgate") &&
-			utils.BinaryIsAtLeastAtVersion(20, "vttablet") {
-			mcmp.Exec("select id6, id7, count(*) k from t3 group by id6, id7 with rollup")
-		}
+		mcmp.Exec("select id6, id7, count(*) k from t3 group by id6, id7 with rollup")
 	}
 }
 
@@ -619,10 +616,6 @@ func TestGroupConcatAggregation(t *testing.T) {
 	compareRow(t, mQr, vtQr, nil, []int{0})
 	mQr, vtQr = mcmp.ExecNoCompare(`SELECT group_concat(value), t1.name FROM t1, t2 group by t1.name`)
 	compareRow(t, mQr, vtQr, []int{1}, []int{0})
-	if versionMet := utils.BinaryIsAtLeastAtVersion(19, "vtgate"); !versionMet {
-		// skipping
-		return
-	}
 	mQr, vtQr = mcmp.ExecNoCompare(`SELECT group_concat(name, value) FROM t1`)
 	compareRow(t, mQr, vtQr, nil, []int{0})
 }
@@ -668,7 +661,6 @@ func TestDistinctAggregation(t *testing.T) {
 	tcases := []struct {
 		query       string
 		expectedErr string
-		minVersion  int
 	}{{
 		query:       `SELECT COUNT(DISTINCT value), SUM(DISTINCT shardkey) FROM t1`,
 		expectedErr: "VT12001: unsupported: only one DISTINCT aggregation is allowed in a SELECT: sum(distinct shardkey) (errno 1235) (sqlstate 42000)",
@@ -682,15 +674,10 @@ func TestDistinctAggregation(t *testing.T) {
 	}, {
 		query: `SELECT a.value, SUM(DISTINCT b.t1_id), min(DISTINCT a.t1_id) FROM t1 a, t1 b group by a.value`,
 	}, {
-		minVersion: 19,
-		query:      `SELECT count(distinct name, shardkey) from t1`,
+		query: `SELECT count(distinct name, shardkey) from t1`,
 	}}
 
 	for _, tc := range tcases {
-		if versionMet := utils.BinaryIsAtLeastAtVersion(tc.minVersion, "vtgate"); !versionMet {
-			// skipping
-			continue
-		}
 		mcmp.Run(tc.query, func(mcmp *utils.MySQLCompare) {
 			_, err := mcmp.ExecAllowError(tc.query)
 			if tc.expectedErr == "" {

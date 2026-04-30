@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"vitess.io/vitess/go/constants/sidecar"
 	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/test/endtoend/cluster"
 	"vitess.io/vitess/go/test/endtoend/utils"
@@ -58,16 +57,6 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			return 1
 		}
-		vttabletVer, err := cluster.GetMajorVersion("vttablet")
-		if err != nil {
-			return 1
-		}
-
-		// For upgrade/downgrade tests.
-		if vtgateVer < 17 || vttabletVer < 17 {
-			// Then only the default sidecarDBName is supported.
-			sidecarDBName = sidecar.DefaultName
-		}
 
 		// Start topo server
 		err = clusterInstance.StartTopo()
@@ -87,10 +76,8 @@ func TestMain(m *testing.M) {
 			vtutils.GetFlagVariantForTestsByVersion("--vschema-ddl-authorized-users", vtgateVer), "%")
 		clusterInstance.VtTabletExtraArgs = append(clusterInstance.VtTabletExtraArgs, "--queryserver-config-schema-change-signal")
 
-		if vtgateVer >= 16 && vttabletVer >= 16 {
-			clusterInstance.VtGateExtraArgs = append(clusterInstance.VtGateExtraArgs, "--enable-views")
-			clusterInstance.VtTabletExtraArgs = append(clusterInstance.VtTabletExtraArgs, "--queryserver-enable-views")
-		}
+		clusterInstance.VtGateExtraArgs = append(clusterInstance.VtGateExtraArgs, "--enable-views")
+		clusterInstance.VtTabletExtraArgs = append(clusterInstance.VtTabletExtraArgs, "--queryserver-enable-views")
 
 		err = clusterInstance.StartKeyspace(*keyspace, []string{"-80", "80-"}, 0, false, clusterInstance.Cell)
 		if err != nil {

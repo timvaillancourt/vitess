@@ -205,9 +205,6 @@ func TestReparentAvoid(t *testing.T) {
 	utils.CheckPrimaryTablet(t, clusterInstance, tablets[1])
 
 	t.Run("Allow cross cell promotion", func(t *testing.T) {
-		if clusterInstance.VtctlMajorVersion <= 20 {
-			t.Skip("Allow Cross Cell Promotion was added in v21")
-		}
 		utils.DeleteTablet(t, clusterInstance, tablets[0])
 		// Perform a graceful reparent operation and verify it fails because we have no replicas in the same cell as the primary.
 		out, err = utils.PrsAvoid(t, clusterInstance, tablets[1])
@@ -345,11 +342,7 @@ func TestReparentWithDownReplica(t *testing.T) {
 	out, err := utils.Prs(t, clusterInstance, tablets[1])
 	require.Error(t, err)
 	// Assert that PRS failed
-	if clusterInstance.VtctlMajorVersion <= 20 {
-		assert.Contains(t, out, "TabletManager.PrimaryStatus on "+tablets[2].Alias)
-	} else {
-		assert.Contains(t, out, "TabletManager.GetGlobalStatusVars on "+tablets[2].Alias)
-	}
+	assert.Contains(t, out, "TabletManager.GetGlobalStatusVars on "+tablets[2].Alias)
 	// insert data into the old primary, check the connected replica works. The primary tablet shouldn't have changed.
 	insertVal := utils.ConfirmReplication(t, tablets[0], []*cluster.Vttablet{tablets[1], tablets[3]})
 

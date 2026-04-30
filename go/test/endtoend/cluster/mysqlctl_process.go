@@ -62,9 +62,6 @@ func (mysqlctl *MysqlctlProcess) InitDb() (err error) {
 		args = append(args, "--log-format", "text")
 	}
 	args = append(args, "init")
-	if mysqlctl.MajorVersion < 18 {
-		args = append(args, "--")
-	}
 
 	// TODO: Remove underscore(_) flags in v25, replace them with dashed(-) notation
 	args = append(args, "--init_db_sql_file", mysqlctl.InitDBFile)
@@ -162,9 +159,6 @@ ssl_key={{.ServerKey}}
 
 		if init {
 			tmpProcess.Args = append(tmpProcess.Args, "init")
-			if mysqlctl.MajorVersion < 18 {
-				tmpProcess.Args = append(tmpProcess.Args, "--")
-			}
 			// TODO: Remove underscore(_) flags in v25, replace them with dashed(-) notation
 			tmpProcess.Args = append(tmpProcess.Args, "--init_db_sql_file", mysqlctl.InitDBFile)
 		} else {
