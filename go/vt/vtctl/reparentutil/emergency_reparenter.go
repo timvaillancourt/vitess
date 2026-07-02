@@ -677,9 +677,13 @@ func (erp *EmergencyReparenter) findMostAdvanced(
 	winningPosition := tabletPositions[0]
 
 	// We have already removed the tablets with errant GTIDs before calling this function. At this point our winning position must be a
-	// superset of all the other valid positions. If that is not the case, then we have a split brain scenario, and we should cancel the ERS
+	// superset of all the other valid positions. If any is incomparable (neither contains the other), then we have a split brain scenario, and we should cancel the ERS.
+	//
+	// Split brain is a question of divergent *received* history, so we compare Combined only. Executed does not belong here: equal Combined implies
+	// Executed is comparable in MySQL terms (single-threaded apply makes Executed a prefix of Combined; multi-threaded apply can leave transient
+	// same-UUID gaps, but those are drained by the relay-log-apply wait and reconciled to Executed==Combined), so it can never independently signal a split brain.
 	for i, position := range tabletPositions {
-		if !winningPosition.AtLeast(position) {
+		if positionsIncomparable(winningPosition.Combined, position.Combined) {
 			return nil, nil, vterrors.Errorf(vtrpc.Code_FAILED_PRECONDITION, "split brain detected between servers - %v and %v", winningPrimaryTablet.Alias, validTablets[i].Alias)
 		}
 	}

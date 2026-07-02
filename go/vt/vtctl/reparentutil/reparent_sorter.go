@@ -75,23 +75,28 @@ func (rs *reparentSorter) Less(i, j int) bool {
 	jPositions := rs.positions[j]
 	iPositions := rs.positions[i]
 
-	iAtLeastJ := iPositions.AtLeast(jPositions)
-	jAtLeastI := jPositions.AtLeast(iPositions)
-
-	if iAtLeastJ && !jAtLeastI {
-		// [i] strictly dominates [j]
+	// Rank by the received (Combined) position first. If one strictly dominates, it wins.
+	if positionDominates(iPositions.Combined, jPositions.Combined) {
 		return true
 	}
-	if jAtLeastI && !iAtLeastJ {
-		// [j] strictly dominates [i]
+	if positionDominates(jPositions.Combined, iPositions.Combined) {
 		return false
 	}
 
-	// At this point positions are either equal (both AtLeast) or incomparable
-	// (neither AtLeast — possible under partial-order GTID sets with disjoint UUIDs).
-	// Fall through to deterministic tiebreakers so the sort stays a total order even
-	// in the incomparable case — otherwise Go's sort is undefined and may put a
-	// strictly-dominated tablet at index 0 via non-transitive comparisons.
+	// Combined positions are equal or incomparable. When equal, prefer the tablet that has
+	// applied more (Executed) — it has less SQL-thread lag to clear. When incomparable
+	// (disjoint UUIDs), neither dominates; fall through to the deterministic tiebreakers so
+	// the sort stays a total order even in that case — otherwise Go's sort is undefined and
+	// may put a strictly-dominated tablet at index 0 via non-transitive comparisons.
+	if iPositions.Combined.Equal(jPositions.Combined) {
+		if positionDominates(iPositions.Executed, jPositions.Executed) {
+			return true
+		}
+		if positionDominates(jPositions.Executed, iPositions.Executed) {
+			return false
+		}
+	}
+
 	// so we check their promotion rules
 	jPromotionRule := policy.PromotionRule(rs.durability, rs.tablets[j])
 	iPromotionRule := policy.PromotionRule(rs.durability, rs.tablets[i])

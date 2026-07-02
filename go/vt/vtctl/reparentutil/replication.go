@@ -105,11 +105,25 @@ func uniformCombined(candidates map[string]*RelayLogPositions) bool {
 	return true
 }
 
-// filterToMostAdvancedCombined keeps only candidates whose Combined position is not
-// strictly dominated by another (X dominated by Y iff Y.AtLeast(X) and X != Y). Pairwise
-// comparison is required to correctly handle partially-ordered GTID sets: when two
-// candidates have disjoint UUIDs neither dominates the other, so both must be kept;
-// comparing against a single chosen max would silently drop one incomparable maximum.
+// positionDominates reports whether a is strictly ahead of b in the GTID partial order:
+// a contains everything b has, and the two are not equal. This is the single definition of
+// "ahead-ness" shared by the reparent filter, the sorter, and the split-brain check, so the
+// partial-order handling lives in one place rather than being re-derived at each call site.
+func positionDominates(a, b replication.Position) bool {
+	return a.AtLeast(b) && !a.Equal(b)
+}
+
+// positionsIncomparable reports whether neither position contains the other — the
+// partial-order case where both are maximal at once. In a single shard this only arises from
+// disjoint UUIDs (split-brain / errant GTIDs), never from ordinary replication lag.
+func positionsIncomparable(a, b replication.Position) bool {
+	return !a.AtLeast(b) && !b.AtLeast(a)
+}
+
+// filterToMostAdvancedCombined keeps only candidates whose Combined position is not strictly
+// dominated by another. Pairwise comparison is required to correctly handle partially-ordered
+// GTID sets: when two candidates have disjoint UUIDs neither dominates the other, so both must
+// be kept; comparing against a single chosen max would silently drop one incomparable maximum.
 func filterToMostAdvancedCombined(candidates map[string]*RelayLogPositions, logger logutil.Logger) map[string]*RelayLogPositions {
 	if len(candidates) == 0 {
 		return candidates
@@ -122,7 +136,7 @@ func filterToMostAdvancedCombined(candidates map[string]*RelayLogPositions, logg
 			if otherAlias == alias {
 				continue
 			}
-			if otherPos.Combined.AtLeast(pos.Combined) && !pos.Combined.Equal(otherPos.Combined) {
+			if positionDominates(otherPos.Combined, pos.Combined) {
 				dominated = true
 				break
 			}
