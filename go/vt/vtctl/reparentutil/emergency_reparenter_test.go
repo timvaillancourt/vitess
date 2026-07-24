@@ -48,6 +48,7 @@ import (
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
+	"vitess.io/vitess/go/vt/proto/vttime"
 )
 
 func TestNewEmergencyReparenter(t *testing.T) {
@@ -2072,7 +2073,8 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnStopReplicationFailure(t *
 		},
 	})
 
-	testutil.AddTablets(ctx, t, ts, nil,
+	testutil.AddTablets(
+		ctx, t, ts, nil,
 		&topodatapb.Tablet{
 			Alias: &topodatapb.TabletAlias{
 				Cell: "zone1",
@@ -2211,7 +2213,8 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnFailure(t *testing.T) {
 			},
 		})
 
-		testutil.AddTablets(ctx, t, ts, nil,
+		testutil.AddTablets(
+			ctx, t, ts, nil,
 			&topodatapb.Tablet{
 				Alias: &topodatapb.TabletAlias{
 					Cell: "zone1",
@@ -2256,6 +2259,589 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnFailure(t *testing.T) {
 func tabletAliasMatcher(alias string) gomock.Matcher {
 	return gomock.Cond(func(tablet *topodatapb.Tablet) bool {
 		return tablet != nil && topoproto.TabletAliasString(tablet.Alias) == alias
+	})
+}
+
+// TestEmergencyReparenterSkipsAbandonedPrimaryOnFinalReparent verifies that ERS
+// does not call SetReplicationSource on a primary it abandoned because demotion
+// failed during the stop-replication phase. That RPC would force the tablet from
+// PRIMARY to REPLICA the moment it becomes reachable; instead it must be left to
+// demote itself via shard sync once it sees the new primary in the shard record.
+func TestEmergencyReparenterSkipsAbandonedPrimaryOnFinalReparent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+
+		const (
+			keyspace     = "testkeyspace"
+			shard        = "-"
+			primaryAlias = "zone1-0000000100"
+			replicaAlias = "zone1-0000000101"
+			winnerAlias  = "zone1-0000000102"
+			sourceUUID   = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
+			replicaPos   = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+			winnerPos    = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-26"
+		)
+
+		replicaStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: replicaPos,
+			},
+		}
+
+		winnerStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: winnerPos,
+			},
+		}
+
+		mockController := gomock.NewController(t)
+		tmc := tmcmock.NewMockTabletManagerClient(mockController)
+
+		// The old primary still thinks it is PRIMARY and demoting it fails, so ERS
+		// abandons it during the stop-replication phase.
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(nil, mysql.ErrNotReplica)
+
+		tmc.EXPECT().
+			DemotePrimary(gomock.Any(), tabletAliasMatcher(primaryAlias), true).
+			Return(nil, assert.AnError)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(replicaAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(replicaStatus, nil)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(winnerAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(winnerStatus, nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(replicaAlias), replicaPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(winnerAlias), winnerPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(replicaAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(winnerAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			PromoteReplica(gomock.Any(), tabletAliasMatcher(winnerAlias), false).
+			Return(winnerPos, nil)
+
+		tmc.EXPECT().
+			PopulateReparentJournal(gomock.Any(), tabletAliasMatcher(winnerAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(replicaAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// The abandoned primary must be left alone during the final reparent.
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(primaryAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Times(0)
+
+		// Build the test topology.
+		ts := memorytopo.NewServer(ctx, "zone1")
+		defer ts.Close()
+
+		testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
+			Keyspace: keyspace,
+			Name:     shard,
+			Shard: &topodatapb.Shard{
+				PrimaryAlias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+			},
+		})
+
+		testutil.AddTablets(
+			ctx, t, ts, nil,
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+				Type:                 topodatapb.TabletType_PRIMARY,
+				PrimaryTermStartTime: &vttime.Time{Seconds: 100},
+				Keyspace:             keyspace,
+				Shard:                shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  101,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  102,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+		)
+
+		reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
+
+		erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
+		_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{})
+		require.NoError(t, err)
+	})
+}
+
+// TestEmergencyReparenterRepointsNilTermPrimaryOnFinalReparent verifies that a
+// PRIMARY tablet with a nil PrimaryTermStartTime is still repointed even when it
+// was unreachable during the stop-replication phase. The shard sync loop refuses
+// to sync a primary with a nil term start time (a known race), so such a tablet
+// would never demote itself; skipping it would leave it serving as PRIMARY.
+func TestEmergencyReparenterRepointsNilTermPrimaryOnFinalReparent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+
+		const (
+			keyspace     = "testkeyspace"
+			shard        = "-"
+			primaryAlias = "zone1-0000000100"
+			replicaAlias = "zone1-0000000101"
+			winnerAlias  = "zone1-0000000102"
+			sourceUUID   = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
+			replicaPos   = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+			winnerPos    = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-26"
+		)
+
+		replicaStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: replicaPos,
+			},
+		}
+
+		winnerStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: winnerPos,
+			},
+		}
+
+		mockController := gomock.NewController(t)
+		tmc := tmcmock.NewMockTabletManagerClient(mockController)
+
+		// The old primary is unreachable during the stop-replication phase,
+		// ending up in neither status map.
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(nil, assert.AnError)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(replicaAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(replicaStatus, nil)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(winnerAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(winnerStatus, nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(replicaAlias), replicaPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(winnerAlias), winnerPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(replicaAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(winnerAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			PromoteReplica(gomock.Any(), tabletAliasMatcher(winnerAlias), false).
+			Return(winnerPos, nil)
+
+		tmc.EXPECT().
+			PopulateReparentJournal(gomock.Any(), tabletAliasMatcher(winnerAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(replicaAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// Shard sync cannot demote a primary with a nil term start time, so it
+		// must be repointed like any other replica.
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(primaryAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// Build the test topology.
+		ts := memorytopo.NewServer(ctx, "zone1")
+		defer ts.Close()
+
+		testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
+			Keyspace: keyspace,
+			Name:     shard,
+			Shard: &topodatapb.Shard{
+				PrimaryAlias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+			},
+		})
+
+		testutil.AddTablets(
+			ctx, t, ts, nil,
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+				Type:     topodatapb.TabletType_PRIMARY,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  101,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  102,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+		)
+
+		reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
+
+		erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
+		_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{})
+		require.NoError(t, err)
+	})
+}
+
+// TestEmergencyReparenterRepointsStaleShardPrimaryOnFinalReparent verifies that
+// a tablet named by a stale shard-record PrimaryAlias but already recorded as
+// REPLICA is still repointed, even when it was unreachable during the
+// stop-replication phase. An already-demoted tablet has nothing to self-demote
+// via shard sync, so skipping it would strand it on its obsolete source.
+func TestEmergencyReparenterRepointsStaleShardPrimaryOnFinalReparent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+
+		const (
+			keyspace     = "testkeyspace"
+			shard        = "-"
+			primaryAlias = "zone1-0000000100"
+			replicaAlias = "zone1-0000000101"
+			winnerAlias  = "zone1-0000000102"
+			sourceUUID   = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
+			replicaPos   = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+			winnerPos    = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-26"
+		)
+
+		replicaStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: replicaPos,
+			},
+		}
+
+		winnerStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: winnerPos,
+			},
+		}
+
+		mockController := gomock.NewController(t)
+		tmc := tmcmock.NewMockTabletManagerClient(mockController)
+
+		// The shard record still names this tablet as primary, but its tablet
+		// record is already REPLICA. It fails the stop-replication phase
+		// transiently, ending up in neither status map.
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(nil, assert.AnError)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(replicaAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(replicaStatus, nil)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(winnerAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(winnerStatus, nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(replicaAlias), replicaPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(winnerAlias), winnerPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(replicaAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(winnerAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			PromoteReplica(gomock.Any(), tabletAliasMatcher(winnerAlias), false).
+			Return(winnerPos, nil)
+
+		tmc.EXPECT().
+			PopulateReparentJournal(gomock.Any(), tabletAliasMatcher(winnerAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(replicaAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// The stale shard-record primary is already a REPLICA, so it must be
+		// repointed like any other replica.
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(primaryAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// Build the test topology.
+		ts := memorytopo.NewServer(ctx, "zone1")
+		defer ts.Close()
+
+		testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
+			Keyspace: keyspace,
+			Name:     shard,
+			Shard: &topodatapb.Shard{
+				PrimaryAlias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+			},
+		})
+
+		testutil.AddTablets(
+			ctx, t, ts, nil,
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  101,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  102,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+		)
+
+		reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
+
+		erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
+		_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{})
+		require.NoError(t, err)
+	})
+}
+
+// TestEmergencyReparenterRepointsDemotedPrimaryOnFinalReparent verifies that a
+// former primary whose demotion succeeded during the stop-replication phase is
+// still repointed to the new primary like any other replica.
+func TestEmergencyReparenterRepointsDemotedPrimaryOnFinalReparent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+
+		const (
+			keyspace     = "testkeyspace"
+			shard        = "-"
+			primaryAlias = "zone1-0000000100"
+			replicaAlias = "zone1-0000000101"
+			winnerAlias  = "zone1-0000000102"
+			sourceUUID   = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
+			primaryPos   = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+			replicaPos   = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+			winnerPos    = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-26"
+		)
+
+		replicaStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: replicaPos,
+			},
+		}
+
+		winnerStatus := &replicationdatapb.StopReplicationStatus{
+			Before: &replicationdatapb.Status{IoState: int32(replication.ReplicationStateRunning), SqlState: int32(replication.ReplicationStateRunning)},
+			After: &replicationdatapb.Status{
+				SourceUuid:       sourceUUID,
+				RelayLogPosition: winnerPos,
+			},
+		}
+
+		mockController := gomock.NewController(t)
+		tmc := tmcmock.NewMockTabletManagerClient(mockController)
+
+		// The old primary still thinks it is PRIMARY, and this time demoting it
+		// succeeds: it stays a valid, repointable tablet.
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(nil, mysql.ErrNotReplica)
+
+		tmc.EXPECT().
+			DemotePrimary(gomock.Any(), tabletAliasMatcher(primaryAlias), true).
+			Return(&replicationdatapb.PrimaryStatus{Position: primaryPos}, nil)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(replicaAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(replicaStatus, nil)
+
+		tmc.EXPECT().
+			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(winnerAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+			Return(winnerStatus, nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(replicaAlias), replicaPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			WaitForPosition(gomock.Any(), tabletAliasMatcher(winnerAlias), winnerPos).
+			Return(nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(primaryAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(replicaAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			ReadReparentJournalInfo(gomock.Any(), tabletAliasMatcher(winnerAlias)).
+			Return(int32(1), nil)
+
+		tmc.EXPECT().
+			PromoteReplica(gomock.Any(), tabletAliasMatcher(winnerAlias), false).
+			Return(winnerPos, nil)
+
+		tmc.EXPECT().
+			PopulateReparentJournal(gomock.Any(), tabletAliasMatcher(winnerAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(replicaAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// The successfully demoted primary is repointed like any other replica.
+		tmc.EXPECT().
+			SetReplicationSource(gomock.Any(), tabletAliasMatcher(primaryAlias), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil).
+			Times(1)
+
+		// Build the test topology.
+		ts := memorytopo.NewServer(ctx, "zone1")
+		defer ts.Close()
+
+		testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
+			Keyspace: keyspace,
+			Name:     shard,
+			Shard: &topodatapb.Shard{
+				PrimaryAlias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+			},
+		})
+
+		testutil.AddTablets(
+			ctx, t, ts, nil,
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  100,
+				},
+				Type:                 topodatapb.TabletType_PRIMARY,
+				PrimaryTermStartTime: &vttime.Time{Seconds: 100},
+				Keyspace:             keyspace,
+				Shard:                shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  101,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+			&topodatapb.Tablet{
+				Alias: &topodatapb.TabletAlias{
+					Cell: "zone1",
+					Uid:  102,
+				},
+				Type:     topodatapb.TabletType_REPLICA,
+				Keyspace: keyspace,
+				Shard:    shard,
+			},
+		)
+
+		reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
+
+		erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
+		_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{})
+		require.NoError(t, err)
 	})
 }
 
@@ -2726,7 +3312,7 @@ func TestEmergencyReparenter_promotionOfNewPrimary(t *testing.T) {
 			tt.emergencyReparentOps.durability = durability
 
 			erp := NewEmergencyReparenter(ts, tt.tmc, logger)
-			_, err := erp.reparentReplicas(ctx, ev, tabletInfo.Tablet, tt.tabletMap, tt.statusMap, tt.emergencyReparentOps, false)
+			_, err := erp.reparentReplicas(ctx, ev, tabletInfo.Tablet, tt.tabletMap, tt.statusMap, nil, tt.emergencyReparentOps, false)
 			if tt.shouldErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errShouldContain)
@@ -3962,7 +4548,7 @@ func TestEmergencyReparenter_reparentReplicas(t *testing.T) {
 			tt.emergencyReparentOps.durability = durability
 
 			erp := NewEmergencyReparenter(ts, tt.tmc, logger)
-			_, err := erp.reparentReplicas(ctx, ev, tabletInfo.Tablet, tt.tabletMap, tt.statusMap, tt.emergencyReparentOps, false /* intermediateReparent */)
+			_, err := erp.reparentReplicas(ctx, ev, tabletInfo.Tablet, tt.tabletMap, tt.statusMap, nil, tt.emergencyReparentOps, false /* intermediateReparent */)
 			if tt.shouldErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errShouldContain)
@@ -4832,7 +5418,7 @@ func TestParentContextCancelled(t *testing.T) {
 		time.Sleep(time.Second)
 		cancel()
 	}()
-	_, err = erp.reparentReplicas(ctx, ev, tabletMap[newPrimaryTabletAlias].Tablet, tabletMap, statusMap, emergencyReparentOps, true)
+	_, err = erp.reparentReplicas(ctx, ev, tabletMap[newPrimaryTabletAlias].Tablet, tabletMap, statusMap, nil, emergencyReparentOps, true)
 	require.NoError(t, err)
 }
 

@@ -369,8 +369,28 @@ func (erp *EmergencyReparenter) reparentShardLocked(ctx context.Context, ev *eve
 	//		it is the intermediate source itself) will belong to the list
 	// Since the new primary tablet belongs to the validCandidateTablets list, we no longer need any additional constraint checks
 
+	// If the shard-record primary is still recorded as PRIMARY but is in neither
+	// status map, we could not reach or demote it during the stop-replication
+	// phase and have abandoned it. It must not be repointed:
+	// SetReplicationSource would force it from PRIMARY to REPLICA the moment it
+	// becomes reachable. Instead it demotes itself via shard sync once it sees
+	// the new primary in the shard record, the same self-demotion PRS relies on.
+	// We only skip a primary that shard sync can actually reconcile: a stale
+	// shard-record primary already recorded as REPLICA has nothing to
+	// self-demote, and the shard sync loop refuses to sync a primary with a nil
+	// term start time, so both are still repointed like any other replica.
+	var abandonedPrimary *topodatapb.TabletAlias
+	if prevPrimary != nil && prevPrimary.Type == topodatapb.TabletType_PRIMARY && prevPrimary.PrimaryTermStartTime != nil {
+		alias := topoproto.TabletAliasString(prevPrimary.Alias)
+		_, hasReplicaStatus := stoppedReplicationSnapshot.statusMap[alias]
+		_, hasPrimaryStatus := stoppedReplicationSnapshot.primaryStatusMap[alias]
+		if !hasReplicaStatus && !hasPrimaryStatus {
+			abandonedPrimary = prevPrimary.Alias
+		}
+	}
+
 	// Final step is to promote our primary candidate
-	_, err = erp.reparentReplicas(ctx, ev, newPrimary, tabletMap, stoppedReplicationSnapshot.statusMap, opts, false /* intermediateReparent */)
+	_, err = erp.reparentReplicas(ctx, ev, newPrimary, tabletMap, stoppedReplicationSnapshot.statusMap, abandonedPrimary, opts, false /* intermediateReparent */)
 	if err != nil {
 		return err
 	}
@@ -563,7 +583,8 @@ func (erp *EmergencyReparenter) promoteIntermediateSource(
 
 	// we reparent all the other valid tablets to start replication from our new source
 	// we wait for all the replicas so that we can choose a better candidate from the ones that started replication later
-	reachableTablets, err := erp.reparentReplicas(ctx, ev, source, validTabletMap, statusMap, opts, true /* intermediateReparent */)
+	// an abandoned primary is in neither status map, so it can never appear in validTabletMap
+	reachableTablets, err := erp.reparentReplicas(ctx, ev, source, validTabletMap, statusMap, nil /* abandonedPrimary */, opts, true /* intermediateReparent */)
 	if err != nil {
 		return nil, err
 	}
@@ -591,6 +612,7 @@ func (erp *EmergencyReparenter) reparentReplicas(
 	newPrimaryTablet *topodatapb.Tablet,
 	tabletMap map[string]*topo.TabletInfo,
 	statusMap map[string]*replicationdatapb.StopReplicationStatus,
+	abandonedPrimary *topodatapb.TabletAlias, // a primary abandoned during the stop-replication phase must not be repointed; it demotes itself via shard sync
 	opts EmergencyReparentOptions,
 	intermediateReparent bool, // intermediateReparent represents whether the reparenting of the replicas is the final reparent or not.
 	// Since ERS can sometimes promote a tablet, which isn't a candidate for promotion, if it is the most advanced, we don't want to
@@ -700,6 +722,9 @@ func (erp *EmergencyReparenter) reparentReplicas(
 	for alias, ti := range tabletMap {
 		switch {
 		case alias == topoproto.TabletAliasString(newPrimaryTablet.Alias):
+			continue
+		case abandonedPrimary != nil && alias == topoproto.TabletAliasString(abandonedPrimary):
+			erp.logger.Infof("not repointing abandoned primary %v; it will demote itself via shard sync once it sees the new primary", alias)
 			continue
 		case !opts.IgnoreReplicas.Has(alias):
 			replWg.Add(1)

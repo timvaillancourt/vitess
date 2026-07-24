@@ -28,6 +28,8 @@
     - **[VTTablet](#minor-changes-vttablet)**
         - [Schema engine table-count limit is now configurable](#vttablet-schema-max-table-count)
         - [Skip MySQL version check when restoring from a mysql-shell backup](#vttablet-mysql-shell-restore-skip-version-check)
+    - **[VTctld](#minor-changes-vtctld)**
+        - [EmergencyReparentShard no longer repoints an unreachable former primary](#ers-abandoned-primary)
     - **[Backup/Restore](#minor-changes-backup)**
         - [Chunked backup/restore for the builtinbackupengine](#backup-chunked-builtin)
     - **[General](#minor-changes-general)**
@@ -237,6 +239,14 @@ A new `--mysql-shell-restore-skip-version-check` flag (default `false`) has been
 Because mysql-shell performs a logical restore, its backups are not tied to the on-disk data dictionary format the way physical backups are, so restoring across otherwise-incompatible MySQL versions can be safe. This flag lets operators opt into that behavior.
 
 **Impact**: With this flag set, VTTablet may select and restore a `mysqlshell` backup whose MySQL version would otherwise be rejected as incompatible. Leave it unset to preserve the existing behavior.
+
+### <a id="minor-changes-vtctld"/>VTctld</a>
+
+#### <a id="ers-abandoned-primary"/>EmergencyReparentShard no longer repoints an unreachable former primary</a>
+
+When `EmergencyReparentShard` abandons a primary it could not reach or demote during its stop-replication phase, it no longer issues a `SetReplicationSource` RPC to that tablet during the final promotion. Previously, if the old primary became reachable mid-ERS, that RPC would force it from `PRIMARY` to `REPLICA` at an arbitrary moment. The former primary now demotes itself once it observes the new primary in the shard record, matching `PlannedReparentShard` behavior. A former primary that was demoted successfully is still repointed to the new primary as before.
+
+See [#18788](https://github.com/vitessio/vitess/issues/18788) for details.
 
 ### <a id="minor-changes-backup"/>Backup/Restore</a>
 
