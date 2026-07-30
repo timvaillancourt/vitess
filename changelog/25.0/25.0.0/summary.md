@@ -42,6 +42,7 @@
         - [Query rules now apply to queries on the streaming path](#vttablet-rules-apply-to-streaming)
         - [New `--demote-primary-lock-wait-timeout` flag](#vttablet-demote-primary-lock-wait-timeout)
         - [Schema engine table-count limit is now configurable](#vttablet-schema-max-table-count)
+        - [Disk health monitor: multiple directories and auto-detection](#vttablet-disk-health-monitor-autodetect)
         - [Replicas are placed in a crash-safe state before shutdown](#vttablet-replica-crash-safe-shutdown)
         - [Skip MySQL version check when restoring from a mysql-shell backup](#vttablet-mysql-shell-restore-skip-version-check)
         - [ApplySchema session variables](#vttablet-applyschema-session-variables)
@@ -458,6 +459,18 @@ Upgrade vtctld, vtctldclient, vtgate and vttablet before executing a schema
 change with `--session-variable`.
 
 See [#20654](https://github.com/vitessio/vitess/pull/20654) for details.
+
+#### <a id="vttablet-disk-health-monitor-autodetect"/>Disk health monitor: multiple directories and auto-detection</a>
+
+The disk health monitor gains three improvements:
+
+1. `--disk-write-dir` is now repeatable, so several directories (e.g. the MySQL data dir and a separate binlog volume) can be monitored at once. Probes run concurrently, and the disk is considered stalled when a probe write to any directory times out or fails. Health transitions are broadcast immediately, and a stalled tablet rejects new requests.
+2. A new `--enable-disk-health-monitor` flag (default `false`). When set and `--disk-write-dir` is not, the monitored directories are auto-detected from MySQL — `datadir`, `tmpdir`, `innodb_data_home_dir`, the InnoDB redo, undo, session temporary tablespace, and doublewrite directories, and the binary and relay log and index directories — retrying in the background until MySQL is reachable.
+3. Monitored directories are deduplicated by their underlying filesystem volume, so several directories on one volume produce a single probe.
+
+The monitor is disabled when MySQL is externally managed (a DB host or socket is configured). It probes a filesystem it assumes it shares with mysqld, which only holds when vttablet manages a co-located mysqld; an externally-managed server's data directories may be on another host entirely.
+
+**Deprecation notice:** setting `--disk-write-dir` without `--enable-disk-health-monitor` still enables the monitor in this release, but is deprecated and logs a warning at startup. From **v26**, the disk health monitor will only run when `--enable-disk-health-monitor` is set — explicit `--disk-write-dir` values alone will no longer enable it.
 
 ### <a id="minor-changes-vtctld"/>VTCtld</a>
 

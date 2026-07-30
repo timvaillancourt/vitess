@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
@@ -36,6 +37,7 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/logutil"
 	"vitess.io/vitess/go/vt/mysqlctl"
+	querypb "vitess.io/vitess/go/vt/proto/query"
 	vttestpb "vitess.io/vitess/go/vt/proto/vttest"
 	"vitess.io/vitess/go/vt/proto/vttime"
 	"vitess.io/vitess/go/vt/servenv"
@@ -45,6 +47,7 @@ import (
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/reparenttestutil"
 	"vitess.io/vitess/go/vt/vttablet/tabletmanager/semisyncmonitor"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
 	"vitess.io/vitess/go/vt/vttablet/tabletservermock"
 	"vitess.io/vitess/go/vt/vttest"
@@ -52,6 +55,25 @@ import (
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vschemapb "vitess.io/vitess/go/vt/proto/vschema"
 )
+
+type diskHealthOrderController struct {
+	*tabletservermock.Controller
+	initialized          bool
+	monitorSetBeforeInit bool
+}
+
+func (c *diskHealthOrderController) InitDBConfig(target *querypb.Target, dbcfgs *dbconfigs.DBConfigs, mysqld mysqlctl.MysqlDaemon) error {
+	err := c.Controller.InitDBConfig(target, dbcfgs, mysqld)
+	c.initialized = err == nil
+	return err
+}
+
+func (c *diskHealthOrderController) SetDiskHealthMonitor(m tabletserver.DiskHealthMonitor) {
+	if !c.initialized {
+		c.monitorSetBeforeInit = true
+	}
+	c.Controller.SetDiskHealthMonitor(m)
+}
 
 func TestStartBuildTabletFromInput(t *testing.T) {
 	alias := &topodatapb.TabletAlias{
@@ -420,6 +442,74 @@ func TestCheckPrimaryShip(t *testing.T) {
 	ter5 := ti.GetPrimaryTermStartTime()
 	assert.True(t, ter5.IsZero())
 	tm.Stop()
+}
+
+func TestTabletManagerInitializesQueryServiceBeforeDiskHealthMonitor(t *testing.T) {
+	fs := servenv.GetFlagSetFor("vttablet")
+	dirsFlag, ok := fs.Lookup("disk-write-dir").Value.(pflag.SliceValue)
+	require.True(t, ok)
+	originalDirs := dirsFlag.GetSlice()
+	require.NoError(t, dirsFlag.Replace([]string{t.TempDir()}))
+	t.Cleanup(func() { require.NoError(t, dirsFlag.Replace(originalDirs)) })
+
+	ts := memorytopo.NewServer(t.Context(), "cell1")
+	mysqld := newTestMysqlDaemon(t, 1)
+	controller := &diskHealthOrderController{Controller: tabletservermock.NewController()}
+	tm := &TabletManager{
+		BatchCtx:            t.Context(),
+		TopoServer:          ts,
+		MysqlDaemon:         mysqld,
+		DBConfigs:           &dbconfigs.DBConfigs{},
+		SemiSyncMonitor:     semisyncmonitor.CreateTestSemiSyncMonitor(mysqld.DB(), exporter),
+		QueryServiceControl: controller,
+	}
+
+	require.NoError(t, tm.Start(newTestTablet(t, 1, "ks", "0", nil), nil))
+	t.Cleanup(tm.Stop)
+	assert.False(t, controller.monitorSetBeforeInit)
+}
+
+func TestTabletManagerShutdownStopsDiskHealthMonitor(t *testing.T) {
+	tests := []struct {
+		name string
+		stop func(*TabletManager)
+	}{
+		{name: "Stop", stop: func(tm *TabletManager) { tm.Stop() }},
+		{name: "Close", stop: func(tm *TabletManager) { tm.Close() }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := memorytopo.NewServer(t.Context(), "cell1")
+			tm := newTestTM(t, ts, 1, "ks", "0", nil)
+			diskHealthCtx := tm.newDiskHealthMonitorContext()
+
+			tt.stop(tm)
+
+			require.ErrorIs(t, diskHealthCtx.Err(), context.Canceled)
+			assert.NoError(t, tm.BatchCtx.Err())
+		})
+	}
+}
+
+func TestTabletManagerFailedStartStopsDiskHealthMonitor(t *testing.T) {
+	ts := memorytopo.NewServer(t.Context(), "cell1")
+	existingTablet := newTestTablet(t, 1, "existing", "0", nil)
+	require.NoError(t, ts.CreateTablet(t.Context(), existingTablet))
+
+	tm := &TabletManager{
+		BatchCtx:            t.Context(),
+		TopoServer:          ts,
+		MysqlDaemon:         newTestMysqlDaemon(t, 1),
+		DBConfigs:           &dbconfigs.DBConfigs{},
+		QueryServiceControl: tabletservermock.NewController(),
+	}
+	diskHealthCtx := tm.newDiskHealthMonitorContext()
+
+	err := tm.Start(newTestTablet(t, 1, "new", "0", nil), nil)
+
+	require.ErrorContains(t, err, "differ from the provided ones")
+	require.ErrorIs(t, diskHealthCtx.Err(), context.Canceled)
+	assert.NoError(t, tm.BatchCtx.Err())
 }
 
 func TestStartCheckMysql(t *testing.T) {

@@ -180,6 +180,11 @@ func TestIsServing(t *testing.T) {
 
 	tdm.setDiskStalled(true)
 	require.False(t, sm.IsServing())
+	require.ErrorContains(t, sm.StartRequest(t.Context(), sm.target, false), "operation not allowed")
+
+	tdm.setDiskStalled(false)
+	require.NoError(t, sm.StartRequest(t.Context(), sm.target, false))
+	sm.EndRequest()
 }
 
 func TestStateManagerUnserveNonPrimary(t *testing.T) {

@@ -400,7 +400,7 @@ func (sm *stateManager) StartRequest(ctx context.Context, target *querypb.Target
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if sm.state != StateServing || !sm.replHealthy || sm.demotePrimaryStalled {
+	if sm.state != StateServing || !sm.replHealthy || sm.demotePrimaryStalled || sm.diskHealthMonitor.IsDiskStalled() {
 		// This specific error string needs to be returned for vtgate buffering to work.
 		return vterrors.New(vtrpcpb.Code_CLUSTER_EVENT, vterrors.NotServing)
 	}

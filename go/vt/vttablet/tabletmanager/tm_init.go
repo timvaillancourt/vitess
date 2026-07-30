@@ -38,10 +38,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -198,6 +201,9 @@ type TabletManager struct {
 	// mutex protects all the following fields (that start with '_'),
 	// only hold the mutex to update the fields, nothing else.
 	mutex sync.Mutex
+
+	// _diskHealthMonitorCancel stops disk health monitoring and directory discovery.
+	_diskHealthMonitorCancel context.CancelFunc
 
 	// _waitForGrantsComplete is a channel for waiting until the grants for all the mysql
 	// users have been verified.
@@ -449,6 +455,14 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	if err := tm.checkMysql(ctx); err != nil {
 		return err
 	}
+	startSucceeded := false
+	defer func() {
+		if !startSucceeded {
+			tm.stopDiskHealthMonitor()
+			tm.stopShardHealthMonitor()
+		}
+	}()
+
 	if err := tm.initTablet(ctx); err != nil {
 		return err
 	}
@@ -461,6 +475,9 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 	if err != nil {
 		return vterrors.Wrap(err, "failed to InitDBConfig")
 	}
+
+	diskHealthMonitorEnabled, diskHealthMonitorDirs := tabletserver.DiskHealthMonitorConfig()
+	tm.initDiskHealthMonitor(diskHealthMonitorEnabled, diskHealthMonitorDirs, tm.DBConfigs.HasGlobalSettings())
 	tm.QueryServiceControl.RegisterQueryRuleSource(denyListQueryList)
 
 	if tm.UpdateStream != nil {
@@ -535,12 +552,6 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 		}
 		tm.shardHealthMonitor.Start(tm.BatchCtx)
 	}
-	startSucceeded := false
-	defer func() {
-		if !startSucceeded {
-			tm.stopShardHealthMonitor()
-		}
-	}()
 
 	restoring, err := tm.handleRestore(tm.BatchCtx, config)
 	if err != nil {
@@ -575,6 +586,7 @@ func (tm *TabletManager) Start(tablet *topodatapb.Tablet, config *tabletenv.Tabl
 // then prune the tablet topology entry of all post-init fields. This prevents
 // stale identifiers from hanging around in topology.
 func (tm *TabletManager) Close() {
+	tm.stopDiskHealthMonitor()
 	tm.stopShardHealthMonitor()
 
 	// Stop the shard sync loop and wait for it to exit. We do this in Close()
@@ -611,6 +623,7 @@ func (tm *TabletManager) Close() {
 // while taking lameduck into account. However, this may be useful for tests,
 // when you want to clean up a tm immediately.
 func (tm *TabletManager) Stop() {
+	tm.stopDiskHealthMonitor()
 	tm.stopShardHealthMonitor()
 
 	// Stop the shard sync loop and wait for it to exit. This needs to be done
@@ -636,6 +649,16 @@ func (tm *TabletManager) Stop() {
 
 	tm.MysqlDaemon.Close()
 	tm.tmState.Close()
+}
+
+func (tm *TabletManager) stopDiskHealthMonitor() {
+	tm.mutex.Lock()
+	cancel := tm._diskHealthMonitorCancel
+	tm._diskHealthMonitorCancel = nil
+	tm.mutex.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // stopShardHealthMonitor drains shard-peer health work on failed startup, shutdown, and test
@@ -918,6 +941,183 @@ func (tm *TabletManager) findMysqlPort(retryInterval time.Duration) {
 		tm.tmState.SetMysqlPort(mport)
 		return
 	}
+}
+
+var (
+	// diskHealthMonitorDetectRetryInterval is how often auto-detection of the
+	// monitored directories is retried while MySQL is unreachable.
+	diskHealthMonitorDetectRetryInterval = 10 * time.Second
+
+	// diskHealthMonitorDetectTimeout bounds a single auto-detection attempt.
+	diskHealthMonitorDetectTimeout = 10 * time.Second
+)
+
+// SHOW GLOBAL VARIABLES omits variables unsupported by the running MySQL flavor.
+const mysqlDirsQuery = "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('datadir', 'tmpdir', 'innodb_data_home_dir', 'innodb_data_file_path', 'innodb_doublewrite', 'innodb_doublewrite_dir', 'innodb_parallel_doublewrite_path', 'innodb_temp_data_file_path', 'innodb_temp_tablespaces_dir', 'innodb_undo_directory', 'log_bin_basename', 'log_bin_index', 'relay_log_basename', 'relay_log_index', 'innodb_log_group_home_dir')"
+
+func (tm *TabletManager) initDiskHealthMonitor(enabled bool, explicitDirs []string, externalMySQL bool) {
+	// Empty values must not suppress auto-detection.
+	explicitDirs = slices.DeleteFunc(slices.Clone(explicitDirs), func(dir string) bool { return dir == "" })
+
+	// An external MySQL may not share a filesystem with `vttablet`.
+	if externalMySQL {
+		if enabled || len(explicitDirs) > 0 {
+			log.Warn("disk health monitor: MySQL is externally managed; the monitor is disabled because it can only probe a co-located, vttablet-managed mysqld")
+		}
+		return
+	}
+
+	// TODO(v26): require --enable-disk-health-monitor for the monitor to run;
+	// explicit --disk-write-dir values alone will no longer enable it.
+	if len(explicitDirs) > 0 {
+		if !enabled {
+			log.Warn("setting --disk-write-dir without --enable-disk-health-monitor is deprecated; from v26 the disk health monitor will only run when --enable-disk-health-monitor is set")
+		}
+		ctx := tm.newDiskHealthMonitorContext()
+		monitor := tabletserver.NewDiskHealthMonitor(ctx, explicitDirs, tm.QueryServiceControl.BroadcastHealth)
+		log.Info("disk health monitor: monitoring configured directories", slog.Any("dirs", explicitDirs))
+		tm.QueryServiceControl.SetDiskHealthMonitor(monitor)
+		return
+	}
+	if !enabled {
+		return
+	}
+	go tm.autoDetectDiskHealthMonitorDirs(tm.newDiskHealthMonitorContext())
+}
+
+func (tm *TabletManager) newDiskHealthMonitorContext() context.Context {
+	ctx, cancel := context.WithCancel(tm.BatchCtx)
+	tm.mutex.Lock()
+	previousCancel := tm._diskHealthMonitorCancel
+	tm._diskHealthMonitorCancel = cancel
+	tm.mutex.Unlock()
+	if previousCancel != nil {
+		previousCancel()
+	}
+	return ctx
+}
+
+func (tm *TabletManager) autoDetectDiskHealthMonitorDirs(ctx context.Context) {
+	retryInterval := diskHealthMonitorDetectRetryInterval
+	for {
+		dirs, err := tm.detectMySQLDirs(ctx)
+		if err != nil || len(dirs) == 0 {
+			// MySQL may answer with no directories while it is still initializing.
+			log.Warn(
+				"disk health monitor: no directories auto-detected from MySQL yet, retrying",
+				slog.Duration("retry_interval", retryInterval),
+				slog.Any("error", err),
+			)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryInterval):
+			}
+			continue
+		}
+
+		monitor := tabletserver.NewDiskHealthMonitor(ctx, dirs, tm.QueryServiceControl.BroadcastHealth)
+		if ctx.Err() != nil {
+			return
+		}
+		log.Info("disk health monitor: monitoring directories auto-detected from MySQL", slog.Any("dirs", dirs))
+		tm.QueryServiceControl.SetDiskHealthMonitor(monitor)
+		return
+	}
+}
+
+func (tm *TabletManager) detectMySQLDirs(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, diskHealthMonitorDetectTimeout)
+	defer cancel()
+
+	qr, err := tm.MysqlDaemon.FetchSuperQuery(ctx, mysqlDirsQuery)
+	if err != nil {
+		return nil, vterrors.Wrap(err, "failed to query MySQL directories")
+	}
+	vars := make(map[string]string, len(qr.Rows))
+	for _, row := range qr.Rows {
+		if len(row) != 2 {
+			continue
+		}
+		vars[strings.ToLower(row[0].ToString())] = row[1].ToString()
+	}
+
+	datadir := vars["datadir"]
+	// The InnoDB directories may be configured relative to datadir
+	// (innodb_log_group_home_dir defaults to "./").
+	relativeToDatadir := func(dir string) string {
+		if filepath.IsAbs(dir) {
+			return dir
+		}
+		return filepath.Join(datadir, dir)
+	}
+
+	var dirs []string
+	appendFileSpecDirs := func(fileSpecs, baseDir string) {
+		for fileSpec := range strings.SplitSeq(fileSpecs, ";") {
+			name, options, ok := strings.Cut(fileSpec, ":")
+			if !ok || name == "" || strings.HasSuffix(strings.ToLower(options), "raw") {
+				continue
+			}
+			if !filepath.IsAbs(name) {
+				name = filepath.Join(baseDir, name)
+			}
+			dirs = append(dirs, filepath.Dir(name))
+		}
+	}
+	if datadir != "" {
+		dirs = append(dirs, datadir)
+	}
+	// `filepath.SplitList` uses the OS separator; mysqld resolves relative tmpdirs against datadir.
+	if tmpdir := vars["tmpdir"]; tmpdir != "" {
+		for _, dir := range filepath.SplitList(tmpdir) {
+			dirs = append(dirs, relativeToDatadir(dir))
+		}
+	}
+	innodbDataHomeDir := datadir
+	if configuredDataHomeDir := vars["innodb_data_home_dir"]; configuredDataHomeDir != "" {
+		innodbDataHomeDir = relativeToDatadir(configuredDataHomeDir)
+		dirs = append(dirs, innodbDataHomeDir)
+	}
+	appendFileSpecDirs(vars["innodb_data_file_path"], innodbDataHomeDir)
+	appendFileSpecDirs(vars["innodb_temp_data_file_path"], innodbDataHomeDir)
+	if innodbUndoDir := vars["innodb_undo_directory"]; innodbUndoDir != "" {
+		dirs = append(dirs, relativeToDatadir(innodbUndoDir))
+	}
+	if innodbTempTablespacesDir := vars["innodb_temp_tablespaces_dir"]; innodbTempTablespacesDir != "" {
+		dirs = append(dirs, relativeToDatadir(innodbTempTablespacesDir))
+	}
+	doublewriteMode := strings.ToLower(vars["innodb_doublewrite"])
+	if innodbDoublewriteDir := vars["innodb_doublewrite_dir"]; innodbDoublewriteDir != "" && doublewriteMode != "off" && doublewriteMode != "false" && doublewriteMode != "0" {
+		if !filepath.IsAbs(innodbDoublewriteDir) && innodbDoublewriteDir[0] != '.' && innodbDoublewriteDir[0] != '#' {
+			innodbDoublewriteDir = "#" + innodbDoublewriteDir
+		}
+		dirs = append(dirs, relativeToDatadir(innodbDoublewriteDir))
+	}
+	if parallelDoublewritePath := vars["innodb_parallel_doublewrite_path"]; parallelDoublewritePath != "" {
+		if !filepath.IsAbs(parallelDoublewritePath) {
+			parallelDoublewritePath = filepath.Join(innodbDataHomeDir, parallelDoublewritePath)
+		}
+		dirs = append(dirs, filepath.Dir(parallelDoublewritePath))
+	}
+	// The *_basename variables are file path prefixes; monitor their
+	// directories. log_bin_basename is empty when binary logging is disabled.
+	if logBinBasename := vars["log_bin_basename"]; logBinBasename != "" {
+		dirs = append(dirs, filepath.Dir(logBinBasename))
+	}
+	if logBinIndex := vars["log_bin_index"]; logBinIndex != "" {
+		dirs = append(dirs, filepath.Dir(logBinIndex))
+	}
+	if relayLogBasename := vars["relay_log_basename"]; relayLogBasename != "" {
+		dirs = append(dirs, filepath.Dir(relayLogBasename))
+	}
+	if relayLogIndex := vars["relay_log_index"]; relayLogIndex != "" {
+		dirs = append(dirs, filepath.Dir(relayLogIndex))
+	}
+	if innodbLogGroupHomeDir := vars["innodb_log_group_home_dir"]; innodbLogGroupHomeDir != "" {
+		dirs = append(dirs, relativeToDatadir(innodbLogGroupHomeDir))
+	}
+	return dirs, nil
 }
 
 // redoPreparedTransactionsAndSetReadWrite redoes prepared transactions in read-only mode.

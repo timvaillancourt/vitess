@@ -18,17 +18,34 @@ package tabletserver
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testWriters(fns ...writeFunction) []*dirWriter {
+	writers := make([]*dirWriter, 0, len(fns))
+	for i, fn := range fns {
+		writers = append(writers, &dirWriter{
+			dirs:    []string{fmt.Sprintf("dir-%d", i)},
+			write:   func(string) error { return fn() },
+			stalled: make([]bool, 1),
+		})
+	}
+	return writers
+}
 
 func TestDiskHealthMonitor_noStall(t *testing.T) {
 	ctx := t.Context()
 	mockFileWriter := &sequencedMockWriter{}
-	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, mockFileWriter.mockWriteFunction, 50*time.Millisecond, 25*time.Millisecond)
+	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, testWriters(mockFileWriter.mockWriteFunction), 50*time.Millisecond, 25*time.Millisecond, nil)
 
 	// The monitor keeps polling. The exact number of polls in a fixed window is
 	// timing-dependent (each cycle spans the polling interval plus the write
@@ -43,7 +60,7 @@ func TestDiskHealthMonitor_noStall(t *testing.T) {
 func TestDiskHealthMonitor_stallAndRecover(t *testing.T) {
 	ctx := t.Context()
 	mockFileWriter := &sequencedMockWriter{sequencedWriteFunctions: []writeFunction{delayedWriteFunction(10*time.Millisecond, nil), delayedWriteFunction(300*time.Millisecond, nil)}}
-	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, mockFileWriter.mockWriteFunction, 50*time.Millisecond, 25*time.Millisecond)
+	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, testWriters(mockFileWriter.mockWriteFunction), 50*time.Millisecond, 25*time.Millisecond, nil)
 
 	time.Sleep(300 * time.Millisecond)
 	totalCreateCalls := mockFileWriter.getTotalCreateCalls()
@@ -59,7 +76,7 @@ func TestDiskHealthMonitor_stallAndRecover(t *testing.T) {
 func TestDiskHealthMonitor_stallDetected(t *testing.T) {
 	ctx := t.Context()
 	mockFileWriter := &sequencedMockWriter{defaultWriteFunction: delayedWriteFunction(10*time.Millisecond, errors.New("test error"))}
-	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, mockFileWriter.mockWriteFunction, 50*time.Millisecond, 25*time.Millisecond)
+	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, testWriters(mockFileWriter.mockWriteFunction), 50*time.Millisecond, 25*time.Millisecond, nil)
 
 	// A write function that always errors is reported as a stall once the monitor
 	// has polled. The exact number of polls in a fixed window is timing-dependent,
@@ -67,6 +84,216 @@ func TestDiskHealthMonitor_stallDetected(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return mockFileWriter.getTotalCreateCalls() >= 5 && diskHealthMonitor.IsDiskStalled()
 	}, 30*time.Second, 10*time.Millisecond, "expected the monitor to report a stall")
+}
+
+func TestDiskHealthMonitor_multiDirRecovery(t *testing.T) {
+	ctx := t.Context()
+	healthyWriter := &sequencedMockWriter{}
+	flakyWriter := &sequencedMockWriter{sequencedWriteFunctions: []writeFunction{
+		delayedWriteFunction(10*time.Millisecond, errors.New("test error")),
+		delayedWriteFunction(10*time.Millisecond, errors.New("test error")),
+	}}
+	var stateChanges atomic.Int32
+	diskHealthMonitor := newPollingDiskHealthMonitor(ctx, testWriters(healthyWriter.mockWriteFunction, flakyWriter.mockWriteFunction), 50*time.Millisecond, 25*time.Millisecond, func() {
+		stateChanges.Add(1)
+	})
+
+	assert.Eventually(t, diskHealthMonitor.IsDiskStalled, 30*time.Second, 10*time.Millisecond, "expected isStalled to be true while probes fail")
+	assert.Positive(t, healthyWriter.getTotalCreateCalls(), "expected probes of the healthy dir")
+	assert.Eventually(t, func() bool { return !diskHealthMonitor.IsDiskStalled() }, 30*time.Second, 10*time.Millisecond, "expected isStalled to be false after probes recover")
+	assert.Eventually(t, func() bool { return stateChanges.Load() == 2 }, 30*time.Second, 10*time.Millisecond)
+}
+
+func TestDiskHealthMonitor_fastFailurePublishesImmediately(t *testing.T) {
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	writers := testWriters(
+		func() error { return errors.New("test error") },
+		func() error {
+			close(slowStarted)
+			<-releaseSlow
+			return nil
+		},
+	)
+	var stateChanges atomic.Int32
+	monitor := newPollingDiskHealthMonitor(t.Context(), writers, time.Hour, 30*time.Second, func() {
+		stateChanges.Add(1)
+	})
+	done := make(chan struct{})
+	go func() {
+		monitor.checkAll(t.Context())
+		close(done)
+	}()
+
+	<-slowStarted
+	assert.Eventually(t, monitor.IsDiskStalled, 30*time.Second, 10*time.Millisecond)
+	assert.Eventually(t, func() bool { return stateChanges.Load() == 1 }, 30*time.Second, 10*time.Millisecond)
+	close(releaseSlow)
+	<-done
+}
+
+func TestDiskHealthMonitor_sameVolumePaths(t *testing.T) {
+	failing := true
+	writer := &dirWriter{
+		dirs:    []string{"healthy", "failing"},
+		stalled: make([]bool, 2),
+		write: func(dir string) error {
+			if dir == "failing" && failing {
+				return errors.New("test error")
+			}
+			return nil
+		},
+	}
+	monitor := &pollingDiskHealthMonitor{writers: []*dirWriter{writer}, writeTimeout: time.Second}
+
+	monitor.checkAll(t.Context())
+	assert.False(t, monitor.IsDiskStalled())
+	monitor.checkAll(t.Context())
+	assert.True(t, monitor.IsDiskStalled())
+	monitor.checkAll(t.Context())
+	assert.True(t, monitor.IsDiskStalled())
+	failing = false
+	monitor.checkAll(t.Context())
+	assert.False(t, monitor.IsDiskStalled())
+}
+
+func TestAttemptFileWrite_unaffectedByPlantedSymlink(t *testing.T) {
+	dir := t.TempDir()
+	// A fixed-name `os.Create` probe would follow this symlink.
+	planted := filepath.Join(dir, ".stalled_disk_check")
+	require.NoError(t, os.Symlink(filepath.Join(dir, "nope", "target"), planted))
+
+	require.NoError(t, attemptFileWrite(dir), "probe must be unaffected by a planted symlink")
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "probe must not leave temp files behind")
+	assert.Equal(t, ".stalled_disk_check", entries[0].Name())
+}
+
+func TestNewDiskHealthMonitor_noDirs(t *testing.T) {
+	monitor := NewDiskHealthMonitor(t.Context(), nil, nil)
+	require.IsType(t, &noopDiskHealthMonitor{}, monitor)
+	require.False(t, monitor.IsDiskStalled())
+
+	monitor = NewDiskHealthMonitor(t.Context(), []string{""}, nil)
+	require.IsType(t, &noopDiskHealthMonitor{}, monitor)
+}
+
+func TestGroupDiskHealthDirsStatsConcurrently(t *testing.T) {
+	origStatDeviceID := statDeviceID
+	origWriteTimeout := stalledDiskWriteTimeout
+	secondStarted := make(chan struct{})
+	t.Cleanup(func() {
+		statDeviceID = origStatDeviceID
+		stalledDiskWriteTimeout = origWriteTimeout
+	})
+	stalledDiskWriteTimeout = 100 * time.Millisecond
+	statDeviceID = func(dir string) (uint64, error) {
+		if dir == "/first" {
+			<-secondStarted
+			return 1, nil
+		}
+		close(secondStarted)
+		return 1, nil
+	}
+
+	assert.Equal(t, [][]string{{"/first", "/second"}}, groupDiskHealthDirs(t.Context(), []string{"/first", "/second"}))
+}
+
+func TestGroupDiskHealthDirsUsesSingleTimeout(t *testing.T) {
+	origStatDeviceID := statDeviceID
+	origWriteTimeout := stalledDiskWriteTimeout
+	blocked := make(chan struct{})
+	t.Cleanup(func() {
+		statDeviceID = origStatDeviceID
+		stalledDiskWriteTimeout = origWriteTimeout
+	})
+	stalledDiskWriteTimeout = 500 * time.Millisecond
+	statDeviceID = func(string) (uint64, error) {
+		<-blocked
+		return 0, nil
+	}
+
+	start := time.Now()
+	got := groupDiskHealthDirs(t.Context(), []string{"/one", "/two", "/three", "/four"})
+	elapsed := time.Since(start)
+	close(blocked)
+
+	assert.Equal(t, [][]string{{"/one"}, {"/two"}, {"/three"}, {"/four"}}, got)
+	assert.Less(t, elapsed, 1500*time.Millisecond)
+}
+
+func TestGroupDiskHealthDirs(t *testing.T) {
+	origStatDeviceID := statDeviceID
+	origWriteTimeout := stalledDiskWriteTimeout
+	blocked := make(chan struct{})
+	t.Cleanup(func() {
+		close(blocked)
+		statDeviceID = origStatDeviceID
+		stalledDiskWriteTimeout = origWriteTimeout
+	})
+	stalledDiskWriteTimeout = 25 * time.Millisecond
+
+	devices := map[string]uint64{
+		"/data":      1,
+		"/data/tmp":  1,
+		"/other":     2,
+		"/other/sub": 2,
+	}
+	statDeviceID = func(dir string) (uint64, error) {
+		if dir == "/hung" {
+			<-blocked
+			return 0, nil
+		}
+		dev, ok := devices[dir]
+		if !ok {
+			return 0, errors.New("stat failed")
+		}
+		return dev, nil
+	}
+
+	tests := []struct {
+		name string
+		dirs []string
+		want [][]string
+	}{
+		{
+			name: "groups dirs sharing a volume",
+			dirs: []string{"/data", "/data/tmp", "/other", "/other/sub"},
+			want: [][]string{{"/data", "/data/tmp"}, {"/other", "/other/sub"}},
+		},
+		{
+			name: "drops empty entries",
+			dirs: []string{"", "/data", ""},
+			want: [][]string{{"/data"}},
+		},
+		{
+			name: "drops exact duplicate paths",
+			dirs: []string{"/data", "/data", "/data/", "/other"},
+			want: [][]string{{"/data"}, {"/other"}},
+		},
+		{
+			name: "keeps dirs whose device ID cannot be determined",
+			dirs: []string{"/data", "/missing"},
+			want: [][]string{{"/data"}, {"/missing"}},
+		},
+		{
+			name: "keeps dirs whose stat times out",
+			dirs: []string{"/data", "/hung"},
+			want: [][]string{{"/data"}, {"/hung"}},
+		},
+		{
+			name: "nil input",
+			dirs: nil,
+			want: [][]string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, groupDiskHealthDirs(t.Context(), tt.dirs))
+		})
+	}
 }
 
 type sequencedMockWriter struct {
