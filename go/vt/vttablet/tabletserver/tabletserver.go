@@ -225,7 +225,7 @@ func NewTabletServer(ctx context.Context, env *vtenv.Environment, name string, c
 		qThrottler:        tsv.qThrottler,
 		tableGC:           tsv.tableGC,
 		rw:                newRequestsWaiter(),
-		diskHealthMonitor: newDiskHealthMonitor(ctx),
+		diskHealthMonitor: newNoopDiskHealthMonitor(),
 	}
 
 	tsv.exporter.NewGaugeFunc("TabletState", "Tablet server state", func() int64 { return int64(tsv.sm.State()) })
@@ -801,7 +801,16 @@ func (tsv *TabletServer) SetDemotePrimaryStalled(val bool) {
 
 // IsDiskStalled returns if the disk is stalled or not.
 func (tsv *TabletServer) IsDiskStalled() bool {
+	tsv.sm.mu.Lock()
+	defer tsv.sm.mu.Unlock()
 	return tsv.sm.diskHealthMonitor.IsDiskStalled()
+}
+
+// SetDiskHealthMonitor replaces the disk health monitor in the state manager.
+// It is called by the tablet manager once the monitored directories are
+// known, which may require querying MySQL.
+func (tsv *TabletServer) SetDiskHealthMonitor(m DiskHealthMonitor) {
+	tsv.sm.SetDiskHealthMonitor(m)
 }
 
 // CreateTransaction creates the metadata for a 2PC transaction.
@@ -1168,7 +1177,8 @@ func (tsv *TabletServer) beginWaitForSameRangeTransactions(ctx context.Context, 
 			}
 
 			return waitErr
-		})
+		},
+	)
 	return txDone, err
 }
 

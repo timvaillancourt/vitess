@@ -25,6 +25,7 @@
         - [Consolidator Reject on Waiter Cap](#vttablet-consolidator-reject-on-cap)
     - **[VTTablet](#minor-changes-vttablet)**
         - [Schema engine table-count limit is now configurable](#vttablet-schema-max-table-count)
+        - [Disk health monitor: multiple directories and auto-detection](#vttablet-disk-health-monitor-autodetect)
     - **[Backup/Restore](#minor-changes-backup)**
         - [Chunked backup/restore for the builtinbackupengine](#backup-chunked-builtin)
     - **[General](#minor-changes-general)**
@@ -197,6 +198,18 @@ Two changes:
 Tablets that already have more tracked schema objects than the configured limit will reload fine — only new creations are gated. Operators who need to support more tables and views should increase the flag and ensure both vttablet and mysqld have enough memory to comfortably hold the larger schema.
 
 See [#19978](https://github.com/vitessio/vitess/issues/19978) for details.
+
+#### <a id="vttablet-disk-health-monitor-autodetect"/>Disk health monitor: multiple directories and auto-detection</a>
+
+The disk health monitor gains three improvements:
+
+1. `--disk-write-dir` is now repeatable, so several directories (e.g. the MySQL data dir and a separate binlog volume) can be monitored at once. Probes run concurrently, and the disk is considered stalled when a probe write to any directory times out or fails.
+2. A new `--enable-disk-health-monitor` flag (default `false`). When set and `--disk-write-dir` is not, the monitored directories are auto-detected from MySQL — `datadir`, `tmpdir`, `innodb_data_home_dir`, the binary and relay log directories, and the InnoDB redo log directory — retrying in the background until MySQL is reachable.
+3. Monitored directories are deduplicated by their underlying filesystem volume, so several directories on one volume produce a single probe. If a directory configured via `--disk-write-dir` sits on a filesystem that is already hung at startup (its `stat` exceeds `--disk-write-timeout`), vttablet now fails startup instead of starting blind.
+
+The monitor is disabled when MySQL is externally managed (a DB host or socket is configured). It probes a filesystem it assumes it shares with mysqld, which only holds when vttablet manages a co-located mysqld; an externally-managed server's data directories may be on another host entirely.
+
+**Deprecation notice:** setting `--disk-write-dir` without `--enable-disk-health-monitor` still enables the monitor in this release, but is deprecated and logs a warning at startup. From **v26**, the disk health monitor will only run when `--enable-disk-health-monitor` is set — explicit `--disk-write-dir` values alone will no longer enable it.
 
 ### <a id="minor-changes-backup"/>Backup/Restore</a>
 

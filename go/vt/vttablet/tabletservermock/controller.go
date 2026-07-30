@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
+	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/rules"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/schema"
 	"vitess.io/vitess/go/vt/vttablet/tabletserver/tabletenv"
@@ -92,6 +93,9 @@ type Controller struct {
 
 	// queryRulesMap has the latest query rules.
 	queryRulesMap map[string]*rules.Rules
+
+	// diskHealthMonitor is the monitor set via SetDiskHealthMonitor.
+	diskHealthMonitor tabletserver.DiskHealthMonitor
 
 	MethodCalled map[string]bool
 }
@@ -283,6 +287,23 @@ func (tqsc *Controller) SetDemotePrimaryStalled(bool) {
 func (tqsc *Controller) IsDiskStalled() bool {
 	tqsc.MethodCalled["IsDiskStalled"] = true
 	return false
+}
+
+// SetDiskHealthMonitor is part of the tabletserver.Controller interface
+func (tqsc *Controller) SetDiskHealthMonitor(m tabletserver.DiskHealthMonitor) {
+	tqsc.mu.Lock()
+	defer tqsc.mu.Unlock()
+
+	tqsc.diskHealthMonitor = m
+	tqsc.MethodCalled["SetDiskHealthMonitor"] = true
+}
+
+// DiskHealthMonitor returns the monitor set via SetDiskHealthMonitor, if any.
+func (tqsc *Controller) DiskHealthMonitor() tabletserver.DiskHealthMonitor {
+	tqsc.mu.Lock()
+	defer tqsc.mu.Unlock()
+
+	return tqsc.diskHealthMonitor
 }
 
 // EnterLameduck implements tabletserver.Controller.

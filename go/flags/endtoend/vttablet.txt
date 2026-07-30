@@ -141,12 +141,13 @@ Flags:
       --dba-idle-timeout duration                                        Idle timeout for dba connections (default 1m0s)
       --dba-pool-size int                                                Size of the connection pool for dba connections (default 20)
       --degraded-threshold duration                                      replication lag after which a replica is considered degraded (default 30s)
-      --disk-write-dir string                                            if provided, tablet will attempt to write a file to this directory to check if the disk is stalled
+      --disk-write-dir stringArray                                       tablet will attempt to write a file to this directory to check if the disk is stalled (repeat for multiple directories); if unset and --enable-disk-health-monitor is set, directories are auto-detected from MySQL
       --disk-write-interval duration                                     how often to write to the disk to check whether it is stalled (default 5s)
-      --disk-write-timeout duration                                      if writes exceed this duration, the disk is considered stalled (default 30s)
+      --disk-write-timeout duration                                      if a probe write or a startup directory stat exceeds this duration, the disk is considered stalled; an explicitly configured --disk-write-dir that is already stalled at startup fails vttablet startup (default 30s)
       --emit-stats                                                       If set, emit stats to push-based monitoring and stats backends
       --enable-consolidator                                              This option enables the query consolidator. (default true)
       --enable-consolidator-replicas                                     This option enables the query consolidator only on replicas.
+      --enable-disk-health-monitor                                       enable the disk health monitor; when enabled and --disk-write-dir is unset, the monitored directories are auto-detected from MySQL
       --enable-hot-row-protection                                        If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.
       --enable-hot-row-protection-dry-run                                If true, hot row protection is not enforced but logs if transactions would have been queued.
       --enable-per-workload-table-metrics                                If true, query counts and query error metrics include a label that identifies the workload

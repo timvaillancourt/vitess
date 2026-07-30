@@ -112,9 +112,9 @@ Flags:
       --default-tablet-type topodatapb.TabletType                        The default tablet type to set for queries, when one is not explicitly selected. (default PRIMARY)
       --degraded-threshold duration                                      replication lag after which a replica is considered degraded (default 30s)
       --denied-system-variables strings                                  Comma-separated list of system variables that clients are not allowed to SET; attempts return an unsupported error. Names are matched case-insensitively.
-      --disk-write-dir string                                            if provided, tablet will attempt to write a file to this directory to check if the disk is stalled
+      --disk-write-dir stringArray                                       tablet will attempt to write a file to this directory to check if the disk is stalled (repeat for multiple directories); if unset and --enable-disk-health-monitor is set, directories are auto-detected from MySQL
       --disk-write-interval duration                                     how often to write to the disk to check whether it is stalled (default 5s)
-      --disk-write-timeout duration                                      if writes exceed this duration, the disk is considered stalled (default 30s)
+      --disk-write-timeout duration                                      if a probe write or a startup directory stat exceeds this duration, the disk is considered stalled; an explicitly configured --disk-write-dir that is already stalled at startup fails vttablet startup (default 30s)
       --emit-stats                                                       If set, emit stats to push-based monitoring and stats backends
       --enable-binlog-dump                                               Allow users to perform binlog dump operations for CDC/replication
       --enable-buffer                                                    Enable buffering (stalling) of primary traffic during failovers.
@@ -122,6 +122,7 @@ Flags:
       --enable-consolidator                                              This option enables the query consolidator. (default true)
       --enable-consolidator-replicas                                     This option enables the query consolidator only on replicas.
       --enable-direct-ddl                                                Allow users to submit direct DDL statements (default true)
+      --enable-disk-health-monitor                                       enable the disk health monitor; when enabled and --disk-write-dir is unset, the monitored directories are auto-detected from MySQL
       --enable-hot-row-protection                                        If true, incoming transactions for the same row (range) will be queued and cannot consume all txpool slots.
       --enable-hot-row-protection-dry-run                                If true, hot row protection is not enforced but logs if transactions would have been queued.
       --enable-online-ddl                                                Allow users to submit, review and control Online DDL (default true)

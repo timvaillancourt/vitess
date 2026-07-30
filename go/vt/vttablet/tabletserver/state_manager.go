@@ -788,6 +788,13 @@ func (sm *stateManager) isServingLocked() bool {
 	return sm.state == StateServing && sm.wantState == StateServing && sm.replHealthy && !sm.demotePrimaryStalled && !sm.lameduck && !sm.diskHealthMonitor.IsDiskStalled()
 }
 
+// SetDiskHealthMonitor replaces the disk health monitor.
+func (sm *stateManager) SetDiskHealthMonitor(m DiskHealthMonitor) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.diskHealthMonitor = m
+}
+
 func (sm *stateManager) AppendDetails(details []*kv) []*kv {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

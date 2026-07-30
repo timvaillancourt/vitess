@@ -125,6 +125,9 @@ type Controller interface {
 
 	// IsDiskStalled returns if the disk is stalled.
 	IsDiskStalled() bool
+
+	// SetDiskHealthMonitor sets the disk health monitor.
+	SetDiskHealthMonitor(DiskHealthMonitor)
 }
 
 // Ensure TabletServer satisfies Controller interface.

@@ -172,7 +172,7 @@ func TestIsServing(t *testing.T) {
 	sm := newTestStateManager()
 	defer sm.StopService()
 	tdm := &testDiskMonitor{isDiskStalled: false}
-	sm.diskHealthMonitor = tdm
+	sm.SetDiskHealthMonitor(tdm)
 
 	err := sm.SetServingType(topodatapb.TabletType_REPLICA, testNow, StateServing, "")
 	require.NoError(t, err)
