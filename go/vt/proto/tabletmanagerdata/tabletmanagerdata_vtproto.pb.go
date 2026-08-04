@@ -1373,6 +1373,7 @@ func (m *StartReplicationRequest) CloneVT() *StartReplicationRequest {
 	}
 	r := new(StartReplicationRequest)
 	r.SemiSync = m.SemiSync
+	r.StartReplicationMode = m.StartReplicationMode
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -6420,6 +6421,11 @@ func (m *StartReplicationRequest) MarshalToSizedBufferVT(dAtA []byte) (int, erro
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.StartReplicationMode != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.StartReplicationMode))
+		i--
+		dAtA[i] = 0x10
 	}
 	if m.SemiSync {
 		i--
@@ -12408,6 +12414,9 @@ func (m *StartReplicationRequest) SizeVT() (n int) {
 	_ = l
 	if m.SemiSync {
 		n += 2
+	}
+	if m.StartReplicationMode != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.StartReplicationMode))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -21130,6 +21139,25 @@ func (m *StartReplicationRequest) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.SemiSync = bool(v != 0)
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StartReplicationMode", wireType)
+			}
+			m.StartReplicationMode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.StartReplicationMode |= replicationdata.StartReplicationMode(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

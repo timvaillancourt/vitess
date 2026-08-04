@@ -106,7 +106,7 @@ type RPCTM interface {
 
 	StopReplicationMinimum(ctx context.Context, position string, waitTime time.Duration) (string, error)
 
-	StartReplication(ctx context.Context, semiSync bool) error
+	StartReplication(ctx context.Context, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error
 
 	RestartReplication(ctx context.Context, semiSync bool) error
 

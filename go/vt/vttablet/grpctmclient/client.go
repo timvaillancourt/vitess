@@ -1111,14 +1111,15 @@ func (client *Client) StopReplicationMinimum(ctx context.Context, tablet *topoda
 }
 
 // StartReplication is part of the tmclient.TabletManagerClient interface.
-func (client *Client) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
+func (client *Client) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
 	c, closer, err := client.dialer.dial(ctx, tablet)
 	if err != nil {
 		return err
 	}
 	defer closer.Close()
 	_, err = c.StartReplication(ctx, &tabletmanagerdatapb.StartReplicationRequest{
-		SemiSync: semiSync,
+		SemiSync:             semiSync,
+		StartReplicationMode: startReplicationMode,
 	})
 	return vterrors.FromGRPC(err)
 }

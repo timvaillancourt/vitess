@@ -1395,7 +1395,7 @@ func (fake *TabletManagerClient) Sleep(ctx context.Context, tablet *topodatapb.T
 }
 
 // StartReplication is part of the tmclient.TabletManagerClient interface.
-func (fake *TabletManagerClient) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
+func (fake *TabletManagerClient) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
 	if fake.StartReplicationResults == nil {
 		return assert.AnError
 	}

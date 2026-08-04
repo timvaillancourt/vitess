@@ -39,6 +39,7 @@ import (
 	"vitess.io/vitess/go/vt/vttablet/tabletserver"
 	"vitess.io/vitess/go/vt/vttablet/tabletservermock"
 
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 )
 
@@ -491,6 +492,20 @@ func TestHandleRecoverableReplicationInitializationError(t *testing.T) {
 	}
 }
 
+func TestStartReplicationIOThreadOnly(t *testing.T) {
+	fakeMysqlDaemon := newTestMysqlDaemon(t, 1)
+	fakeMysqlDaemon.ExpectedExecuteSuperQueryList = []string{
+		"START REPLICA IO_THREAD",
+	}
+
+	tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, nil)
+	err := tm.StartReplication(t.Context(), true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	require.NoError(t, err)
+	require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
+	assert.False(t, fakeMysqlDaemon.SemiSyncPrimaryEnabled)
+	assert.True(t, fakeMysqlDaemon.SemiSyncReplicaEnabled)
+}
+
 // TestStartReplicationRecoversFromRecoverableReplicationInitError verifies StartReplication self-heals recoverable init failures.
 func TestStartReplicationRecoversFromRecoverableReplicationInitError(t *testing.T) {
 	fakeMysqlDaemon := newTestMysqlDaemon(t, 1)
@@ -502,7 +517,7 @@ func TestStartReplicationRecoversFromRecoverableReplicationInitError(t *testing.
 	}
 
 	tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, nil)
-	err := tm.StartReplication(t.Context(), false)
+	err := tm.StartReplication(t.Context(), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
 	require.NoError(t, err)
 	require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
 }

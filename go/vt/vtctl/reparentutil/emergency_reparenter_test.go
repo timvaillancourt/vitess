@@ -4430,9 +4430,9 @@ func (fake *readReparentJournalInfoUnlockTMC) ReadReparentJournalInfo(ctx contex
 	return fake.TabletManagerClient.ReadReparentJournalInfo(ctx, tablet)
 }
 
-func (fake *readReparentJournalInfoUnlockTMC) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
+func (fake *readReparentJournalInfoUnlockTMC) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool, mode replicationdatapb.StartReplicationMode) error {
 	fake.startReplicationCalls.Add(1)
-	return fake.TabletManagerClient.StartReplication(ctx, tablet, semiSync)
+	return fake.TabletManagerClient.StartReplication(ctx, tablet, semiSync, mode)
 }
 
 // setReplicationSourceUnlockTMC releases the shard lock from inside the first
@@ -4453,9 +4453,9 @@ func (fake *setReplicationSourceUnlockTMC) SetReplicationSource(ctx context.Cont
 	return fake.TabletManagerClient.SetReplicationSource(ctx, tablet, parent, timeCreatedNS, waitPosition, forceStartReplication, semiSync, heartbeatInterval)
 }
 
-func (fake *setReplicationSourceUnlockTMC) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool) error {
+func (fake *setReplicationSourceUnlockTMC) StartReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync bool, mode replicationdatapb.StartReplicationMode) error {
 	fake.startReplicationCalls.Add(1)
-	return fake.TabletManagerClient.StartReplication(ctx, tablet, semiSync)
+	return fake.TabletManagerClient.StartReplication(ctx, tablet, semiSync, mode)
 }
 
 // TestEmergencyReparenterLockLostBeforePromotion verifies that ERS re-checks the shard
@@ -4768,12 +4768,12 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnStopReplicationFailure(t *
 	// ERS should still restart replication on replicas whose IO threads it
 	// already stopped before stopReplicationAndBuildStatusMaps returned.
 	tmc.EXPECT().
-		StartReplication(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), false).
+		StartReplication(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
 		Return(nil).
 		Times(1)
 
 	tmc.EXPECT().
-		StartReplication(gomock.Any(), tabletAliasMatcher(connectingIOAlias), false).
+		StartReplication(gomock.Any(), tabletAliasMatcher(connectingIOAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
 		Return(nil).
 		Times(1)
 
@@ -4838,144 +4838,146 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnStopReplicationFailure(t *
 	require.ErrorContains(t, err, "failed to stop replication and build status maps")
 }
 
-// TestEmergencyReparenterRestartsStoppedIOThreadsOnFailure verifies that ERS
-// restarts replication on replicas whose IO threads it stopped before
-// aborting during relay log application.
-func TestEmergencyReparenterRestartsStoppedIOThreadsOnFailure(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx := t.Context()
+// TestEmergencyReparenterRestoresReplicationStateOnFailure verifies that ERS restores each
+// replica's pre-ERS thread state when aborting during relay log application.
+func TestEmergencyReparenterRestoresReplicationStateOnFailure(t *testing.T) {
+	tests := []struct {
+		name             string
+		ioOnlyCleanupErr error
+	}{
+		{name: "restores heterogeneous replication states"},
+		{name: "surfaces IO-only cleanup failure", ioOnlyCleanupErr: errors.New("failed to start IO thread")},
+	}
 
-		const (
-			keyspace         = "testkeyspace"
-			shard            = "-"
-			primaryAlias     = "zone1-0000000100"
-			stoppedIOAlias   = "zone1-0000000101"
-			alreadyStoppedIO = "zone1-0000000102"
-			relayLogPosition = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
-			sourceUUID       = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
-		)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
 
-		stoppedIOStatus := &replicationdatapb.StopReplicationStatus{
-			Before: &replicationdatapb.Status{
-				IoState:  int32(replication.ReplicationStateRunning),
-				SqlState: int32(replication.ReplicationStateRunning),
-			},
-			After: &replicationdatapb.Status{
-				SourceUuid:       sourceUUID,
-				RelayLogPosition: relayLogPosition,
-			},
-		}
+				const (
+					keyspace              = "testkeyspace"
+					shard                 = "-"
+					primaryAlias          = "zone1-0000000100"
+					ioOnlyRestartAlias    = "zone1-0000000101"
+					defaultRestartAlias   = "zone1-0000000102"
+					alreadyStoppedIOAlias = "zone1-0000000103"
+					relayLogPosition      = "MySQL56/3E11FA47-71CA-11E1-9E33-C80AA9429562:1-21"
+					sourceUUID            = "3E11FA47-71CA-11E1-9E33-C80AA9429562"
+				)
 
-		alreadyStoppedIOStatus := &replicationdatapb.StopReplicationStatus{
-			Before: &replicationdatapb.Status{
-				IoState:  int32(replication.ReplicationStateStopped),
-				SqlState: int32(replication.ReplicationStateRunning),
-			},
-			After: &replicationdatapb.Status{
-				SourceUuid:       sourceUUID,
-				RelayLogPosition: relayLogPosition,
-			},
-		}
+				stopStatus := func(ioState, sqlState replication.ReplicationState) *replicationdatapb.StopReplicationStatus {
+					return &replicationdatapb.StopReplicationStatus{
+						Before: &replicationdatapb.Status{
+							IoState:  int32(ioState),
+							SqlState: int32(sqlState),
+						},
+						After: &replicationdatapb.Status{
+							SourceUuid:       sourceUUID,
+							RelayLogPosition: relayLogPosition,
+						},
+					}
+				}
 
-		mockController := gomock.NewController(t)
-		tmc := tmcmock.NewMockTabletManagerClient(mockController)
+				replicas := []struct {
+					alias  string
+					status *replicationdatapb.StopReplicationStatus
+				}{
+					{
+						alias:  ioOnlyRestartAlias,
+						status: stopStatus(replication.ReplicationStateRunning, replication.ReplicationStateStopped),
+					},
+					{
+						alias:  defaultRestartAlias,
+						status: stopStatus(replication.ReplicationStateRunning, replication.ReplicationStateRunning),
+					},
+					{
+						alias:  alreadyStoppedIOAlias,
+						status: stopStatus(replication.ReplicationStateStopped, replication.ReplicationStateRunning),
+					},
+				}
 
-		// Simulate the TabletManager RPC sequence for one dead primary, one replica whose IO thread
-		// ERS stops, and one replica whose IO thread was already stopped before ERS started.
-		tmc.EXPECT().
-			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
-			Return(nil, assert.AnError)
+				mockController := gomock.NewController(t)
+				tmc := tmcmock.NewMockTabletManagerClient(mockController)
 
-		tmc.EXPECT().
-			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
-			Return(stoppedIOStatus, nil)
+				tmc.EXPECT().
+					StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(primaryAlias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+					Return(nil, assert.AnError)
 
-		tmc.EXPECT().
-			StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(alreadyStoppedIO), replicationdatapb.StopReplicationMode_IOTHREADONLY).
-			Return(alreadyStoppedIOStatus, nil)
+				for _, replica := range replicas {
+					tmc.EXPECT().
+						StopReplicationAndGetStatus(gomock.Any(), tabletAliasMatcher(replica.alias), replicationdatapb.StopReplicationMode_IOTHREADONLY).
+						Return(replica.status, nil)
 
-		// Now simulate every candidate taking too long while applying relay logs. A single
-		// candidate applying in time would let the reparent proceed, so all of them have
-		// to time out for ERS to abort during relay log application.
-		tmc.EXPECT().
-			WaitForPosition(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), relayLogPosition).
-			DoAndReturn(func(ctx context.Context, tablet *topodatapb.Tablet, position string) error {
-				// Block until the context expires so ERS aborts before it starts repointing replicas.
-				<-ctx.Done()
-				return ctx.Err()
-			}).
-			Times(1)
+					tmc.EXPECT().
+						WaitForPosition(gomock.Any(), tabletAliasMatcher(replica.alias), relayLogPosition).
+						DoAndReturn(func(ctx context.Context, tablet *topodatapb.Tablet, position string) error {
+							<-ctx.Done()
+							return ctx.Err()
+						}).
+						Times(1)
+				}
 
-		tmc.EXPECT().
-			WaitForPosition(gomock.Any(), tabletAliasMatcher(alreadyStoppedIO), relayLogPosition).
-			DoAndReturn(func(ctx context.Context, tablet *topodatapb.Tablet, position string) error {
-				<-ctx.Done()
-				return ctx.Err()
-			}).
-			Times(1)
+				tmc.EXPECT().
+					StartReplication(gomock.Any(), tabletAliasMatcher(ioOnlyRestartAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY).
+					Return(tt.ioOnlyCleanupErr).
+					Times(1)
 
-		// We expect the replica whose IO thread was stopped as part of the ERS (and only that replica,
-		// not the one that already had its IO thread stopped) to have replication restarted.
-		tmc.EXPECT().
-			StartReplication(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), false).
-			Return(nil).
-			Times(1)
+				tmc.EXPECT().
+					StartReplication(gomock.Any(), tabletAliasMatcher(defaultRestartAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
+					Return(nil).
+					Times(1)
 
-		// Build the test topology.
-		ts := memorytopo.NewServer(ctx, "zone1")
-		defer ts.Close()
+				ts := memorytopo.NewServer(ctx, "zone1")
+				defer ts.Close()
 
-		testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
-			Keyspace: keyspace,
-			Name:     shard,
-			Shard: &topodatapb.Shard{
-				PrimaryAlias: &topodatapb.TabletAlias{
-					Cell: "zone1",
-					Uid:  100,
-				},
-			},
+				testutil.AddShards(ctx, t, ts, &vtctldatapb.Shard{
+					Keyspace: keyspace,
+					Name:     shard,
+					Shard: &topodatapb.Shard{
+						PrimaryAlias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  100,
+						},
+					},
+				})
+
+				tablets := make([]*topodatapb.Tablet, 0, len(replicas)+1)
+				tablets = append(tablets, &topodatapb.Tablet{
+					Alias: &topodatapb.TabletAlias{
+						Cell: "zone1",
+						Uid:  100,
+					},
+					Keyspace: keyspace,
+					Shard:    shard,
+				})
+				for uid := uint32(101); uid <= 103; uid++ {
+					tablets = append(tablets, &topodatapb.Tablet{
+						Alias: &topodatapb.TabletAlias{
+							Cell: "zone1",
+							Uid:  uid,
+						},
+						Keyspace: keyspace,
+						Shard:    shard,
+					})
+				}
+				testutil.AddTablets(ctx, t, ts, nil, tablets...)
+
+				reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
+
+				erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
+				_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{
+					WaitReplicasTimeout: 50 * time.Millisecond,
+				})
+
+				require.ErrorContains(t, err, "all candidates failed to apply relay logs within the provided waitReplicasTimeout")
+				if tt.ioOnlyCleanupErr != nil {
+					require.ErrorContains(t, err, "restart replication cleanup failed")
+					require.ErrorContains(t, err, "failed to restart replication on \"zone1-0000000101\" after failed ERS")
+					require.ErrorContains(t, err, tt.ioOnlyCleanupErr.Error())
+				}
+			})
 		})
-
-		testutil.AddTablets(
-			ctx, t, ts, nil,
-			&topodatapb.Tablet{
-				Alias: &topodatapb.TabletAlias{
-					Cell: "zone1",
-					Uid:  100,
-				},
-				Keyspace: keyspace,
-				Shard:    shard,
-			},
-			&topodatapb.Tablet{
-				Alias: &topodatapb.TabletAlias{
-					Cell: "zone1",
-					Uid:  101,
-				},
-				Keyspace: keyspace,
-				Shard:    shard,
-			},
-			&topodatapb.Tablet{
-				Alias: &topodatapb.TabletAlias{
-					Cell: "zone1",
-					Uid:  102,
-				},
-				Keyspace: keyspace,
-				Shard:    shard,
-			},
-		)
-
-		reparenttestutil.SetKeyspaceDurability(ctx, t, ts, keyspace, policy.DurabilityNone)
-
-		erp := NewEmergencyReparenter(ts, tmc, logutil.NewMemoryLogger())
-
-		// Trigger ERS and verify that the relay log wait timeout causes cleanup to
-		// restart replication only on the replica whose IO thread ERS stopped.
-		_, err := erp.ReparentShard(ctx, keyspace, shard, EmergencyReparentOptions{
-			WaitReplicasTimeout: 50 * time.Millisecond,
-		})
-
-		require.ErrorContains(t, err, "all candidates failed to apply relay logs within the provided waitReplicasTimeout")
-	})
+	}
 }
 
 // tabletAliasMatcher matches tablets by alias string for gomock expectations.

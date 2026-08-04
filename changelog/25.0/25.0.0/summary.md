@@ -30,6 +30,7 @@
         - [Stricter PROXY protocol v1 header validation](#vtgate-proxy-protocol-v1-strictness)
     - **[Reparent](#minor-changes-reparent)**
         - [`EmergencyReparentShard` no longer waits on replicas that cannot win the election](#ers-lagging-relay-log-wait)
+        - [Failed `EmergencyReparentShard` cleanup preserves stopped SQL threads](#ers-restore-replication-thread-state)
         - [Reparent candidate ordering now respects partially ordered GTID histories](#reparent-gtid-candidate-ordering)
     - **[VTTablet](#minor-changes-vttablet)**
         - [Consolidator Reject on Waiter Cap](#vttablet-consolidator-reject-on-cap)
@@ -279,6 +280,16 @@ This mirrors a tradeoff `orchestrator` made before Vitess: it never gated dead-p
 **Impact**: emergency failovers now succeed in shard states where they previously timed out. A reparent can succeed while some replicas are still catching up; they are repointed and continue replicating under the new primary. No flags were added or changed.
 
 See [#18529](https://github.com/vitessio/vitess/issues/18529).
+
+#### <a id="ers-restore-replication-thread-state"/>Failed `EmergencyReparentShard` cleanup preserves stopped SQL threads</a>
+
+When `EmergencyReparentShard` aborts before promotion, cleanup now restores the replication thread state that each replica had before ERS stopped its I/O thread. A replica that entered ERS with its I/O thread running and SQL thread deliberately stopped therefore returns to that exact state; previously cleanup started both threads and overrode the operator's intent.
+
+Direct Go callers of `tmclient.TabletManagerClient.StartReplication` must now pass a `replicationdata.StartReplicationMode`; use `STARTREPLICATIONMODE_DEFAULT` to retain the previous behavior.
+
+Exact restoration requires both the component executing ERS (`vtctld`, VTOrc, or legacy `vtctl`) and the affected `vttablet` to be v25 or newer. During mixed-version operation, an older ERS coordinator does not request I/O-only cleanup, while an older `vttablet` ignores the new mode field and starts both replication threads.
+
+See [#20256](https://github.com/vitessio/vitess/issues/20256).
 
 #### <a id="reparent-gtid-candidate-ordering"/>Reparent candidate ordering now respects partially ordered GTID histories</a>
 

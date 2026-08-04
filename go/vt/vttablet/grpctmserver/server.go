@@ -34,6 +34,7 @@ import (
 
 	logutilpb "vitess.io/vitess/go/vt/proto/logutil"
 	querypb "vitess.io/vitess/go/vt/proto/query"
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	tabletmanagerservicepb "vitess.io/vitess/go/vt/proto/tabletmanagerservice"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
@@ -429,7 +430,14 @@ func (s *server) StartReplication(ctx context.Context, request *tabletmanagerdat
 	defer s.tm.HandleRPCPanic(ctx, "StartReplication", request, response, true /*verbose*/, &err)
 	ctx = callinfo.GRPCCallInfo(ctx)
 	response = &tabletmanagerdatapb.StartReplicationResponse{}
-	return response, s.tm.StartReplication(ctx, request.GetSemiSync())
+	startReplicationMode := request.GetStartReplicationMode()
+	switch startReplicationMode {
+	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT,
+		replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY:
+		return response, s.tm.StartReplication(ctx, request.GetSemiSync(), startReplicationMode)
+	default:
+		return response, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unsupported start replication mode: %v", startReplicationMode)
+	}
 }
 
 func (s *server) RestartReplication(ctx context.Context, request *tabletmanagerdatapb.RestartReplicationRequest) (response *tabletmanagerdatapb.RestartReplicationResponse, err error) {

@@ -159,6 +159,23 @@ func TestWaitForReplicationStart(t *testing.T) {
 	assert.ErrorContains(t, err, "Last_SQL_Error: test sql error, Last_IO_Error: test io error")
 }
 
+func TestStartIOThread(t *testing.T) {
+	db := fakesqldb.New(t)
+	defer db.Close()
+
+	params := db.ConnParams()
+	cp := *params
+	dbc := dbconfigs.NewTestDBConfigs(cp, cp, "fakesqldb")
+
+	db.AddQuery("SELECT 1", &sqltypes.Result{})
+	db.AddQuery("START REPLICA IO_THREAD", &sqltypes.Result{})
+
+	testMysqld := NewMysqld(dbc)
+	defer testMysqld.Close()
+
+	require.NoError(t, testMysqld.StartIOThread(t.Context()))
+}
+
 func TestGetMysqlPort(t *testing.T) {
 	db := fakesqldb.New(t)
 	defer db.Close()

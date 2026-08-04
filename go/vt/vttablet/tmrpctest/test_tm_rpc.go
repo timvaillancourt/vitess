@@ -1044,13 +1044,19 @@ func tmRPCTestStopReplicationMinimumPanic(ctx context.Context, t *testing.T, cli
 	expectHandleRPCPanic(t, "StopReplicationMinimum", true /*verbose*/, err)
 }
 
-var testStartReplicationCalled = false
+var (
+	testStartReplicationCalled   = false
+	testStartReplicationSemiSync = false
+	testStartReplicationMode     = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
+)
 
-func (fra *fakeRPCTM) StartReplication(ctx context.Context, semiSync bool) error {
+func (fra *fakeRPCTM) StartReplication(ctx context.Context, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
 	if fra.panics {
 		panic(errors.New("test-triggered panic"))
 	}
 	testStartReplicationCalled = true
+	testStartReplicationSemiSync = semiSync
+	testStartReplicationMode = startReplicationMode
 	return nil
 }
 
@@ -1075,12 +1081,32 @@ func tmRPCTestRestartReplicationPanic(ctx context.Context, t *testing.T, client 
 }
 
 func tmRPCTestStartReplication(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
-	err := client.StartReplication(ctx, tablet, false)
+	testStartReplicationCalled = false
+	testStartReplicationSemiSync = true
+	testStartReplicationMode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY
+	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
 	compareError(t, "StartReplication", err, true, testStartReplicationCalled)
+	compare(t, "StartReplication semi-sync", testStartReplicationSemiSync, false)
+	compare(t, "StartReplication mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
 }
 
 func tmRPCTestStartReplicationPanic(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
-	err := client.StartReplication(ctx, tablet, false)
+	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	expectHandleRPCPanic(t, "StartReplication", true /*verbose*/, err)
+}
+
+func tmRPCTestStartReplicationIOThread(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
+	testStartReplicationCalled = false
+	testStartReplicationSemiSync = false
+	testStartReplicationMode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
+	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	compareError(t, "StartReplication IO thread", err, true, testStartReplicationCalled)
+	compare(t, "StartReplication IO thread semi-sync", testStartReplicationSemiSync, true)
+	compare(t, "StartReplication IO thread mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+}
+
+func tmRPCTestStartReplicationIOThreadPanic(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
+	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
 	expectHandleRPCPanic(t, "StartReplication", true /*verbose*/, err)
 }
 
@@ -1622,6 +1648,7 @@ func Run(t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.T
 	tmRPCTestStopReplication(ctx, t, client, tablet)
 	tmRPCTestStopReplicationMinimum(ctx, t, client, tablet)
 	tmRPCTestStartReplication(ctx, t, client, tablet)
+	tmRPCTestStartReplicationIOThread(ctx, t, client, tablet)
 	tmRPCTestRestartReplication(ctx, t, client, tablet)
 	tmRPCTestStartReplicationUntilAfter(ctx, t, client, tablet)
 	tmRPCTestGetReplicas(ctx, t, client, tablet)
@@ -1686,6 +1713,7 @@ func Run(t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.T
 	tmRPCTestStopReplicationPanic(ctx, t, client, tablet)
 	tmRPCTestStopReplicationMinimumPanic(ctx, t, client, tablet)
 	tmRPCTestStartReplicationPanic(ctx, t, client, tablet)
+	tmRPCTestStartReplicationIOThreadPanic(ctx, t, client, tablet)
 	tmRPCTestRestartReplicationPanic(ctx, t, client, tablet)
 	tmRPCTestGetReplicasPanic(ctx, t, client, tablet)
 	// VReplication methods

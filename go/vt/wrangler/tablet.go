@@ -28,6 +28,7 @@ import (
 	"vitess.io/vitess/go/vt/vtctl/reparentutil/policy"
 
 	querypb "vitess.io/vitess/go/vt/proto/query"
+	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 )
@@ -121,7 +122,7 @@ func (wr *Wrangler) StartReplication(ctx context.Context, tablet *topodatapb.Tab
 	if err != nil {
 		return err
 	}
-	return wr.TabletManagerClient().StartReplication(ctx, tablet, semiSync)
+	return wr.TabletManagerClient().StartReplication(ctx, tablet, semiSync, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
 }
 
 // SetReplicationSource is used to set the replication source on the specified tablet to the current shard primary (if available).

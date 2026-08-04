@@ -1091,7 +1091,7 @@ func (itmc *internalTabletManagerClient) StopReplicationMinimum(context.Context,
 	return "", errors.New("not implemented in vtcombo")
 }
 
-func (itmc *internalTabletManagerClient) StartReplication(context.Context, *topodatapb.Tablet, bool) error {
+func (itmc *internalTabletManagerClient) StartReplication(context.Context, *topodatapb.Tablet, bool, replicationdatapb.StartReplicationMode) error {
 	return errors.New("not implemented in vtcombo")
 }
 

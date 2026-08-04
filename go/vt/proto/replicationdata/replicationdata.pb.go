@@ -87,6 +87,53 @@ func (StopReplicationMode) EnumDescriptor() ([]byte, []int) {
 	return file_replicationdata_proto_rawDescGZIP(), []int{0}
 }
 
+// StartReplicationMode is used to provide controls over how replication is started.
+type StartReplicationMode int32
+
+const (
+	StartReplicationMode_STARTREPLICATIONMODE_DEFAULT      StartReplicationMode = 0
+	StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY StartReplicationMode = 1
+)
+
+// Enum value maps for StartReplicationMode.
+var (
+	StartReplicationMode_name = map[int32]string{
+		0: "STARTREPLICATIONMODE_DEFAULT",
+		1: "STARTREPLICATIONMODE_IOTHREADONLY",
+	}
+	StartReplicationMode_value = map[string]int32{
+		"STARTREPLICATIONMODE_DEFAULT":      0,
+		"STARTREPLICATIONMODE_IOTHREADONLY": 1,
+	}
+)
+
+func (x StartReplicationMode) Enum() *StartReplicationMode {
+	p := new(StartReplicationMode)
+	*p = x
+	return p
+}
+
+func (x StartReplicationMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (StartReplicationMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_replicationdata_proto_enumTypes[1].Descriptor()
+}
+
+func (StartReplicationMode) Type() protoreflect.EnumType {
+	return &file_replicationdata_proto_enumTypes[1]
+}
+
+func (x StartReplicationMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use StartReplicationMode.Descriptor instead.
+func (StartReplicationMode) EnumDescriptor() ([]byte, []int) {
+	return file_replicationdata_proto_rawDescGZIP(), []int{1}
+}
+
 // Status is the replication status for MySQL/MariaDB/File-based. Returned by a
 // flavor-specific command and parsed into a Position and fields.
 type Status struct {
@@ -935,7 +982,10 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\x11shard_peer_health\x18\x1a \x03(\v2 .replicationdata.ShardPeerHealthR\x0fshardPeerHealth*;\n" +
 	"\x13StopReplicationMode\x12\x12\n" +
 	"\x0eIOANDSQLTHREAD\x10\x00\x12\x10\n" +
-	"\fIOTHREADONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
+	"\fIOTHREADONLY\x10\x01*_\n" +
+	"\x14StartReplicationMode\x12 \n" +
+	"\x1cSTARTREPLICATIONMODE_DEFAULT\x10\x00\x12%\n" +
+	"!STARTREPLICATIONMODE_IOTHREADONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
 
 var (
 	file_replicationdata_proto_rawDescOnce sync.Once
@@ -949,33 +999,34 @@ func file_replicationdata_proto_rawDescGZIP() []byte {
 	return file_replicationdata_proto_rawDescData
 }
 
-var file_replicationdata_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_replicationdata_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_replicationdata_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_replicationdata_proto_goTypes = []any{
 	(StopReplicationMode)(0),      // 0: replicationdata.StopReplicationMode
-	(*Status)(nil),                // 1: replicationdata.Status
-	(*Configuration)(nil),         // 2: replicationdata.Configuration
-	(*StopReplicationStatus)(nil), // 3: replicationdata.StopReplicationStatus
-	(*PrimaryStatus)(nil),         // 4: replicationdata.PrimaryStatus
-	(*ShardPeerHealth)(nil),       // 5: replicationdata.ShardPeerHealth
-	(*FullStatus)(nil),            // 6: replicationdata.FullStatus
-	(*topodata.TabletAlias)(nil),  // 7: topodata.TabletAlias
-	(*vttime.Time)(nil),           // 8: vttime.Time
-	(*vttime.Duration)(nil),       // 9: vttime.Duration
-	(topodata.TabletType)(0),      // 10: topodata.TabletType
+	(StartReplicationMode)(0),     // 1: replicationdata.StartReplicationMode
+	(*Status)(nil),                // 2: replicationdata.Status
+	(*Configuration)(nil),         // 3: replicationdata.Configuration
+	(*StopReplicationStatus)(nil), // 4: replicationdata.StopReplicationStatus
+	(*PrimaryStatus)(nil),         // 5: replicationdata.PrimaryStatus
+	(*ShardPeerHealth)(nil),       // 6: replicationdata.ShardPeerHealth
+	(*FullStatus)(nil),            // 7: replicationdata.FullStatus
+	(*topodata.TabletAlias)(nil),  // 8: topodata.TabletAlias
+	(*vttime.Time)(nil),           // 9: vttime.Time
+	(*vttime.Duration)(nil),       // 10: vttime.Duration
+	(topodata.TabletType)(0),      // 11: topodata.TabletType
 }
 var file_replicationdata_proto_depIdxs = []int32{
-	1,  // 0: replicationdata.StopReplicationStatus.before:type_name -> replicationdata.Status
-	1,  // 1: replicationdata.StopReplicationStatus.after:type_name -> replicationdata.Status
-	7,  // 2: replicationdata.ShardPeerHealth.tablet_alias:type_name -> topodata.TabletAlias
-	8,  // 3: replicationdata.ShardPeerHealth.last_successful_ping:type_name -> vttime.Time
-	8,  // 4: replicationdata.ShardPeerHealth.last_attempted_ping:type_name -> vttime.Time
-	9,  // 5: replicationdata.ShardPeerHealth.time_since_last_attempted_ping:type_name -> vttime.Duration
-	1,  // 6: replicationdata.FullStatus.replication_status:type_name -> replicationdata.Status
-	4,  // 7: replicationdata.FullStatus.primary_status:type_name -> replicationdata.PrimaryStatus
-	2,  // 8: replicationdata.FullStatus.replication_configuration:type_name -> replicationdata.Configuration
-	10, // 9: replicationdata.FullStatus.tablet_type:type_name -> topodata.TabletType
-	5,  // 10: replicationdata.FullStatus.shard_peer_health:type_name -> replicationdata.ShardPeerHealth
+	2,  // 0: replicationdata.StopReplicationStatus.before:type_name -> replicationdata.Status
+	2,  // 1: replicationdata.StopReplicationStatus.after:type_name -> replicationdata.Status
+	8,  // 2: replicationdata.ShardPeerHealth.tablet_alias:type_name -> topodata.TabletAlias
+	9,  // 3: replicationdata.ShardPeerHealth.last_successful_ping:type_name -> vttime.Time
+	9,  // 4: replicationdata.ShardPeerHealth.last_attempted_ping:type_name -> vttime.Time
+	10, // 5: replicationdata.ShardPeerHealth.time_since_last_attempted_ping:type_name -> vttime.Duration
+	2,  // 6: replicationdata.FullStatus.replication_status:type_name -> replicationdata.Status
+	5,  // 7: replicationdata.FullStatus.primary_status:type_name -> replicationdata.PrimaryStatus
+	3,  // 8: replicationdata.FullStatus.replication_configuration:type_name -> replicationdata.Configuration
+	11, // 9: replicationdata.FullStatus.tablet_type:type_name -> topodata.TabletType
+	6,  // 10: replicationdata.FullStatus.shard_peer_health:type_name -> replicationdata.ShardPeerHealth
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
@@ -993,7 +1044,7 @@ func file_replicationdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_replicationdata_proto_rawDesc), len(file_replicationdata_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,

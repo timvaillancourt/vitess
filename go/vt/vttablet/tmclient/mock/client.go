@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	gomock "go.uber.org/mock/gomock"
+
 	hook "vitess.io/vitess/go/vt/hook"
 	logutil "vitess.io/vitess/go/vt/logutil"
 	tmutils "vitess.io/vitess/go/vt/mysqlctl/tmutils"
@@ -867,17 +868,17 @@ func (mr *MockTabletManagerClientMockRecorder) Sleep(ctx, tablet, duration any) 
 }
 
 // StartReplication mocks base method.
-func (m *MockTabletManagerClient) StartReplication(ctx context.Context, tablet *topodata.Tablet, semiSync bool) error {
+func (m *MockTabletManagerClient) StartReplication(ctx context.Context, tablet *topodata.Tablet, semiSync bool, startReplicationMode replicationdata.StartReplicationMode) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StartReplication", ctx, tablet, semiSync)
+	ret := m.ctrl.Call(m, "StartReplication", ctx, tablet, semiSync, startReplicationMode)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StartReplication indicates an expected call of StartReplication.
-func (mr *MockTabletManagerClientMockRecorder) StartReplication(ctx, tablet, semiSync any) *gomock.Call {
+func (mr *MockTabletManagerClientMockRecorder) StartReplication(ctx, tablet, semiSync, startReplicationMode any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartReplication", reflect.TypeOf((*MockTabletManagerClient)(nil).StartReplication), ctx, tablet, semiSync)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartReplication", reflect.TypeOf((*MockTabletManagerClient)(nil).StartReplication), ctx, tablet, semiSync, startReplicationMode)
 }
 
 // StartReplicationUntilAfter mocks base method.

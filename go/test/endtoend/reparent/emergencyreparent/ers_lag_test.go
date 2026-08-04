@@ -221,6 +221,7 @@ func TestERSFiltersReplicaBehindOnRelayLogReceipt(t *testing.T) {
 // promotes a tablet with received-but-unapplied transactions.
 func TestERSFailsWhenNoCandidateAppliesRelayLogs(t *testing.T) {
 	endtoendutils.SkipIfBinaryIsBelowVersion(t, 25, "vtctld")
+	endtoendutils.SkipIfBinaryIsBelowVersion(t, 25, "vttablet")
 
 	clusterInstance := utils.SetupReparentCluster(t, policy.DurabilitySemiSync)
 	defer utils.TeardownCluster(clusterInstance)
@@ -236,6 +237,11 @@ func TestERSFailsWhenNoCandidateAppliesRelayLogs(t *testing.T) {
 
 	// This write is received by every replica but applied by none.
 	insertedVal := utils.ConfirmReplication(t, tablets[0], nil)
+	primaryPosition := strings.ReplaceAll(utils.RunSQL(t.Context(), t, `select @@global.gtid_executed`, tablets[0]).Rows[0][0].ToString(), "\n", "")
+	for _, tablet := range tablets[1:] {
+		waitForReceivedPosition(t, tablet, primaryPosition)
+		utils.CheckReplicationStatus(t.Context(), t, tablet, false, true)
+	}
 
 	// Kill the primary's vttablet (mysqld keeps running, so the replicas' IO threads stay
 	// connected).
@@ -246,8 +252,19 @@ func TestERSFailsWhenNoCandidateAppliesRelayLogs(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, out, "all candidates failed to apply relay logs")
 
-	// The failed reparent restarts replication on the replicas it stopped, so their SQL
-	// threads drain the received backlog. Wait for that, then the reparent succeeds.
+	// The failed reparent restores the replicas to their pre-ERS thread state.
+	for _, tablet := range tablets[1:] {
+		assert.Eventually(t, func() bool {
+			return replicaStatusField(t, tablet, "Replica_IO_Running") == "Yes"
+		}, 30*time.Second, time.Second)
+		utils.CheckReplicationStatus(t.Context(), t, tablet, false, true)
+	}
+
+	// Once the SQL threads are explicitly started, they drain the received backlog and
+	// the reparent succeeds.
+	for _, tablet := range tablets[1:] {
+		utils.RunSQL(t.Context(), t, `START REPLICA SQL_THREAD`, tablet)
+	}
 	err = utils.CheckInsertedValues(t.Context(), t, tablets[1], insertedVal)
 	require.NoError(t, err)
 

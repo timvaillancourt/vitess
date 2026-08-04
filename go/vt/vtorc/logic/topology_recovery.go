@@ -621,7 +621,7 @@ func startReplication(ctx context.Context, tablet *topodatapb.Tablet, semiSync b
 	ctx, cancel := context.WithTimeout(ctx, topo.RemoteOperationTimeout)
 	defer cancel()
 
-	return tmc.StartReplication(ctx, tablet, semiSync)
+	return tmc.StartReplication(ctx, tablet, semiSync, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
 }
 
 // isERSEnabled returns true if ERS can be used globally or for the given keyspace.

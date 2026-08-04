@@ -121,6 +121,17 @@ func (mysqld *Mysqld) StartReplication(ctx context.Context, hookExtraEnv map[str
 	return h.ExecuteOptional()
 }
 
+// StartIOThread starts a replica's IO thread only.
+func (mysqld *Mysqld) StartIOThread(ctx context.Context) error {
+	conn, err := getPoolReconnect(ctx, mysqld.dbaPool)
+	if err != nil {
+		return err
+	}
+	defer conn.Recycle()
+
+	return mysqld.executeSuperQueryListConn(ctx, conn, []string{conn.Conn.StartIOThreadCommand()})
+}
+
 // StartReplicationUntilAfter starts replication until replication has come to `targetPos`, then it stops replication
 func (mysqld *Mysqld) StartReplicationUntilAfter(ctx context.Context, targetPos replication.Position) error {
 	conn, err := getPoolReconnect(ctx, mysqld.dbaPool)

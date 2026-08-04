@@ -269,6 +269,10 @@ func (tm *TabletManager) stopIOThreadLocked(ctx context.Context) error {
 	return tm.MysqlDaemon.StopIOThread(ctx)
 }
 
+func (tm *TabletManager) startIOThreadLocked(ctx context.Context) error {
+	return tm.MysqlDaemon.StartIOThread(ctx)
+}
+
 // StopReplicationMinimum will stop the replication after it reaches at least the
 // provided position. Works both when Vitess manages
 // replication or not (using hook if not).
@@ -301,10 +305,20 @@ func (tm *TabletManager) StopReplicationMinimum(ctx context.Context, position st
 	return replication.EncodePosition(pos), nil
 }
 
-// StartReplication will start the mysql. Works both when Vitess manages
-// replication or not (using hook if not).
-func (tm *TabletManager) StartReplication(ctx context.Context, semiSync bool) error {
+// StartReplication starts MySQL replication in the requested mode.
+func (tm *TabletManager) StartReplication(ctx context.Context, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
 	log.Info("StartReplication")
+	switch startReplicationMode {
+	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT:
+		return tm.startReplicationWithAction(ctx, semiSync, tm.startReplicationRecoverable)
+	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY:
+		return tm.startReplicationWithAction(ctx, semiSync, tm.startIOThreadLocked)
+	default:
+		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "unsupported start replication mode: %v", startReplicationMode)
+	}
+}
+
+func (tm *TabletManager) startReplicationWithAction(ctx context.Context, semiSync bool, start func(context.Context) error) error {
 	if err := tm.waitForGrantsToHaveApplied(ctx); err != nil {
 		return err
 	}
@@ -321,7 +335,7 @@ func (tm *TabletManager) StartReplication(ctx context.Context, semiSync bool) er
 	if err := tm.fixSemiSync(ctx, tm.Tablet().Type, semiSyncAction); err != nil {
 		return err
 	}
-	return tm.startReplicationRecoverable(ctx)
+	return start(ctx)
 }
 
 // RestartReplication will stop replication and then start it again

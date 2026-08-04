@@ -400,6 +400,7 @@ message StopReplicationMinimumResponse {
 
 message StartReplicationRequest {
   bool semiSync = 1;
+  replicationdata.StartReplicationMode start_replication_mode = 2;
 }
 
 message StartReplicationResponse {

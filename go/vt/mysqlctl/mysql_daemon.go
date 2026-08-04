@@ -60,6 +60,7 @@ type MysqlDaemon interface {
 
 	// replication related methods
 	StartReplication(ctx context.Context, hookExtraEnv map[string]string) error
+	StartIOThread(ctx context.Context) error
 	RestartReplication(ctx context.Context, hookExtraEnv map[string]string) error
 	StartReplicationUntilAfter(ctx context.Context, pos replication.Position) error
 	StopReplication(ctx context.Context, hookExtraEnv map[string]string) error

@@ -296,14 +296,14 @@ type replicationSnapshot struct {
 	tabletsBackupState map[string]bool
 }
 
-// replicasWithStoppedIO returns the reachable replicas whose IO threads ERS
-// stopped and should restart during cleanup.
-func (rs *replicationSnapshot) replicasWithStoppedIO(tabletMap map[string]*topo.TabletInfo) []*topodatapb.Tablet {
-	replicas := make([]*topodatapb.Tablet, 0, len(rs.statusMap))
+// replicationRestartModes returns the reachable replicas whose IO threads ERS
+// stopped and the mode needed to restore their previous replication state.
+func (rs *replicationSnapshot) replicationRestartModes(tabletMap map[string]*topo.TabletInfo) map[string]replicationdatapb.StartReplicationMode {
+	restartModes := make(map[string]replicationdatapb.StartReplicationMode, len(rs.statusMap))
 
 	for alias, stopStatus := range rs.statusMap {
-		ioThreadWasRunning, err := replicaIOThreadWasRunning(stopStatus)
-		if err != nil || !ioThreadWasRunning {
+		ioHealthy, sqlHealthy, err := replicaThreadStatesWereHealthy(stopStatus)
+		if err != nil || !ioHealthy {
 			continue
 		}
 
@@ -312,22 +312,25 @@ func (rs *replicationSnapshot) replicasWithStoppedIO(tabletMap map[string]*topo.
 			continue
 		}
 
-		replicas = append(replicas, tabletInfo.Tablet)
+		mode := replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
+		if !sqlHealthy {
+			mode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY
+		}
+		restartModes[alias] = mode
 	}
 
-	return replicas
+	return restartModes
 }
 
-// replicaIOThreadWasRunning returns true if a StopReplicationStatus indicates
-// that ERS stopped a healthy IO thread that should restart during cleanup.
-func replicaIOThreadWasRunning(stopStatus *replicationdatapb.StopReplicationStatus) (bool, error) {
+// replicaThreadStatesWereHealthy returns the IO and SQL thread health recorded before ERS stopped replication.
+func replicaThreadStatesWereHealthy(stopStatus *replicationdatapb.StopReplicationStatus) (bool, bool, error) {
 	if stopStatus == nil || stopStatus.Before == nil {
-		return false, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "could not determine Before state of StopReplicationStatus %v", stopStatus)
+		return false, false, vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "could not determine Before state of StopReplicationStatus %v", stopStatus)
 	}
 
 	replStatus := replication.ProtoToReplicationStatus(stopStatus.Before)
 
-	return replStatus.IOHealthy(), nil
+	return replStatus.IOHealthy(), replStatus.SQLHealthy(), nil
 }
 
 // tabletAliasError wraps an error with the tablet alias that produced it.

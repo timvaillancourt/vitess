@@ -547,6 +547,13 @@ func (fmd *FakeMysqlDaemon) StartReplication(ctx context.Context, hookExtraEnv m
 	})
 }
 
+// StartIOThread is part of the MysqlDaemon interface.
+func (fmd *FakeMysqlDaemon) StartIOThread(ctx context.Context) error {
+	return fmd.ExecuteSuperQueryList(ctx, []string{
+		"START REPLICA IO_THREAD",
+	})
+}
+
 // RestartReplication is part of the MysqlDaemon interface.
 func (fmd *FakeMysqlDaemon) RestartReplication(ctx context.Context, hookExtraEnv map[string]string) error {
 	return fmd.ExecuteSuperQueryList(ctx, []string{

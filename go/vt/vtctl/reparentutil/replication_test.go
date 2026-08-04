@@ -1608,24 +1608,36 @@ func TestReplicaWasRunning(t *testing.T) {
 	}
 }
 
-func TestReplicaIOThreadWasRunning(t *testing.T) {
+func TestReplicaThreadStatesWereHealthy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		in        *replicationdatapb.StopReplicationStatus
-		expected  bool
-		shouldErr bool
+		name               string
+		in                 *replicationdatapb.StopReplicationStatus
+		expectedIOHealthy  bool
+		expectedSQLHealthy bool
+		shouldErr          bool
 	}{
 		{
-			name: "io thread running",
+			name: "replication threads running",
+			in: &replicationdatapb.StopReplicationStatus{
+				Before: &replicationdatapb.Status{
+					IoState:  int32(replication.ReplicationStateRunning),
+					SqlState: int32(replication.ReplicationStateRunning),
+				},
+			},
+			expectedIOHealthy:  true,
+			expectedSQLHealthy: true,
+		},
+		{
+			name: "io thread running and sql thread stopped",
 			in: &replicationdatapb.StopReplicationStatus{
 				Before: &replicationdatapb.Status{
 					IoState:  int32(replication.ReplicationStateRunning),
 					SqlState: int32(replication.ReplicationStateStopped),
 				},
 			},
-			expected: true,
+			expectedIOHealthy: true,
 		},
 		{
 			name: "io thread connecting without an io error",
@@ -1636,7 +1648,7 @@ func TestReplicaIOThreadWasRunning(t *testing.T) {
 					SqlState:    int32(replication.ReplicationStateStopped),
 				},
 			},
-			expected: true,
+			expectedIOHealthy: true,
 		},
 		{
 			name: "io thread connecting with an io error",
@@ -1647,7 +1659,6 @@ func TestReplicaIOThreadWasRunning(t *testing.T) {
 					SqlState:    int32(replication.ReplicationStateStopped),
 				},
 			},
-			expected: false,
 		},
 		{
 			name: "only sql thread running",
@@ -1657,7 +1668,7 @@ func TestReplicaIOThreadWasRunning(t *testing.T) {
 					SqlState: int32(replication.ReplicationStateRunning),
 				},
 			},
-			expected: false,
+			expectedSQLHealthy: true,
 		},
 		{
 			name: "no replication threads running",
@@ -1667,7 +1678,6 @@ func TestReplicaIOThreadWasRunning(t *testing.T) {
 					SqlState: int32(replication.ReplicationStateStopped),
 				},
 			},
-			expected: false,
 		},
 		{
 			name:      "passing nil pointer results in an error",
@@ -1687,14 +1697,15 @@ func TestReplicaIOThreadWasRunning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			actual, err := replicaIOThreadWasRunning(tt.in)
+			ioHealthy, sqlHealthy, err := replicaThreadStatesWereHealthy(tt.in)
 			if tt.shouldErr {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			require.Equal(t, tt.expected, actual)
+			require.Equal(t, tt.expectedIOHealthy, ioHealthy)
+			require.Equal(t, tt.expectedSQLHealthy, sqlHealthy)
 		})
 	}
 }

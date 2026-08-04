@@ -375,6 +375,11 @@ func (mysqld *vtcomboMysqld) StartReplication(ctx context.Context, hookExtraEnv 
 	return nil
 }
 
+// StartIOThread implements the MysqlDaemon interface
+func (mysqld *vtcomboMysqld) StartIOThread(ctx context.Context) error {
+	return nil
+}
+
 // RestartReplication implements the MysqlDaemon interface
 func (mysqld *vtcomboMysqld) RestartReplication(ctx context.Context, hookExtraEnv map[string]string) error {
 	return nil

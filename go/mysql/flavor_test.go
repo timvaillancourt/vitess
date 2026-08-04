@@ -307,3 +307,28 @@ func TestGetFlavor(t *testing.T) {
 		})
 	}
 }
+
+func TestStartIOThreadCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		flv  flavor
+		want string
+	}{
+		{name: "modern MySQL", flv: mysqlFlavor8{}, want: "START REPLICA IO_THREAD"},
+		{name: "legacy MySQL", flv: mysqlFlavor57{}, want: "START SLAVE IO_THREAD"},
+		{name: "MariaDB", flv: mariadbFlavor101{}, want: "START SLAVE IO_THREAD"},
+		{name: "file position", flv: &filePosFlavor{}, want: "unsupported"},
+		{name: "MySQL group replication", flv: mysqlGRFlavor{}, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conn := &Conn{flavor: tt.flv}
+			assert.Equal(t, tt.want, conn.StartIOThreadCommand())
+		})
+	}
+}
