@@ -174,7 +174,7 @@ func tmcStopReplication(ctx context.Context, tabletGrpcPort int) error {
 
 func tmcStartReplication(ctx context.Context, tabletGrpcPort int) error {
 	vtablet := getTablet(tabletGrpcPort)
-	return tmClient.StartReplication(ctx, vtablet, false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	return tmClient.StartReplication(ctx, vtablet, false, replicationdatapb.StartReplicationMode_DEFAULT)
 }
 
 func tmcResetReplicationParameters(ctx context.Context, tabletGrpcPort int) error {

@@ -285,7 +285,7 @@ See [#18529](https://github.com/vitessio/vitess/issues/18529).
 
 When `EmergencyReparentShard` aborts before promotion, cleanup now restores the replication thread state that each replica had before ERS stopped its I/O thread. A replica that entered ERS with its I/O thread running and SQL thread deliberately stopped therefore returns to that exact state; previously cleanup started both threads and overrode the operator's intent.
 
-Direct Go callers of `tmclient.TabletManagerClient.StartReplication` must now pass a `replicationdata.StartReplicationMode`; use `STARTREPLICATIONMODE_DEFAULT` to retain the previous behavior.
+Direct Go callers of `tmclient.TabletManagerClient.StartReplication` must now pass a `replicationdata.StartReplicationMode`; use `DEFAULT` to retain the previous behavior.
 
 Exact restoration requires both the component executing ERS (`vtctld`, VTOrc, or legacy `vtctl`) and the affected `vttablet` to be v25 or newer. During mixed-version operation, an older ERS coordinator does not request I/O-only cleanup, while an older `vttablet` ignores the new mode field and starts both replication threads.
 

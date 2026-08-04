@@ -4768,12 +4768,12 @@ func TestEmergencyReparenterRestartsStoppedIOThreadsOnStopReplicationFailure(t *
 	// ERS should still restart replication on replicas whose IO threads it
 	// already stopped before stopReplicationAndBuildStatusMaps returned.
 	tmc.EXPECT().
-		StartReplication(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
+		StartReplication(gomock.Any(), tabletAliasMatcher(stoppedIOAlias), false, replicationdatapb.StartReplicationMode_DEFAULT).
 		Return(nil).
 		Times(1)
 
 	tmc.EXPECT().
-		StartReplication(gomock.Any(), tabletAliasMatcher(connectingIOAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
+		StartReplication(gomock.Any(), tabletAliasMatcher(connectingIOAlias), false, replicationdatapb.StartReplicationMode_DEFAULT).
 		Return(nil).
 		Times(1)
 
@@ -4918,12 +4918,12 @@ func TestEmergencyReparenterRestoresReplicationStateOnFailure(t *testing.T) {
 				}
 
 				tmc.EXPECT().
-					StartReplication(gomock.Any(), tabletAliasMatcher(ioOnlyRestartAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY).
+					StartReplication(gomock.Any(), tabletAliasMatcher(ioOnlyRestartAlias), false, replicationdatapb.StartReplicationMode_IO_THREAD_ONLY).
 					Return(tt.ioOnlyCleanupErr).
 					Times(1)
 
 				tmc.EXPECT().
-					StartReplication(gomock.Any(), tabletAliasMatcher(defaultRestartAlias), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT).
+					StartReplication(gomock.Any(), tabletAliasMatcher(defaultRestartAlias), false, replicationdatapb.StartReplicationMode_DEFAULT).
 					Return(nil).
 					Times(1)
 

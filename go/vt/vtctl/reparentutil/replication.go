@@ -312,9 +312,9 @@ func (rs *replicationSnapshot) replicationRestartModes(tabletMap map[string]*top
 			continue
 		}
 
-		mode := replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
+		mode := replicationdatapb.StartReplicationMode_DEFAULT
 		if !sqlHealthy {
-			mode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY
+			mode = replicationdatapb.StartReplicationMode_IO_THREAD_ONLY
 		}
 		restartModes[alias] = mode
 	}

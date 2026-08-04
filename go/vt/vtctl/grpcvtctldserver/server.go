@@ -4489,7 +4489,7 @@ func (s *VtctldServer) StartReplication(ctx context.Context, req *vtctldatapb.St
 		return nil, err
 	}
 
-	if err = s.tmc.StartReplication(ctx, tablet.Tablet, policy.IsReplicaSemiSync(durability, shardPrimary.Tablet, tablet.Tablet), replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT); err != nil {
+	if err = s.tmc.StartReplication(ctx, tablet.Tablet, policy.IsReplicaSemiSync(durability, shardPrimary.Tablet, tablet.Tablet), replicationdatapb.StartReplicationMode_DEFAULT); err != nil {
 		log.Error(fmt.Sprintf("StartReplication: failed to start replication on %v: %v", alias, err))
 		return nil, err
 	}

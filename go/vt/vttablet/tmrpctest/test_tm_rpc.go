@@ -1047,7 +1047,7 @@ func tmRPCTestStopReplicationMinimumPanic(ctx context.Context, t *testing.T, cli
 var (
 	testStartReplicationCalled   = false
 	testStartReplicationSemiSync = false
-	testStartReplicationMode     = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
+	testStartReplicationMode     = replicationdatapb.StartReplicationMode_DEFAULT
 )
 
 func (fra *fakeRPCTM) StartReplication(ctx context.Context, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
@@ -1083,30 +1083,30 @@ func tmRPCTestRestartReplicationPanic(ctx context.Context, t *testing.T, client 
 func tmRPCTestStartReplication(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
 	testStartReplicationCalled = false
 	testStartReplicationSemiSync = true
-	testStartReplicationMode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY
-	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	testStartReplicationMode = replicationdatapb.StartReplicationMode_IO_THREAD_ONLY
+	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_DEFAULT)
 	compareError(t, "StartReplication", err, true, testStartReplicationCalled)
 	compare(t, "StartReplication semi-sync", testStartReplicationSemiSync, false)
-	compare(t, "StartReplication mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	compare(t, "StartReplication mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_DEFAULT)
 }
 
 func tmRPCTestStartReplicationPanic(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
-	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	err := client.StartReplication(ctx, tablet, false, replicationdatapb.StartReplicationMode_DEFAULT)
 	expectHandleRPCPanic(t, "StartReplication", true /*verbose*/, err)
 }
 
 func tmRPCTestStartReplicationIOThread(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
 	testStartReplicationCalled = false
 	testStartReplicationSemiSync = false
-	testStartReplicationMode = replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT
-	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	testStartReplicationMode = replicationdatapb.StartReplicationMode_DEFAULT
+	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_IO_THREAD_ONLY)
 	compareError(t, "StartReplication IO thread", err, true, testStartReplicationCalled)
 	compare(t, "StartReplication IO thread semi-sync", testStartReplicationSemiSync, true)
-	compare(t, "StartReplication IO thread mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	compare(t, "StartReplication IO thread mode", testStartReplicationMode, replicationdatapb.StartReplicationMode_IO_THREAD_ONLY)
 }
 
 func tmRPCTestStartReplicationIOThreadPanic(ctx context.Context, t *testing.T, client tmclient.TabletManagerClient, tablet *topodatapb.Tablet) {
-	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	err := client.StartReplication(ctx, tablet, true, replicationdatapb.StartReplicationMode_IO_THREAD_ONLY)
 	expectHandleRPCPanic(t, "StartReplication", true /*verbose*/, err)
 }
 

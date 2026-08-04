@@ -122,7 +122,7 @@ func (wr *Wrangler) StartReplication(ctx context.Context, tablet *topodatapb.Tab
 	if err != nil {
 		return err
 	}
-	return wr.TabletManagerClient().StartReplication(ctx, tablet, semiSync, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	return wr.TabletManagerClient().StartReplication(ctx, tablet, semiSync, replicationdatapb.StartReplicationMode_DEFAULT)
 }
 
 // SetReplicationSource is used to set the replication source on the specified tablet to the current shard primary (if available).

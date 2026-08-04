@@ -499,7 +499,7 @@ func TestStartReplicationIOThreadOnly(t *testing.T) {
 	}
 
 	tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, nil)
-	err := tm.StartReplication(t.Context(), true, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY)
+	err := tm.StartReplication(t.Context(), true, replicationdatapb.StartReplicationMode_IO_THREAD_ONLY)
 	require.NoError(t, err)
 	require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
 	assert.False(t, fakeMysqlDaemon.SemiSyncPrimaryEnabled)
@@ -517,7 +517,7 @@ func TestStartReplicationRecoversFromRecoverableReplicationInitError(t *testing.
 	}
 
 	tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, nil)
-	err := tm.StartReplication(t.Context(), false, replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT)
+	err := tm.StartReplication(t.Context(), false, replicationdatapb.StartReplicationMode_DEFAULT)
 	require.NoError(t, err)
 	require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
 }

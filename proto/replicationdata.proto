@@ -83,8 +83,8 @@ enum StopReplicationMode {
 
 // StartReplicationMode is used to provide controls over how replication is started.
 enum StartReplicationMode {
-  STARTREPLICATIONMODE_DEFAULT = 0;
-  STARTREPLICATIONMODE_IOTHREADONLY = 1;
+  DEFAULT = 0;
+  IO_THREAD_ONLY = 1;
 }
 
 // PrimaryStatus is the replication status for a MySQL primary (returned by 'show binary log status').

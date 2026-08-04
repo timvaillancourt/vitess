@@ -309,9 +309,9 @@ func (tm *TabletManager) StopReplicationMinimum(ctx context.Context, position st
 func (tm *TabletManager) StartReplication(ctx context.Context, semiSync bool, startReplicationMode replicationdatapb.StartReplicationMode) error {
 	log.Info("StartReplication")
 	switch startReplicationMode {
-	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT:
+	case replicationdatapb.StartReplicationMode_DEFAULT:
 		return tm.startReplicationWithAction(ctx, semiSync, tm.startReplicationRecoverable)
-	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY:
+	case replicationdatapb.StartReplicationMode_IO_THREAD_ONLY:
 		return tm.startReplicationWithAction(ctx, semiSync, tm.startIOThreadLocked)
 	default:
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "unsupported start replication mode: %v", startReplicationMode)

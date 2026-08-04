@@ -91,19 +91,19 @@ func (StopReplicationMode) EnumDescriptor() ([]byte, []int) {
 type StartReplicationMode int32
 
 const (
-	StartReplicationMode_STARTREPLICATIONMODE_DEFAULT      StartReplicationMode = 0
-	StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY StartReplicationMode = 1
+	StartReplicationMode_DEFAULT        StartReplicationMode = 0
+	StartReplicationMode_IO_THREAD_ONLY StartReplicationMode = 1
 )
 
 // Enum value maps for StartReplicationMode.
 var (
 	StartReplicationMode_name = map[int32]string{
-		0: "STARTREPLICATIONMODE_DEFAULT",
-		1: "STARTREPLICATIONMODE_IOTHREADONLY",
+		0: "DEFAULT",
+		1: "IO_THREAD_ONLY",
 	}
 	StartReplicationMode_value = map[string]int32{
-		"STARTREPLICATIONMODE_DEFAULT":      0,
-		"STARTREPLICATIONMODE_IOTHREADONLY": 1,
+		"DEFAULT":        0,
+		"IO_THREAD_ONLY": 1,
 	}
 )
 
@@ -982,10 +982,10 @@ const file_replicationdata_proto_rawDesc = "" +
 	"\x11shard_peer_health\x18\x1a \x03(\v2 .replicationdata.ShardPeerHealthR\x0fshardPeerHealth*;\n" +
 	"\x13StopReplicationMode\x12\x12\n" +
 	"\x0eIOANDSQLTHREAD\x10\x00\x12\x10\n" +
-	"\fIOTHREADONLY\x10\x01*_\n" +
-	"\x14StartReplicationMode\x12 \n" +
-	"\x1cSTARTREPLICATIONMODE_DEFAULT\x10\x00\x12%\n" +
-	"!STARTREPLICATIONMODE_IOTHREADONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
+	"\fIOTHREADONLY\x10\x01*7\n" +
+	"\x14StartReplicationMode\x12\v\n" +
+	"\aDEFAULT\x10\x00\x12\x12\n" +
+	"\x0eIO_THREAD_ONLY\x10\x01B.Z,vitess.io/vitess/go/vt/proto/replicationdatab\x06proto3"
 
 var (
 	file_replicationdata_proto_rawDescOnce sync.Once

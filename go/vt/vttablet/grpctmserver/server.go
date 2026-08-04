@@ -432,8 +432,8 @@ func (s *server) StartReplication(ctx context.Context, request *tabletmanagerdat
 	response = &tabletmanagerdatapb.StartReplicationResponse{}
 	startReplicationMode := request.GetStartReplicationMode()
 	switch startReplicationMode {
-	case replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_DEFAULT,
-		replicationdatapb.StartReplicationMode_STARTREPLICATIONMODE_IOTHREADONLY:
+	case replicationdatapb.StartReplicationMode_DEFAULT,
+		replicationdatapb.StartReplicationMode_IO_THREAD_ONLY:
 		return response, s.tm.StartReplication(ctx, request.GetSemiSync(), startReplicationMode)
 	default:
 		return response, vterrors.Errorf(vtrpcpb.Code_INVALID_ARGUMENT, "unsupported start replication mode: %v", startReplicationMode)
