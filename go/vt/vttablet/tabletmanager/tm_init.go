@@ -1088,13 +1088,15 @@ func (tm *TabletManager) detectMySQLDirs(ctx context.Context) ([]string, error) 
 		dirs = append(dirs, relativeToDatadir(innodbTempTablespacesDir))
 	}
 	doublewriteMode := strings.ToLower(vars["innodb_doublewrite"])
-	if innodbDoublewriteDir := vars["innodb_doublewrite_dir"]; innodbDoublewriteDir != "" && doublewriteMode != "off" && doublewriteMode != "false" && doublewriteMode != "0" {
+	doublewriteDisabled := doublewriteMode == "off" || doublewriteMode == "false" || doublewriteMode == "0"
+	innodbDoublewriteDir := vars["innodb_doublewrite_dir"]
+	if innodbDoublewriteDir != "" && !doublewriteDisabled {
 		if !filepath.IsAbs(innodbDoublewriteDir) && innodbDoublewriteDir[0] != '.' && innodbDoublewriteDir[0] != '#' {
 			innodbDoublewriteDir = "#" + innodbDoublewriteDir
 		}
 		dirs = append(dirs, relativeToDatadir(innodbDoublewriteDir))
 	}
-	if parallelDoublewritePath := vars["innodb_parallel_doublewrite_path"]; parallelDoublewritePath != "" {
+	if parallelDoublewritePath := vars["innodb_parallel_doublewrite_path"]; parallelDoublewritePath != "" && innodbDoublewriteDir == "" && !doublewriteDisabled {
 		if !filepath.IsAbs(parallelDoublewritePath) {
 			parallelDoublewritePath = filepath.Join(innodbDataHomeDir, parallelDoublewritePath)
 		}

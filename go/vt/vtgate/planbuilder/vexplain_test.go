@@ -24,13 +24,9 @@ import (
 	"vitess.io/vitess/go/vt/sqlparser"
 )
 
-// TestCheckVExplainMySQLASTPrioritizesUnsafeFunctions proves that when a query
-// contains an advisory lock function, the rejection MYSQLPLAN reports must be the
-// lock rejection - which deliberately never points the user at VEXPLAIN ALL - even
-// when another rejected construct (a subquery/derived table, whose message does
-// recommend VEXPLAIN ALL) is also present. Recommending VEXPLAIN ALL for a query
-// containing get_lock would execute it, acquiring the advisory lock: exactly the
-// side effect the lock rejection guards against.
+// TestCheckVExplainMySQLASTPrioritizesUnsafeFunctions proves that rejections for
+// function calls with possible side effects take precedence over rejected shapes
+// that would otherwise point the user at VEXPLAIN ALL.
 func TestCheckVExplainMySQLASTPrioritizesUnsafeFunctions(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -50,6 +46,16 @@ func TestCheckVExplainMySQLASTPrioritizesUnsafeFunctions(t *testing.T) {
 			name:    "lock function nested inside a subquery",
 			query:   `select (select get_lock('x', 1))`,
 			wantErr: vexplainMySQLLockError,
+		},
+		{
+			name:    "stored function beside a subquery",
+			query:   `select side_effect(), (select 1)`,
+			wantErr: "cannot safely distinguish stored functions from built-in functions",
+		},
+		{
+			name:    "stored function nested inside a subquery",
+			query:   `select (select side_effect())`,
+			wantErr: "cannot safely distinguish stored functions from built-in functions",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

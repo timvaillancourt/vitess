@@ -110,6 +110,9 @@ const (
 	vexplainMySQLLockError = "VEXPLAIN MYSQLPLAN does not support advisory lock functions " +
 		"(get_lock, release_lock, release_all_locks, is_free_lock, is_used_lock)"
 
+	vexplainMySQLFunctionError = "VEXPLAIN MYSQLPLAN cannot safely distinguish stored functions from built-in functions; " +
+		"generic function calls are not supported because EXPLAIN can execute stored functions during optimization"
+
 	vexplainMySQLCalcFoundRowsError = "VEXPLAIN MYSQLPLAN does not support SELECT SQL_CALC_FOUND_ROWS with GROUP BY or HAVING, " +
 		"because the planner rewrites the row count into a derived table that EXPLAIN could materialize; use VEXPLAIN ALL instead"
 )
@@ -119,16 +122,16 @@ const (
 // planning, because each can otherwise reach a Route or Send that the primitive
 // allowlist would accept.
 //
-// Two of these rejections - advisory lock functions and sequence next-value
-// queries - must never point the user at VEXPLAIN ALL, because running the query
-// there would acquire or release a lock, or consume a sequence value. The other
-// two - derived tables/views and subqueries/CTEs - do recommend VEXPLAIN ALL. So
-// when a query carries both kinds (e.g. a lock function beside or nested inside a
-// subquery), the lock/sequence rejection must win, or the user would be steered to
-// a VEXPLAIN ALL that runs the very construct MYSQLPLAN refused. The walk therefore
-// aborts immediately on a lock or sequence node by returning its error, and only
-// records the first derived-table/subquery rejection while continuing to descend,
-// so a lock or sequence node anywhere in the tree still overrides it.
+// Three of these rejections - advisory lock functions, sequence next-value
+// queries and generic function calls - must never point the user at VEXPLAIN ALL,
+// because running the query there could acquire or release a lock, consume a
+// sequence value or execute a stored function. The other two - derived tables/views
+// and subqueries/CTEs - do recommend VEXPLAIN ALL. When a query carries both kinds,
+// the unsafe rejection must win, or the user would be steered to a VEXPLAIN ALL that
+// runs the very construct MYSQLPLAN refused. The walk therefore aborts immediately
+// on an unsafe node by returning its error, and only records the first derived-table
+// or subquery rejection while continuing to descend, so an unsafe node anywhere in
+// the tree still overrides it.
 //
 //   - Nested query blocks (subquery, derived table, CTE): EXPLAIN FORMAT=JSON
 //     materializes a derived table during optimization - executing any stored
@@ -152,6 +155,10 @@ const (
 //     running the query would acquire or release advisory locks as a side effect.
 //     The read-only variants (is_free_lock, is_used_lock) are rejected the same way
 //     for a consistent message; they are equally unexplainable through MYSQLPLAN.
+//   - Generic function calls: the AST does not identify whether MySQL will resolve
+//     the name to a built-in, UDF or stored function. Supported MySQL releases can
+//     execute a stored function while optimizing EXPLAIN, so MYSQLPLAN fails closed
+//     rather than sending a generic call to a shard.
 func checkVExplainMySQLAST(statement sqlparser.Statement) error {
 	var recommendAllErr error
 	unsafeErr := sqlparser.Walk(func(node sqlparser.SQLNode) (bool, error) {
@@ -160,6 +167,8 @@ func checkVExplainMySQLAST(statement sqlparser.Statement) error {
 			return false, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, vexplainMySQLSequenceError)
 		case *sqlparser.LockingFunc:
 			return false, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, vexplainMySQLLockError)
+		case *sqlparser.FuncExpr:
+			return false, vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, vexplainMySQLFunctionError)
 		case *sqlparser.DerivedTable:
 			if recommendAllErr == nil {
 				recommendAllErr = vterrors.Errorf(vtrpcpb.Code_UNIMPLEMENTED, vexplainMySQLDerivedTableError)

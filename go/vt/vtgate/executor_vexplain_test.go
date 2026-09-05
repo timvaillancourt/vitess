@@ -477,6 +477,28 @@ func TestVExplainMySQLPlanRejectsLockFunctions(t *testing.T) {
 	}
 }
 
+func TestVExplainMySQLPlanRejectsGenericFunctions(t *testing.T) {
+	for _, query := range []string{
+		"vexplain mysqlplan select id from `user` where id = side_effect()",
+		"vexplain mysqlplan select id from `user` where id = app.side_effect()",
+	} {
+		t.Run(query, func(t *testing.T) {
+			conns := map[string]*sandboxconn.SandboxConn{}
+			executor, ctx := createExecutorEnvCallback(t, createExecutorConfig(), func(shard, ks string, tabletType topodatapb.TabletType, conn *sandboxconn.SandboxConn) {
+				conns[ks+"/"+shard] = conn
+			})
+
+			session := &vtgatepb.Session{TargetString: "@primary"}
+			_, err := executorExec(ctx, executor, session, query, nil)
+			require.ErrorContains(t, err, "cannot safely distinguish stored functions from built-in functions")
+			require.NotContains(t, err.Error(), "VEXPLAIN ALL")
+			for target, conn := range conns {
+				assert.Empty(t, conn.Queries, "no query should be sent to %s", target)
+			}
+		})
+	}
+}
+
 // TestVExplainMySQLPlanRejectsSubqueries verifies that a query containing a
 // subquery, derived table, or common table expression is rejected at plan time,
 // before any shard RPC. Such a query can merge into a single Route that the
