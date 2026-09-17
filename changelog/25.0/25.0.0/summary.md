@@ -30,6 +30,7 @@
         - [Stricter validation of SQL-level PREPARE statements](#vtgate-prepare-stricter-validation)
         - [Stricter PROXY protocol v1 header validation](#vtgate-proxy-protocol-v1-strictness)
     - **[Reparent](#minor-changes-reparent)**
+        - [TabletManager adds fused reparent RPCs](#fused-tablet-reparent-rpcs)
         - [`EmergencyReparentShard` no longer waits on replicas that cannot win the election](#ers-lagging-relay-log-wait)
         - [`EmergencyReparentShard` can explicitly recover from split brain](#ers-allow-split-brain-promotion)
         - [Reparent candidate ordering now respects partially ordered GTID histories](#reparent-gtid-candidate-ordering)
@@ -283,6 +284,12 @@ Specification-conformant v1 headers, as emitted by HAProxy, AWS load balancers, 
 See [#20733](https://github.com/vitessio/vitess/pull/20733) for details.
 
 ### <a id="minor-changes-reparent"/>Reparent</a>
+
+#### <a id="fused-tablet-reparent-rpcs"/>TabletManager adds fused reparent RPCs</a>
+
+vttablet now serves the additive `PrepareEmergencyReparent` and `PromoteReplicaAndJournal` RPCs. They combine the tablet-local phases needed to prepare a replica for emergency reparenting and to promote a replica and write its reparent journal entry, reducing the number of round trips required by future reparent orchestration.
+
+These RPCs establish the tablet side of the staged rollout. Cancellation recovery does not overwrite newer replication actions, and promotion responses retain the promoted MySQL position when a later tablet-state transition fails. Existing `EmergencyReparentShard`, `PlannedReparentShard`, and VTOrc workflows do not invoke them in v25.
 
 #### <a id="ers-lagging-relay-log-wait"/>`EmergencyReparentShard` no longer waits on replicas that cannot win the election</a>
 
