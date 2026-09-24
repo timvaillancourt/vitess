@@ -179,6 +179,14 @@ func commandCreateKeyspace(cmd *cobra.Command, args []string) error {
 
 	cli.FinishedParsing(cmd)
 
+	// TODO(v26): Remove this warning when new normal keyspaces default to semi_sync.
+	if topodatapb.KeyspaceType(createKeyspaceOptions.KeyspaceType) == topodatapb.KeyspaceType_NORMAL &&
+		(!cmd.Flags().Changed("durability-policy") || createKeyspaceOptions.DurabilityPolicy == "") {
+		cmd.PrintErrln("Warning: the default durability policy is 'none' in v25 (asynchronous replication), which can lose acknowledged writes during failover. " +
+			"In v26 the default for new normal keyspaces will change to 'semi_sync'. Existing keyspaces are unaffected. " +
+			"Explicitly select --durability-policy=none to keep asynchronous replication, or --durability-policy=semi_sync to opt in now.")
+	}
+
 	req := &vtctldatapb.CreateKeyspaceRequest{
 		Name:              name,
 		Force:             createKeyspaceOptions.Force,
@@ -364,7 +372,7 @@ func init() {
 	CreateKeyspace.Flags().Var(&createKeyspaceOptions.KeyspaceType, "type", "The type of the keyspace.")
 	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.BaseKeyspace, "base-keyspace", "", "The base keyspace for a snapshot keyspace.")
 	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.SnapshotTimestamp, "snapshot-timestamp", "", "The snapshot time for a snapshot keyspace, as a timestamp in RFC3339 format.")
-	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.DurabilityPolicy, "durability-policy", policy.DurabilityNone, "Type of durability to enforce for this keyspace. Default is none. Possible values include 'semi_sync' and others as dictated by registered plugins.")
+	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.DurabilityPolicy, "durability-policy", policy.DurabilityNone, "Type of durability to enforce for this keyspace. Defaults to 'none' in v25; the default for new normal keyspaces will change to 'semi_sync' in v26. Explicitly select 'none' to keep asynchronous replication. Possible values include 'semi_sync', 'cross_cell' and others as dictated by registered plugins.")
 	CreateKeyspace.Flags().StringVar(&createKeyspaceOptions.SidecarDBName, "sidecar-db-name", sidecar.DefaultName, "(Experimental) Name of the Vitess sidecar database that tablets in this keyspace will use for internal metadata.")
 	Root.AddCommand(CreateKeyspace)
 

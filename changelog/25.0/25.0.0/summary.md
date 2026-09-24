@@ -16,6 +16,7 @@
         - [VTOrc: `--cells-to-watch` removed in favor of `--cells-no-recovery`](#vtorc-cells-no-recovery)
     - **[Deprecations](#deprecations)**
         - [CLI Flags](#deprecated-cli-flags)
+        - [Implicit `none` durability policy for new keyspaces](#implicit-none-durability-policy)
         - [Legacy streaming-path plan types in query rules](#deprecated-selectstream-rule-plan)
 - **[Minor Changes](#minor-changes)**
     - **[VReplication](#minor-changes-vreplication)**
@@ -171,6 +172,18 @@ The flag will be removed entirely in v26. This deprecation is tracked in https:/
 The VTTablet flag `--vreplication-enable-http-log` is now deprecated and is a no-op, as the [VRLog feature it enabled has been removed](#vttablet-vrlog-removed). The flag will be removed entirely in v26.
 
 **Impact**: Remove any usage of the `--vreplication-enable-http-log` flag from VTTablet startup scripts or configuration.
+
+#### <a id="implicit-none-durability-policy"/>Implicit `none` durability policy for new keyspaces</a>
+
+The default durability policy for new normal keyspaces will change from `none` -> `semi_sync` in v26. In v25, the default remains `none` (asynchronous replication), which can lose acknowledged writes during failover. `vtctldclient CreateKeyspace` now warns when `--durability-policy` is omitted or empty; the creating process also logs a warning when a new normal keyspace is stored with an unset policy
+
+Existing keyspaces, including those with an unset policy, retain their behaviour. Snapshot keyspaces are unaffected. The `none` policy and the `--durability-policy` flag are not deprecated; explicit policy choices remain supported
+
+To retain asynchronous replication for new keyspaces, including single-tablet setups, explicitly select `--durability-policy=none`. To opt in now, select `--durability-policy=semi_sync` and provision an eligible `REPLICA` before completing shard initialization; an `RDONLY` tablet does not qualify. Semi-sync adds replica acknowledgement latency, and writes can block when no eligible replica is available. If tablets or shard creation implicitly create your keyspaces, pre-create those keyspaces with an explicit policy
+
+The CLI warning requires a v25 client. Older clients may send `none` even when the flag was omitted, which the server cannot distinguish from an explicit choice
+
+See [#21204](https://github.com/vitessio/vitess/issues/21204)
 
 #### <a id="deprecated-selectstream-rule-plan"/>Legacy streaming-path plan types in query rules</a>
 

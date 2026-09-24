@@ -89,6 +89,14 @@ func (ts *Server) CreateKeyspace(ctx context.Context, keyspace string, value *to
 		return err
 	}
 
+	// TODO(v26): Remove this warning when new normal keyspaces default to semi_sync.
+	if value.GetKeyspaceType() == topodatapb.KeyspaceType_NORMAL && value.GetDurabilityPolicy() == "" {
+		log.Warn(fmt.Sprintf("Keyspace %q was created without an explicit durability policy. "+
+			"This uses 'none' in v25 (asynchronous replication), which can lose acknowledged writes during failover. "+
+			"In v26 the default for new normal keyspaces will change to 'semi_sync'. Existing keyspaces are unaffected. "+
+			"Pre-create keyspaces with --durability-policy=none to keep asynchronous replication, or --durability-policy=semi_sync to opt in now.", keyspace))
+	}
+
 	event.Dispatch(&events.KeyspaceChange{
 		KeyspaceName: keyspace,
 		Keyspace:     value,

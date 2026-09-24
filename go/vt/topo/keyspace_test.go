@@ -17,14 +17,94 @@ limitations under the License.
 package topo_test
 
 import (
+	"bytes"
+	"log/slog"
+	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
+	"vitess.io/vitess/go/vt/log"
 	topodatapb "vitess.io/vitess/go/vt/proto/topodata"
 	"vitess.io/vitess/go/vt/topo"
 	"vitess.io/vitess/go/vt/topo/memorytopo"
 )
+
+func TestCreateKeyspaceDurabilityWarning(t *testing.T) {
+	tests := []struct {
+		name     string
+		policy   string
+		snapshot bool
+		nilValue bool
+		warning  bool
+	}{
+		{name: "empty policy", warning: true},
+		{name: "nil keyspace", nilValue: true, warning: true},
+		{name: "explicit none", policy: "none"},
+		{name: "explicit semi_sync", policy: "semi_sync"},
+		{name: "explicit cross_cell", policy: "cross_cell"},
+		{name: "custom policy", policy: "custom"},
+		{name: "snapshot empty policy", snapshot: true},
+		{name: "snapshot explicit none", policy: "none", snapshot: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			ts := memorytopo.NewServer(ctx, "zone1")
+			t.Cleanup(ts.Close)
+			var logs bytes.Buffer
+			oldLogger := log.SwapLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			t.Cleanup(func() { log.SwapLogger(oldLogger) })
+
+			value := &topodatapb.Keyspace{DurabilityPolicy: tt.policy}
+			if tt.snapshot {
+				value.KeyspaceType = topodatapb.KeyspaceType_SNAPSHOT
+			}
+			if tt.nilValue {
+				value = nil
+			}
+			original := value.CloneVT()
+			require.Error(t, ts.CreateKeyspace(ctx, "invalid/name", value))
+			assert.Empty(t, logs.String())
+			require.NoError(t, ts.CreateKeyspace(ctx, "ks", value))
+			assert.True(t, proto.Equal(original, value), "CreateKeyspace changed its input")
+			createdLogs := logs.String()
+			if tt.warning {
+				assert.Equal(t, 1, strings.Count(createdLogs, "level=WARN"))
+				assert.Contains(t, createdLogs, "ks")
+				assert.Contains(t, createdLogs, "v25")
+				assert.Contains(t, createdLogs, "v26")
+				assert.Contains(t, createdLogs, "acknowledged writes")
+				assert.Contains(t, createdLogs, "--durability-policy=none")
+				assert.Contains(t, createdLogs, "--durability-policy=semi_sync")
+				assert.Contains(t, createdLogs, "Existing keyspaces are unaffected")
+			} else {
+				assert.Empty(t, createdLogs)
+			}
+
+			stored, err := ts.GetKeyspace(ctx, "ks")
+			require.NoError(t, err)
+			expected := original
+			if expected == nil {
+				expected = &topodatapb.Keyspace{}
+			}
+			assert.True(t, proto.Equal(expected, stored.Keyspace), "stored keyspace differs from its input")
+			durability, err := ts.GetKeyspaceDurability(ctx, "ks")
+			require.NoError(t, err)
+			expectedPolicy := tt.policy
+			if expectedPolicy == "" {
+				expectedPolicy = "none"
+			}
+			assert.Equal(t, expectedPolicy, durability)
+
+			err = ts.CreateKeyspace(ctx, "ks", value)
+			require.True(t, topo.IsErrType(err, topo.NodeExists), "expected NodeExists, got %v", err)
+			assert.Equal(t, createdLogs, logs.String())
+		})
+	}
+}
 
 func TestDeleteOrphanedKeyspaceFiles(t *testing.T) {
 	cell := "zone-1"
