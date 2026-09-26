@@ -299,14 +299,23 @@ func TestIntegerAndID(t *testing.T) {
 	}
 }
 
-// BenchmarkTokenizerScanString measures scanning a single quoted string
-// literal, which the tokenizer does for every literal in every query vtgate
-// parses before it normalizes them into bind variables. The "clean" inputs
-// take the fast path that hunts for the closing delimiter; the "escape"
-// inputs carry one backslash escape in the middle, which hands the rest of
-// the literal to scanStringSlow.
-func BenchmarkTokenizerScanString(b *testing.B) {
+// scanStringBenchCase is one string literal for the scanString benchmarks:
+// sql is the literal with its delimiters, so a tokenizer over it enters
+// scanString at Pos 1 the way Scan does after consuming the opening quote.
+type scanStringBenchCase struct {
+	name  string
+	delim byte
+	size  int
+	sql   string
+}
+
+// scanStringBenchCases returns a literal for each delimiter, size and shape
+// the scanString benchmarks cover. The "clean" literals take the fast path
+// that hunts for the closing delimiter; the "escape" literals carry one
+// backslash escape in the middle, which hands the rest to scanStringSlow.
+func scanStringBenchCases() []scanStringBenchCase {
 	const text = "The quick brown fox jumps over the lazy dog, then it does so again. "
+	var cases []scanStringBenchCase
 	for _, delim := range []struct {
 		name string
 		ch   byte
@@ -318,21 +327,35 @@ func BenchmarkTokenizerScanString(b *testing.B) {
 				if shape == "escape" {
 					literal = body[:size/2] + `\n` + body[size/2+2:]
 				}
-				sql := string(delim.ch) + literal + string(delim.ch)
-				tkn := NewTestParser().NewStringTokenizer(sql)
-				b.Run(fmt.Sprintf("%s/%d/%s", delim.name, size, shape), func(b *testing.B) {
-					b.ReportAllocs()
-					b.SetBytes(int64(size))
-					for b.Loop() {
-						// Position just past the opening delimiter, as Scan does
-						// before it hands off to scanString.
-						tkn.Pos = 1
-						if id, _ := tkn.scanString(uint16(delim.ch), STRING); id != STRING {
-							b.Fatalf("scanString returned token %d, want STRING", id)
-						}
-					}
+				cases = append(cases, scanStringBenchCase{
+					name:  fmt.Sprintf("%s/%d/%s", delim.name, size, shape),
+					delim: delim.ch,
+					size:  size,
+					sql:   string(delim.ch) + literal + string(delim.ch),
 				})
 			}
 		}
+	}
+	return cases
+}
+
+// BenchmarkTokenizerScanString measures scanning a single quoted string
+// literal, which the tokenizer does for every literal in every query vtgate
+// parses before it normalizes them into bind variables.
+func BenchmarkTokenizerScanString(b *testing.B) {
+	for _, tc := range scanStringBenchCases() {
+		tkn := NewTestParser().NewStringTokenizer(tc.sql)
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(tc.size))
+			for b.Loop() {
+				// Position just past the opening delimiter, as Scan does
+				// before it hands off to scanString.
+				tkn.Pos = 1
+				if id, _ := tkn.scanString(uint16(tc.delim), STRING); id != STRING {
+					b.Fatalf("scanString returned token %d, want STRING", id)
+				}
+			}
+		})
 	}
 }

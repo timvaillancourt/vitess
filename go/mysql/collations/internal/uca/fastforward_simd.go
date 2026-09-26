@@ -76,14 +76,16 @@ func equalASCIIPrefix(p1, p2 []byte) int {
 
 func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 	n := min(len(p1), len(p2))
-	hi := simd.BroadcastUint8s(0x80)
-	zero := simd.BroadcastUint8s(0)
-	w := hi.Len()
+	// The lane count comes from the zero vector so the "shorter than one
+	// vector" check runs before the broadcast: on the wider amd64 lanes the
+	// threshold lets 32..w-1 byte inputs through, and the overlapping tail
+	// below needs at least one full block.
+	var zero simd.Uint8s
+	w := zero.Len()
 	if n < w {
-		// Shorter than one vector: on the widest lanes the threshold lets
-		// this through, and the overlapping tail below needs a full block.
 		return 0
 	}
+	hi := simd.BroadcastUint8s(0x80)
 	var tmp laneBuf
 
 	i := 0

@@ -140,31 +140,17 @@ func FuzzScanString(f *testing.F) {
 // so one test binary reports today's code next to the new scalar and SIMD
 // paths.
 func BenchmarkTokenizerScanStringReference(b *testing.B) {
-	const text = "The quick brown fox jumps over the lazy dog, then it does so again. "
-	for _, delim := range []struct {
-		name string
-		ch   byte
-	}{{"squote", '\''}, {"dquote", '"'}} {
-		for _, size := range []int{16, 64, 256, 4096} {
-			body := strings.Repeat(text, size/len(text)+1)[:size]
-			for _, shape := range []string{"clean", "escape"} {
-				literal := body
-				if shape == "escape" {
-					literal = body[:size/2] + `\n` + body[size/2+2:]
+	for _, tc := range scanStringBenchCases() {
+		tkn := NewTestParser().NewStringTokenizer(tc.sql)
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(tc.size))
+			for b.Loop() {
+				tkn.Pos = 1
+				if id, _ := scanStringReference(tkn, uint16(tc.delim), STRING); id != STRING {
+					b.Fatalf("scanStringReference returned token %d, want STRING", id)
 				}
-				sql := string(delim.ch) + literal + string(delim.ch)
-				tkn := NewTestParser().NewStringTokenizer(sql)
-				b.Run(fmt.Sprintf("%s/%d/%s", delim.name, size, shape), func(b *testing.B) {
-					b.ReportAllocs()
-					b.SetBytes(int64(size))
-					for b.Loop() {
-						tkn.Pos = 1
-						if id, _ := scanStringReference(tkn, uint16(delim.ch), STRING); id != STRING {
-							b.Fatalf("scanStringReference returned token %d, want STRING", id)
-						}
-					}
-				})
 			}
-		}
+		})
 	}
 }

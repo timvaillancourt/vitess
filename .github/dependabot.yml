@@ -35,6 +35,7 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/tools/addlicense"
+      - "/tools/benchstat"
       - "/tools/gofumpt"
       - "/tools/goimports"
       - "/tools/gotestsum"

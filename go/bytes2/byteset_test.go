@@ -29,7 +29,8 @@ import (
 
 // sqlEscapeBytes is the set the SQL literal encoders scan for, which is the
 // production caller of ByteSet. It includes 0x00, the byte a zero-filled
-// partial vector load would forge a hit for.
+// partial vector load would forge a hit for; the kernel reads its tail as an
+// overlapping full block instead, and the tail tests below hold it to that.
 var sqlEscapeBytes = []byte{0, '\'', '\b', '\n', '\r', '\t', 26, '\\'}
 
 // refIndex is the naive reference both Index implementations are checked
@@ -101,9 +102,11 @@ func TestByteSetIndex(t *testing.T) {
 		})
 	}
 
-	// The zero-fill hazard directly: a clean tail that a partial load pads
-	// with 0x00 lanes must not report a hit, since 0x00 is in the set.
-	t.Run("zero fill tail", func(t *testing.T) {
+	// A clean input whose length is not a multiple of the vector width
+	// must not report a hit: 0x00 is in the set, so a tail read through a
+	// zero-filled partial load would forge one. The kernel reads the tail
+	// as an overlapping full block, and this pins that.
+	t.Run("clean tail", func(t *testing.T) {
 		for _, n := range []int{17, 20, 25, 31, 33, 40, 63} {
 			in := clean(n)
 			require.Equal(t, -1, set.Index(in), "size %d", n)
@@ -226,6 +229,7 @@ func BenchmarkByteSetIndex(b *testing.B) {
 		for _, shape := range []string{"clean", "sparse", "dense"} {
 			in := benchInput(size, shape)
 			b.Run(fmt.Sprintf("%d/%s", size, shape), func(b *testing.B) {
+				b.ReportAllocs()
 				b.SetBytes(int64(size))
 				for b.Loop() {
 					for p := in; len(p) > 0; {
@@ -245,6 +249,7 @@ func BenchmarkIndexAny2(b *testing.B) {
 	for _, size := range []int{16, 64, 256, 4096} {
 		in := clean(size)
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			b.ReportAllocs()
 			b.SetBytes(int64(size))
 			for b.Loop() {
 				if IndexAny2(in, '\'', '\\') != -1 {

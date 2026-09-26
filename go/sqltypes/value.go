@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -873,8 +874,10 @@ func encodeBytesSQL(val []byte, b BinWriter) {
 
 // encodeBytesSQLBytes2 writes val as a quoted SQL string literal. It copies
 // each run of bytes that need no escaping in one write and only stops at the
-// bytes in sqlEscapeSet, rather than testing and writing one byte at a time;
-// this is the loop vttablet runs for every string bind variable.
+// bytes in sqlEscapeSet, rather than testing and writing one byte at a time.
+// VReplication runs it for every row it applies and the JSON marshaller for
+// every string; vttablet's bind variable substitution uses the
+// strings.Builder twin below.
 func encodeBytesSQLBytes2(val []byte, buf *bytes2.Buffer) {
 	buf.WriteByte('\'')
 	for len(val) > 0 {
@@ -897,7 +900,9 @@ func encodeBytesSQLBytes2(val []byte, buf *bytes2.Buffer) {
 	buf.WriteByte('\'')
 }
 
-// encodeBytesSQLStringBuilder is encodeBytesSQLBytes2 for a strings.Builder.
+// encodeBytesSQLStringBuilder is encodeBytesSQLBytes2 for a strings.Builder;
+// this is the loop vttablet runs through ParsedQuery.GenerateQuery for every
+// string or binary bind variable.
 func encodeBytesSQLStringBuilder(val []byte, buf *strings.Builder) {
 	buf.WriteByte('\'')
 	for len(val) > 0 {
@@ -978,6 +983,9 @@ var sqlEscapeSet *bytes2.ByteSet
 // encodeRef is a map of characters we use for escaping.
 // This doesn't include double quotes since we don't need
 // to escape that, as we always generate single quoted strings.
+// It has exactly eight entries, which is also the most a bytes2.ByteSet
+// holds; adding a ninth escape byte means widening ByteSet first, or
+// NewByteSet panics in init.
 var encodeRef = map[byte]byte{
 	'\x00': '0',
 	'\'':   '\'',
@@ -1065,10 +1073,14 @@ func init() {
 			SQLEncodeMap[byte(i)] = to
 		}
 	}
+	// Sorted so the set's member order does not depend on map iteration:
+	// the order is irrelevant to Index, but a reproducible one is easier to
+	// read in a debugger.
 	escapes := make([]byte, 0, len(encodeRef))
 	for ch := range encodeRef {
 		escapes = append(escapes, ch)
 	}
+	slices.Sort(escapes)
 	sqlEscapeSet = bytes2.NewByteSet(escapes...)
 
 	for i := range SQLDecodeMap {

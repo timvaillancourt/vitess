@@ -102,7 +102,13 @@ func BenchmarkEncodeSQL(b *testing.B) {
 
 // BenchmarkEncodeSQLReference measures the byte-at-a-time loop the run-based
 // encoders replaced, so a single test binary reports today's code next to
-// the new scalar and SIMD paths.
+// the new scalar and SIMD paths. It drives the old loop through a reused
+// bytes2.Buffer exactly as the Bytes2 cells drive the new one, so the two
+// differ only in the loop, with one caveat: the Bytes2 cells enter through
+// Value.EncodeSQLBytes2's type switch and this calls the loop directly, so
+// it reads about 10ns under the real thing on the 8 and 32 byte cells and
+// at parity from 256 bytes up (measured against a binary built at the
+// baseline commit).
 func BenchmarkEncodeSQLReference(b *testing.B) {
 	for _, size := range benchEncodeSizes {
 		for _, shape := range benchEncodeShapes {
@@ -110,8 +116,10 @@ func BenchmarkEncodeSQLReference(b *testing.B) {
 			b.Run(fmt.Sprintf("%d/%s", size, shape), func(b *testing.B) {
 				b.ReportAllocs()
 				b.SetBytes(int64(size))
+				var buf bytes2.Buffer
 				for b.Loop() {
-					_ = encodeBytesSQLReference(in)
+					buf.Reset()
+					encodeBytesSQLReference(in, &buf)
 				}
 			})
 		}

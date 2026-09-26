@@ -27,23 +27,36 @@ import (
 	"vitess.io/vitess/go/bytes2"
 )
 
-// encodeBytesSQLReference is the byte-at-a-time loop the run-based encoders
-// replaced, kept as the definition of correct output: every encoder must
-// produce exactly what it produces, for every input.
-func encodeBytesSQLReference(val []byte) []byte {
-	out := []byte{'\''}
+// encodeBytesSQLReference is the old encodeBytesSQLBytes2, verbatim: the
+// byte-at-a-time loop the run-based encoders replaced, writing through the
+// same bytes2.Buffer it did. It is kept as the definition of correct output,
+// which every encoder must reproduce for every input, and as the benchmark's
+// "today" cell, which then differs from the Bytes2 cell only in the loop:
+// an append-based copy measured faster than the real loop, and a fresh
+// slice per call measured slower, and neither was today's code.
+func encodeBytesSQLReference(val []byte, buf *bytes2.Buffer) {
+	buf.WriteByte('\'')
 	for idx, ch := range val {
 		if ch == '\\' && idx+1 < len(val) && (val[idx+1] == '%' || val[idx+1] == '_') {
-			out = append(out, ch)
+			buf.WriteByte(ch)
 			continue
 		}
 		if encodedChar := SQLEncodeMap[ch]; encodedChar == DontEscape {
-			out = append(out, ch)
+			buf.WriteByte(ch)
 		} else {
-			out = append(out, '\\', encodedChar)
+			buf.WriteByte('\\')
+			buf.WriteByte(encodedChar)
 		}
 	}
-	return append(out, '\'')
+	buf.WriteByte('\'')
+}
+
+// referenceOutput runs val through encodeBytesSQLReference and returns the
+// literal it produces.
+func referenceOutput(val []byte) []byte {
+	var buf bytes2.Buffer
+	encodeBytesSQLReference(val, &buf)
+	return buf.Bytes()
 }
 
 // encodeAll runs val through both run-based encoders and returns their
@@ -58,7 +71,7 @@ func encodeAll(val []byte) (bytes2Out, builderOut []byte) {
 
 func requireEncodesLikeReference(t *testing.T, name string, val []byte) {
 	t.Helper()
-	want := encodeBytesSQLReference(val)
+	want := referenceOutput(val)
 	gotB2, gotSB := encodeAll(val)
 	require.Equal(t, string(want), string(gotB2), "%s: Bytes2", name)
 	require.Equal(t, string(want), string(gotSB), "%s: StringBuilder", name)
@@ -125,7 +138,7 @@ func FuzzEncodeBytesSQL(f *testing.F) {
 	f.Add([]byte("aaaaaaaaaaaaaaaa\\%"))
 	f.Add(append(make([]byte, 31), '\''))
 	f.Fuzz(func(t *testing.T, in []byte) {
-		want := encodeBytesSQLReference(in)
+		want := referenceOutput(in)
 		gotB2, gotSB := encodeAll(in)
 		if string(gotB2) != string(want) {
 			t.Fatalf("Bytes2 encoder diverged for %q:\n got %q\nwant %q", in, gotB2, want)

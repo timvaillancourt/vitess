@@ -45,7 +45,7 @@ env:
   # The benchmarks that the viability gate compares. -bench matches each
   # slash-separated name component separately, so a top-level name matches
   # all of its sub-benchmarks.
-  BENCH_PATTERN: "^(BenchmarkByteSetIndex|BenchmarkIndexAny2|BenchmarkEncodeSQL|BenchmarkGenerateQueryStringBinds|BenchmarkTokenizerScanString|BenchmarkCollateSharedPrefix|BenchmarkCollationCollate|BenchmarkParse3|BenchmarkNormalizeVTGate)$"
+  BENCH_PATTERN: "^(BenchmarkByteSetIndex|BenchmarkIndexAny2|BenchmarkEncodeSQL|BenchmarkEncodeSQLReference|BenchmarkGenerateQueryStringBinds|BenchmarkTokenizerScanString|BenchmarkTokenizerScanStringReference|BenchmarkCollateSharedPrefix|BenchmarkCollationCollate|BenchmarkParse3|BenchmarkNormalizeVTGate)$"
   BENCH_PACKAGES: "./go/bytes2/... ./go/sqltypes/... ./go/mysql/collations/colldata/... ./go/vt/sqlparser/..."
   # The packages that carry a SIMD fast path. collations/integration is left
   # out because its TestMain needs a live MySQL.
@@ -66,6 +66,13 @@ jobs:
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
+
+      - name: Skip CI
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'Skip CI') }}" == "true" ]]; then
+            echo "skipping CI due to the 'Skip CI' label"
+            exit 1
+          fi
 
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -130,6 +137,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Skip CI
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'Skip CI') }}" == "true" ]]; then
+            echo "skipping CI due to the 'Skip CI' label"
+            exit 1
+          fi
+
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -178,6 +192,13 @@ jobs:
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
+
+      - name: Skip CI
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'Skip CI') }}" == "true" ]]; then
+            echo "skipping CI due to the 'Skip CI' label"
+            exit 1
+          fi
 
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

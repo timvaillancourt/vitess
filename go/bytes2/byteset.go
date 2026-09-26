@@ -42,7 +42,9 @@ type ByteSet struct {
 	// vector, so the vectorized Index gets a broadcast with one vector load
 	// instead of a scalar load, a lane insert and a duplicate per member.
 	// Eight of those per call is the fixed cost that made short inputs
-	// slower than the table walk.
+	// slower than the table walk. Only the simd build reads it; the type is
+	// shared by every build, so NewByteSet fills the 512 bytes regardless,
+	// once per set, and a set is built once and shared.
 	bcast [byteSetMax][bcastWidth]byte
 }
 

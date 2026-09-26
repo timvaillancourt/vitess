@@ -81,6 +81,16 @@ func (s *ByteSet) Index(b []byte) int {
 }
 
 func indexSIMD(s *ByteSet, b []byte) int {
+	// The lane count comes from a zero vector so the "shorter than one
+	// vector" check runs before any load: on the wider amd64 lanes the
+	// threshold lets 16..n-1 byte inputs through, and they should not pay
+	// for eight vector loads on their way to the table walk. The
+	// overlapping tail below also needs at least one full block.
+	var zero simd.Uint8s
+	n := zero.Len()
+	if len(b) < n {
+		return s.indexScalar(b)
+	}
 	// Each member comes in as one vector load from its pre-broadcast row
 	// rather than a scalar load, a lane insert and a duplicate.
 	v0 := simd.LoadUint8s(s.bcast[0][:])
@@ -91,12 +101,6 @@ func indexSIMD(s *ByteSet, b []byte) int {
 	v5 := simd.LoadUint8s(s.bcast[5][:])
 	v6 := simd.LoadUint8s(s.bcast[6][:])
 	v7 := simd.LoadUint8s(s.bcast[7][:])
-	n := v0.Len()
-	if len(b) < n {
-		// Shorter than one vector: on the widest lanes the threshold lets
-		// this through, and the overlapping tail below needs a full block.
-		return s.indexScalar(b)
-	}
 	var tmp laneBuf
 
 	i := 0
