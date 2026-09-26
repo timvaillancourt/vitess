@@ -415,21 +415,40 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 		})
 	}
 
+	// A bind variable no placeholder names must not count: the map is
+	// whatever the caller sent, and vtgate hands a join's right side the
+	// whole left-side map on every row.
+	stmt, err := parser.Parse("select 1 from t where a = :a")
+	require.NoError(t, err)
+	pq := NewParsedQuery(stmt)
+	used := map[string]*querypb.BindVariable{"a": sqltypes.StringBindVariable(payload)}
+	withUnused := map[string]*querypb.BindVariable{
+		"a": sqltypes.StringBindVariable(payload),
+		"b": sqltypes.BytesBindVariable(make([]byte, 8<<20)),
+	}
+	assert.Equal(t, pq.sizeHint(used), pq.sizeHint(withUnused), "an unused bind variable must not inflate the hint")
+	allocs := testing.AllocsPerRun(20, func() {
+		if _, err := pq.GenerateQuery(withUnused, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assert.LessOrEqual(t, allocs, 4.0)
+
 	// The whole point: the builder, its buffer and at most one resize on
 	// the first value that overflows, where growing from the query length
 	// let the builder double through thirteen allocations. The payload
 	// carries escapes so the estimate is exercised, not just the pad.
 	escaping := strings.Repeat("It's the quick brown fox that jumps over the lazy dog; again. ", 17)[:1024]
-	stmt, err := parser.Parse("insert into t(a, b, c, d) values (:a, :b, :c, :d)")
+	stmt, err = parser.Parse("insert into t(a, b, c, d) values (:a, :b, :c, :d)")
 	require.NoError(t, err)
-	pq := NewParsedQuery(stmt)
+	pq = NewParsedQuery(stmt)
 	bindVars := map[string]*querypb.BindVariable{
 		"a": sqltypes.StringBindVariable(escaping),
 		"b": sqltypes.StringBindVariable(escaping),
 		"c": sqltypes.BytesBindVariable([]byte(escaping)),
 		"d": sqltypes.BytesBindVariable([]byte(escaping)),
 	}
-	allocs := testing.AllocsPerRun(100, func() {
+	allocs = testing.AllocsPerRun(100, func() {
 		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
 			t.Fatal(err)
 		}

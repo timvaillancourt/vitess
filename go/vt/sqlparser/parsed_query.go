@@ -60,14 +60,22 @@ const bindValueOverhead = 16
 const bindLargeValue = 256
 
 // sizeHint estimates the generated query's length from the query text and
-// the bind variables, so the builder can be sized once. It ranges over the
-// map rather than looking each placeholder up, which is the cheaper pass,
-// and counts every bind variable whether or not a placeholder uses it,
-// which only ever over-estimates.
+// the bind variables its placeholders resolve to, so the builder can be
+// sized once. It looks each placeholder up rather than ranging the map,
+// because the map is whatever the caller sent, not what this query uses:
+// vtgate hands a join's right side the whole left-side map on every row,
+// and a range would size the builder for binds the query never writes.
+// Append only calls this once it has met a large value, so the lookups
+// are paid by queries whose substitution already costs far more.
 func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable) int {
 	n := len(pq.Query)
-	for _, bv := range bindVariables {
-		n += valueSizeHint(bv)
+	for _, loc := range pq.bindLocations {
+		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
+		// Same prefix handling as FetchBindVar: one colon, or two for a list.
+		name = strings.TrimPrefix(strings.TrimPrefix(name, ":"), ":")
+		if bv, ok := bindVariables[name]; ok {
+			n += valueSizeHint(bv)
+		}
 	}
 	return n
 }
