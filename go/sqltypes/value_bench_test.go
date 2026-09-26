@@ -99,3 +99,21 @@ func BenchmarkEncodeSQL(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkEncodeSQLReference measures the byte-at-a-time loop the run-based
+// encoders replaced, so a single test binary reports today's code next to
+// the new scalar and SIMD paths.
+func BenchmarkEncodeSQLReference(b *testing.B) {
+	for _, size := range benchEncodeSizes {
+		for _, shape := range benchEncodeShapes {
+			in := benchEncodeInput(size, shape)
+			b.Run(fmt.Sprintf("%d/%s", size, shape), func(b *testing.B) {
+				b.ReportAllocs()
+				b.SetBytes(int64(size))
+				for b.Loop() {
+					_ = encodeBytesSQLReference(in)
+				}
+			})
+		}
+	}
+}

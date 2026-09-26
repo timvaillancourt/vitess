@@ -871,38 +871,51 @@ func encodeBytesSQL(val []byte, b BinWriter) {
 	b.Write(buf.Bytes())
 }
 
+// encodeBytesSQLBytes2 writes val as a quoted SQL string literal. It copies
+// each run of bytes that need no escaping in one write and only stops at the
+// bytes in sqlEscapeSet, rather than testing and writing one byte at a time;
+// this is the loop vttablet runs for every string bind variable.
 func encodeBytesSQLBytes2(val []byte, buf *bytes2.Buffer) {
 	buf.WriteByte('\'')
-	for idx, ch := range val {
+	for len(val) > 0 {
+		n := sqlEscapeSet.Index(val)
+		if n < 0 {
+			buf.Write(val)
+			break
+		}
+		buf.Write(val[:n])
+		ch := val[n]
+		val = val[n+1:]
 		// If \% or \_ is present, we want to keep them as is, and don't want to escape \ again
-		if ch == '\\' && idx+1 < len(val) && (val[idx+1] == '%' || val[idx+1] == '_') {
+		if ch == '\\' && len(val) > 0 && (val[0] == '%' || val[0] == '_') {
 			buf.WriteByte(ch)
 			continue
 		}
-		if encodedChar := SQLEncodeMap[ch]; encodedChar == DontEscape {
-			buf.WriteByte(ch)
-		} else {
-			buf.WriteByte('\\')
-			buf.WriteByte(encodedChar)
-		}
+		buf.WriteByte('\\')
+		buf.WriteByte(SQLEncodeMap[ch])
 	}
 	buf.WriteByte('\'')
 }
 
+// encodeBytesSQLStringBuilder is encodeBytesSQLBytes2 for a strings.Builder.
 func encodeBytesSQLStringBuilder(val []byte, buf *strings.Builder) {
 	buf.WriteByte('\'')
-	for idx, ch := range val {
+	for len(val) > 0 {
+		n := sqlEscapeSet.Index(val)
+		if n < 0 {
+			buf.Write(val)
+			break
+		}
+		buf.Write(val[:n])
+		ch := val[n]
+		val = val[n+1:]
 		// If \% or \_ is present, we want to keep them as is, and don't want to escape \ again
-		if ch == '\\' && idx+1 < len(val) && (val[idx+1] == '%' || val[idx+1] == '_') {
+		if ch == '\\' && len(val) > 0 && (val[0] == '%' || val[0] == '_') {
 			buf.WriteByte(ch)
 			continue
 		}
-		if encodedChar := SQLEncodeMap[ch]; encodedChar == DontEscape {
-			buf.WriteByte(ch)
-		} else {
-			buf.WriteByte('\\')
-			buf.WriteByte(encodedChar)
-		}
+		buf.WriteByte('\\')
+		buf.WriteByte(SQLEncodeMap[ch])
 	}
 	buf.WriteByte('\'')
 }
@@ -957,6 +970,10 @@ var SQLEncodeMap [256]byte
 
 // SQLDecodeMap is the reverse of SQLEncodeMap
 var SQLDecodeMap [256]byte
+
+// sqlEscapeSet is the set of bytes the encoders have to escape, the keys of
+// encodeRef, in the form the run-based loops scan for.
+var sqlEscapeSet *bytes2.ByteSet
 
 // encodeRef is a map of characters we use for escaping.
 // This doesn't include double quotes since we don't need
@@ -1048,6 +1065,11 @@ func init() {
 			SQLEncodeMap[byte(i)] = to
 		}
 	}
+	escapes := make([]byte, 0, len(encodeRef))
+	for ch := range encodeRef {
+		escapes = append(escapes, ch)
+	}
+	sqlEscapeSet = bytes2.NewByteSet(escapes...)
 
 	for i := range SQLDecodeMap {
 		if to, ok := decodeRef[byte(i)]; ok {
