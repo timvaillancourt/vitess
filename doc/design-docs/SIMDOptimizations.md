@@ -446,9 +446,19 @@ the plain build at HEAD against a `main` build of the same benchmark file,
 | `ParseTail/json-64KB` | 144 µs | 94.5 µs | −34% | same |
 | `NormalizeVTGate` | 29.6 ms | 29.8 ms | ~ | same |
 
+With `GOEXPERIMENT=simd` on top of that (HEAD scalar vs HEAD simd, arm64,
+`-count=8`): `GenerateQueryCorpus` −3.7% (124 → 120 ns/query),
+`insert-100x1KB` −5.4%, `in-500` ~, **`json-64KB` +31%** (43 → 56 µs), the
+`ParseTail` cells within ±2%. The JSON document has an escape every ~20
+bytes, so it is the hit-dense shape where `ByteSet.Index` pays its per-call
+setup for one block's work; a 64 KB JSON column is a shape fleets have, and
+this is a regression on it, which under the gate in §4 counts against the
+kernel on arm64 alongside the 8–32 B cells.
+
 So the honest headline for vttablet bind substitution on real OLTP traffic
 is **−42%**, not the −90% of the 8 × 1 KB cell; that cell is the tail, where
-the win is −85% to −86%. The escaping SIMD kernel's wins sit at ≥256 B, which
+the win is −85% to −86%. The experiment adds about a tenth of that on top
+on arm64, and takes some back on escape-dense documents. The escaping SIMD kernel's wins sit at ≥256 B, which
 is 8.7% of the corpus's literals, and its regressions at 8–32 B, where the
 median literal lives; corpus-weighted it is neutral to slightly negative on
 OLTP traffic, which is a further reason its verdict waits on amd64. The
