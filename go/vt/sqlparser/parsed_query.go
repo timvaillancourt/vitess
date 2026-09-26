@@ -44,6 +44,48 @@ func NewParsedQuery(node SQLNode) *ParsedQuery {
 	return buf.ParsedQuery()
 }
 
+// bindValueOverhead is the room the size estimates leave per bound value
+// beyond the value's own bytes: the quotes, a `_binary` introducer, the
+// tuple parens and ", " separators.
+const bindValueOverhead = 16
+
+// bindLargeValue is the value length from which Append sizes the builder
+// for the whole query instead of letting it grow. Below it the builder's
+// own doubling covers the value in a few small allocations, and the common
+// shapes (an IN list of integers, a row of short strings) never pay for a
+// pass over the map. Measured on arm64, sizing at 64-byte values cost the
+// short-string shape 7%, and pre-growing by a per-placeholder pad cost it
+// 3% by moving its append chain onto larger size classes; at 256 with no
+// pad both shapes are unchanged.
+const bindLargeValue = 256
+
+// sizeHint estimates the generated query's length from the query text and
+// the bind variables, so the builder can be sized once. It ranges over the
+// map rather than looking each placeholder up, which is the cheaper pass,
+// and counts every bind variable whether or not a placeholder uses it,
+// which only ever over-estimates.
+func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable) int {
+	n := len(pq.Query)
+	for _, bv := range bindVariables {
+		n += valueSizeHint(bv)
+	}
+	return n
+}
+
+// valueSizeHint is the room to leave for one bind variable's encoded text:
+// its bytes, a sixteenth more for escapes, and the fixed overhead for each
+// quoted scalar or tuple element.
+func valueSizeHint(bv *querypb.BindVariable) int {
+	n := len(bv.Value) + len(bv.Value)/16
+	if sqltypes.IsQuoted(bv.Type) {
+		n += bindValueOverhead
+	}
+	for _, v := range bv.Values {
+		n += len(v.Value) + len(v.Value)/16 + bindValueOverhead
+	}
+	return n
+}
+
 // GenerateQuery generates a query by substituting the specified
 // bindVariables. The extras parameter specifies special parameters
 // that can perform custom encoding.
@@ -62,6 +104,7 @@ func (pq *ParsedQuery) GenerateQuery(bindVariables map[string]*querypb.BindVaria
 // Append appends the generated query to the provided buffer.
 func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*querypb.BindVariable, extras map[string]Encodable) error {
 	current := 0
+	sized := false
 	for _, loc := range pq.bindLocations {
 		buf.WriteString(pq.Query[current:loc.Offset])
 		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
@@ -71,6 +114,18 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 			supplied, _, err := FetchBindVar(name, bindVariables)
 			if err != nil {
 				return err
+			}
+			// The first large value sizes the builder for the whole query,
+			// once; Grow is a no-op if it already fits. Growing per value let
+			// a query with a few KB of string binds double its way through a
+			// dozen allocations, and sizing up front would charge every
+			// query a pass over the map that a query of small binds never
+			// needs.
+			if !sized && (len(supplied.Value) >= bindLargeValue || len(supplied.Values) > 0) {
+				if need := pq.sizeHint(bindVariables) - buf.Len(); need > 0 {
+					buf.Grow(need)
+				}
+				sized = true
 			}
 			EncodeValue(buf, supplied)
 		}

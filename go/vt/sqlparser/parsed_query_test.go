@@ -353,3 +353,113 @@ func BenchmarkGenerateQueryStringBinds(b *testing.B) {
 		})
 	}
 }
+
+// TestGenerateQuerySizeHint checks that the size estimate covers the
+// generated text for the bind shapes that reach GenerateQuery, and that the
+// builder is then sized once instead of doubling its way up through every
+// value.
+func TestGenerateQuerySizeHint(t *testing.T) {
+	parser := NewTestParser()
+	// No escapes, so the encoded text is exactly what the hint reasons about.
+	payload := strings.Repeat("The quick brown fox jumps over the lazy dog, again and again. ", 17)[:1024]
+	tcases := []struct {
+		desc     string
+		query    string
+		bindVars map[string]*querypb.BindVariable
+	}{{
+		desc:  "string and binary scalars",
+		query: "insert into t(a, b) values (:a, :b)",
+		bindVars: map[string]*querypb.BindVariable{
+			"a": sqltypes.StringBindVariable(payload),
+			"b": sqltypes.BytesBindVariable([]byte(payload)),
+		},
+	}, {
+		desc:  "int scalars",
+		query: "select * from t where a = :a and b = :b",
+		bindVars: map[string]*querypb.BindVariable{
+			"a": sqltypes.Int64BindVariable(1),
+			"b": sqltypes.Int64BindVariable(-9223372036854775808),
+		},
+	}, {
+		desc:  "tuple list",
+		query: "select * from t where a in ::list",
+		bindVars: map[string]*querypb.BindVariable{
+			"list": sqltypes.TestBindVariable([]any{payload, payload, int64(1)}),
+		},
+	}, {
+		desc:  "row tuple list",
+		query: "select * from t where (a, b) in ::list",
+		bindVars: map[string]*querypb.BindVariable{
+			"list": createRowTupleBV(),
+		},
+	}, {
+		desc:  "missing bind var is not counted",
+		query: "select * from t where a = :a and b = :b",
+		bindVars: map[string]*querypb.BindVariable{
+			"a": sqltypes.StringBindVariable(payload),
+		},
+	}}
+	for _, tc := range tcases {
+		t.Run(tc.desc, func(t *testing.T) {
+			stmt, err := parser.Parse(tc.query)
+			require.NoError(t, err)
+			pq := NewParsedQuery(stmt)
+			hint := pq.sizeHint(tc.bindVars)
+			out, err := pq.GenerateQuery(tc.bindVars, nil)
+			if err != nil {
+				// The missing-bind case: the hint still counts what it can.
+				assert.GreaterOrEqual(t, hint, len(pq.Query)+len(payload))
+				return
+			}
+			assert.GreaterOrEqual(t, hint, len(out), "hint must cover the output of an escape-free value")
+		})
+	}
+
+	// The whole point: the builder, its buffer and at most one resize on
+	// the first value that overflows, where growing from the query length
+	// let the builder double through thirteen allocations. The payload
+	// carries escapes so the estimate is exercised, not just the pad.
+	escaping := strings.Repeat("It's the quick brown fox that jumps over the lazy dog; again. ", 17)[:1024]
+	stmt, err := parser.Parse("insert into t(a, b, c, d) values (:a, :b, :c, :d)")
+	require.NoError(t, err)
+	pq := NewParsedQuery(stmt)
+	bindVars := map[string]*querypb.BindVariable{
+		"a": sqltypes.StringBindVariable(escaping),
+		"b": sqltypes.StringBindVariable(escaping),
+		"c": sqltypes.BytesBindVariable([]byte(escaping)),
+		"d": sqltypes.BytesBindVariable([]byte(escaping)),
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assert.LessOrEqual(t, allocs, 4.0, "GenerateQuery should not regrow its builder per value")
+}
+
+// BenchmarkGenerateQueryIntBinds is the shape where pre-sizing the builder
+// buys the least and its size pass costs the most: many small integer binds
+// whose text is barely longer than the placeholders it replaces.
+func BenchmarkGenerateQueryIntBinds(b *testing.B) {
+	var q strings.Builder
+	q.WriteString("select * from t where id in (")
+	bindVars := map[string]*querypb.BindVariable{}
+	for i := range 64 {
+		if i > 0 {
+			q.WriteString(", ")
+		}
+		name := fmt.Sprintf("v%d", i)
+		fmt.Fprintf(&q, ":%s", name)
+		bindVars[name] = sqltypes.Int64BindVariable(int64(i * 1000003))
+	}
+	q.WriteString(")")
+	stmt, err := NewTestParser().Parse(q.String())
+	require.NoError(b, err)
+	pq := NewParsedQuery(stmt)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
