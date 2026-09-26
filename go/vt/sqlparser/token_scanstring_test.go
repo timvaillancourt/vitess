@@ -22,11 +22,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"vitess.io/vitess/go/sqltypes"
 )
 
 // scanStringReference is the byte-at-a-time loop scanString replaced, run
 // against a fresh tokenizer over the same input. It is the definition of
-// correct output: token id, string and final position must all match.
+// correct output: token id, string and final position must all match. It
+// hands off to scanStringSlowReference, the old slow path, so the whole
+// reference chain is the code that shipped before either rewrite.
 func scanStringReference(tkn *Tokenizer, delim uint16, typ int) (int, string) {
 	start := tkn.Pos
 
@@ -42,7 +46,7 @@ func scanStringReference(tkn *Tokenizer, delim uint16, typ int) (int, string) {
 		case '\\':
 			var buffer strings.Builder
 			buffer.WriteString(tkn.buf[start:tkn.Pos])
-			return tkn.scanStringSlow(&buffer, delim, typ)
+			return scanStringSlowReference(tkn, &buffer, delim, typ)
 
 		case eofChar:
 			return LEX_ERROR, tkn.buf[start:tkn.Pos]
@@ -50,6 +54,63 @@ func scanStringReference(tkn *Tokenizer, delim uint16, typ int) (int, string) {
 
 		tkn.skip(1)
 	}
+}
+
+// scanStringSlowReference is the old scanStringSlow, verbatim: its inner
+// hunt for the next delimiter or backslash was a byte-at-a-time loop,
+// which the rewrite replaced with one IndexAny2 scan.
+func scanStringSlowReference(tkn *Tokenizer, buffer *strings.Builder, delim uint16, typ int) (int, string) {
+	for {
+		ch := tkn.cur()
+		if ch == eofChar {
+			// Unterminated string.
+			return LEX_ERROR, buffer.String()
+		}
+
+		if ch != delim && ch != '\\' {
+			// Scan ahead to the next interesting character.
+			start := tkn.Pos
+			for ; tkn.Pos < len(tkn.buf); tkn.Pos++ {
+				ch = uint16(tkn.buf[tkn.Pos])
+				if ch == delim || ch == '\\' {
+					break
+				}
+			}
+
+			buffer.WriteString(tkn.buf[start:tkn.Pos])
+			if tkn.Pos >= len(tkn.buf) {
+				// Reached the end of the buffer without finding a delim or
+				// escape character.
+				tkn.skip(1)
+				continue
+			}
+		}
+		tkn.skip(1) // Read one past the delim or escape character.
+
+		if ch == '\\' {
+			if tkn.cur() == eofChar {
+				// String terminates mid escape character.
+				return LEX_ERROR, buffer.String()
+			}
+			// Preserve escaping of % and _
+			if tkn.cur() == '%' || tkn.cur() == '_' {
+				buffer.WriteByte('\\')
+				ch = tkn.cur()
+			} else if decodedChar := sqltypes.SQLDecodeMap[byte(tkn.cur())]; decodedChar == sqltypes.DontEscape {
+				ch = tkn.cur()
+			} else {
+				ch = uint16(decodedChar)
+			}
+		} else if ch == delim && tkn.cur() != delim {
+			// Correctly terminated string, which is not a double delim.
+			break
+		}
+
+		buffer.WriteByte(byte(ch))
+		tkn.skip(1)
+	}
+
+	return typ, buffer.String()
 }
 
 // requireScansLikeReference scans sql, which starts just past the opening

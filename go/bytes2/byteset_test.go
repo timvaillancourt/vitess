@@ -46,8 +46,9 @@ func refIndex(b []byte, set []byte) int {
 }
 
 // boundarySizes are the input lengths around the 128-, 256- and 512-bit
-// vector widths, where the full-block loop hands over to the partial tail.
-var boundarySizes = []int{0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 128, 129}
+// vector widths, where the full-block loop hands over to the partial tail,
+// and around IndexAny2's first two window edges (256 and 256+1024).
+var boundarySizes = []int{0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 128, 129, 255, 256, 257, 1279, 1280, 1281}
 
 func clean(n int) []byte {
 	b := make([]byte, n)
@@ -183,6 +184,25 @@ func TestIndexAny2(t *testing.T) {
 		in := clean(40)
 		in[33] = '\''
 		assert.Equal(t, 33, IndexAny2(in, '\'', '\''))
+	})
+
+	// The windows: a hit in a later window is found, the earlier of two hits
+	// in different windows wins, and a hit for a in a later window does not
+	// hide a hit for c in an earlier one.
+	t.Run("windows", func(t *testing.T) {
+		for _, pos := range []int{0, 255, 256, 257, 1279, 1280, 1281, 5000} {
+			in := clean(6000)
+			in[pos] = '\\'
+			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "lone c at %d", pos)
+			in = clean(6000)
+			in[pos] = '\''
+			in[5999] = '\\'
+			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "a at %d before c at the end", pos)
+			in = clean(6000)
+			in[pos] = '\\'
+			in[5999] = '\''
+			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "c at %d before a at the end", pos)
+		}
 	})
 }
 

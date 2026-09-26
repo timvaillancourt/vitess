@@ -84,19 +84,42 @@ func (s *ByteSet) indexScalar(b []byte) int {
 	return -1
 }
 
+// indexAny2Window is the first window IndexAny2 scans. It covers a typical
+// string literal whole, so the common call is still two IndexByte scans over
+// the input, and it bounds what a call can spend on a far-off byte.
+const indexAny2Window = 256
+
 // IndexAny2 returns the index of the first byte of b that is a or c, or -1 if
-// neither occurs. It is two bounded bytes.IndexByte scans, the second only
+// neither occurs. It is two bytes.IndexByte scans per window, the second only
 // over the bytes in front of the first hit. IndexByte is hand-tuned assembly
 // with a native movemask on every architecture Vitess builds for; a portable
 // simd kernel was measured 2-3x slower than this on arm64 because it has to
 // store and rescan the compare mask per block, so there is no simd variant.
+//
+// The scan runs in windows that start at indexAny2Window bytes and quadruple,
+// rather than over all of b at once, because a caller that resumes after
+// every hit must not pay for a distant a on each call: the tokenizer's slow
+// string path resumes after every escape, and an unbounded first scan for the
+// closing quote made a literal with an escape every few bytes quadratic
+// (2ms to 57ms on a 1MB query). Each window's cost is bounded by its size, so
+// a call costs a constant factor of the distance to the nearest hit.
 func IndexAny2(b []byte, a, c byte) int {
-	i := bytes.IndexByte(b, a)
-	if i < 0 {
-		return bytes.IndexByte(b, c)
+	window := indexAny2Window
+	for off := 0; off < len(b); {
+		end := min(off+window, len(b))
+		w := b[off:end]
+		i := bytes.IndexByte(w, a)
+		if i >= 0 {
+			w = w[:i]
+		}
+		if j := bytes.IndexByte(w, c); j >= 0 {
+			return off + j
+		}
+		if i >= 0 {
+			return off + i
+		}
+		off = end
+		window *= 4
 	}
-	if j := bytes.IndexByte(b[:i], c); j >= 0 {
-		return j
-	}
-	return i
+	return -1
 }

@@ -645,13 +645,15 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 		}
 
 		if ch != delim && ch != '\\' {
-			// Scan ahead to the next interesting character.
+			// Scan ahead to the next interesting character in one pass,
+			// the same hunt scanString does before it lands here; between
+			// escapes a literal is clean text.
 			start := tkn.Pos
-			for ; tkn.Pos < len(tkn.buf); tkn.Pos++ {
+			if i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[start:]), byte(delim), '\\'); i >= 0 {
+				tkn.Pos = start + i
 				ch = uint16(tkn.buf[tkn.Pos])
-				if ch == delim || ch == '\\' {
-					break
-				}
+			} else {
+				tkn.Pos = len(tkn.buf)
 			}
 
 			buffer.WriteString(tkn.buf[start:tkn.Pos])
