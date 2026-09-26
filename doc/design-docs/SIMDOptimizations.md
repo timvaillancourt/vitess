@@ -143,9 +143,11 @@ binaries built at that commit are kept for the local arm64 comparison, and
 the old loops are kept as `*Reference` functions in the test files so a single
 test binary at HEAD can report today's code, the new scalar path and the SIMD
 path side by side. The `Reference` cells drive the old loop through the same
-writer as the new one but call it directly, without `Value.EncodeSQL*`'s type
-switch, so they read ~10 ns under the frozen binary on 8–32 byte inputs and
-at parity from 256 bytes up.
+writer as the new one. Against the frozen binary they are at parity from 256
+bytes up and read 8–12 ns under it on 8–32 byte inputs; the `Value.EncodeSQL*`
+type switch they bypass measured ~1 ns of that, and the remainder — the same
+loop compiled into two binaries — is not traced, so the frozen-binary column
+is the one the gate reads at small sizes.
 
 Benchmarks, all with `-benchmem` and `b.SetBytes`:
 
