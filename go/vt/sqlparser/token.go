@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 
+	"vitess.io/vitess/go/bytes2"
+	"vitess.io/vitess/go/hack"
 	"vitess.io/vitess/go/sqltypes"
 )
 
@@ -608,26 +610,27 @@ exit:
 func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 	start := tkn.Pos
 
-	for {
-		switch tkn.cur() {
-		case delim:
-			if tkn.peek(1) != delim {
-				tkn.skip(1)
-				return typ, tkn.buf[start : tkn.Pos-1]
-			}
-			fallthrough
-
-		case '\\':
-			var buffer strings.Builder
-			buffer.WriteString(tkn.buf[start:tkn.Pos])
-			return tkn.scanStringSlow(&buffer, delim, typ)
-
-		case eofChar:
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
-		}
-
-		tkn.skip(1)
+	// Most literals have no escapes, so the common case is one scan for the
+	// closing delimiter or a backslash, whichever comes first, instead of a
+	// bounds-checked peek per byte. The string is only read through the
+	// byte view, never written.
+	i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[start:]), byte(delim), '\\')
+	if i < 0 {
+		tkn.Pos = len(tkn.buf)
+		return LEX_ERROR, tkn.buf[start:]
 	}
+	tkn.Pos = start + i
+
+	if tkn.cur() == delim && tkn.peek(1) != delim {
+		tkn.skip(1)
+		return typ, tkn.buf[start : tkn.Pos-1]
+	}
+
+	// A doubled delimiter or a backslash: the literal has escapes, so hand
+	// the clean prefix and the rest to the slow path.
+	var buffer strings.Builder
+	buffer.WriteString(tkn.buf[start:tkn.Pos])
+	return tkn.scanStringSlow(&buffer, delim, typ)
 }
 
 // scanString scans a string surrounded by the given `delim` and containing escape
