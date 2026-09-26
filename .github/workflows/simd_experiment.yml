@@ -1,0 +1,214 @@
+name: SIMD Experiment
+
+# Builds, tests and benchmarks the packages with SIMD fast paths, both as a
+# plain build and under GOEXPERIMENT=simd, on amd64 and arm64. It is not a
+# required check: it produces the benchstat artifacts that the viability gate
+# in doc/design-docs/SIMDOptimizations.md is judged on, and it catches drift in
+# the experimental simd API early. Release builds never set GOEXPERIMENT.
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "go/bytes2/**"
+      - "go/sqltypes/**"
+      - "go/mysql/collations/**"
+      - "go/vt/sqlparser/**"
+      - "tools/benchstat/**"
+      - ".github/workflows/simd_experiment.yml"
+  pull_request:
+    branches: "**"
+    paths:
+      - "go/bytes2/**"
+      - "go/sqltypes/**"
+      - "go/mysql/collations/**"
+      - "go/vt/sqlparser/**"
+      - "tools/benchstat/**"
+      - ".github/workflows/simd_experiment.yml"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Benchmark repetitions per cell (-count)"
+        default: "10"
+      benchtime:
+        description: "Time per benchmark run (-benchtime)"
+        default: "500ms"
+
+concurrency:
+  group: format('{0}-{1}', ${{ github.ref }}, 'SIMD Experiment')
+  cancel-in-progress: true
+
+permissions: read-all
+
+env:
+  # The benchmarks that the viability gate compares. -bench matches each
+  # slash-separated name component separately, so a top-level name matches
+  # all of its sub-benchmarks.
+  BENCH_PATTERN: "^(BenchmarkByteSetIndex|BenchmarkIndexAny2|BenchmarkEncodeSQL|BenchmarkGenerateQueryStringBinds|BenchmarkTokenizerScanString|BenchmarkCollateSharedPrefix|BenchmarkCollationCollate|BenchmarkParse3|BenchmarkNormalizeVTGate)$"
+  BENCH_PACKAGES: "./go/bytes2/... ./go/sqltypes/... ./go/mysql/collations/colldata/... ./go/vt/sqlparser/..."
+  # The packages that carry a SIMD fast path. collations/integration is left
+  # out because its TestMain needs a live MySQL.
+  SIMD_PACKAGES: "./go/bytes2/... ./go/sqltypes/... ./go/mysql/collations/charset/... ./go/mysql/collations/colldata/... ./go/mysql/collations/internal/... ./go/vt/sqlparser/..."
+
+jobs:
+  bench:
+    name: "Bench (${{ matrix.arch }})"
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ github.repository == 'vitessio/vitess' && (matrix.arch == 'arm64' && 'oracle-vm-16cpu-64gb-arm64' || 'oracle-vm-16cpu-64gb-x86-64') || (matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04') }}
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Go
+        uses: $/.github/actions/setup-go
+
+      - name: Run benchmarks (plain build)
+        env:
+          COUNT: ${{ inputs.count || '10' }}
+          BENCHTIME: ${{ inputs.benchtime || '500ms' }}
+        run: |
+          set -exo pipefail
+          go test -run '^$' -bench "${BENCH_PATTERN}" -count="${COUNT}" -benchtime="${BENCHTIME}" -benchmem -timeout 80m ${BENCH_PACKAGES} | tee plain.txt
+
+      - name: Run benchmarks (GOEXPERIMENT=simd)
+        env:
+          COUNT: ${{ inputs.count || '10' }}
+          BENCHTIME: ${{ inputs.benchtime || '500ms' }}
+          GOEXPERIMENT: simd
+        run: |
+          set -exo pipefail
+          go test -run '^$' -bench "${BENCH_PATTERN}" -count="${COUNT}" -benchtime="${BENCHTIME}" -benchmem -timeout 80m ${BENCH_PACKAGES} | tee simd.txt
+
+      - name: Compare with benchstat
+        run: |
+          set -exo pipefail
+          go tool -modfile=tools/benchstat/go.mod benchstat plain.txt simd.txt | tee benchstat.txt
+          {
+            echo "## benchstat: plain vs GOEXPERIMENT=simd (${{ matrix.arch }})"
+            echo '```'
+            cat benchstat.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results
+        if: "!cancelled()"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-${{ matrix.arch }}
+          path: |
+            plain.txt
+            simd.txt
+            benchstat.txt
+
+  simd-build-test:
+    name: "Build and test (GOEXPERIMENT=simd, ${{ matrix.arch }})"
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ github.repository == 'vitessio/vitess' && (matrix.arch == 'arm64' && 'oracle-vm-16cpu-64gb-arm64' || 'oracle-vm-16cpu-64gb-x86-64') || (matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04') }}
+    env:
+      GOEXPERIMENT: simd
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Go
+        uses: $/.github/actions/setup-go
+
+      - name: Build the whole tree under the experiment
+        run: |
+          set -exo pipefail
+          go build ./go/...
+
+      - name: Vet the SIMD packages
+        run: |
+          set -exo pipefail
+          go vet ${SIMD_PACKAGES}
+
+      - name: Test the SIMD packages
+        run: |
+          set -exo pipefail
+          go test -timeout 10m ${SIMD_PACKAGES}
+
+      # GODEBUG=simd=128 caps the vector width, so amd64 also exercises the
+      # 128-bit lane count that arm64 NEON uses.
+      - name: Test the SIMD packages at 128-bit vectors
+        if: matrix.arch == 'amd64'
+        env:
+          GODEBUG: simd=128
+        run: |
+          set -exo pipefail
+          go test -timeout 10m ${SIMD_PACKAGES}
+
+  profile:
+    name: "Profile (${{ matrix.arch }})"
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ github.repository == 'vitessio/vitess' && (matrix.arch == 'arm64' && 'oracle-vm-16cpu-64gb-arm64' || 'oracle-vm-16cpu-64gb-x86-64') || (matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04') }}
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Go
+        uses: $/.github/actions/setup-go
+
+      # CPU profiles of the hot-path benchmarks; the RFC's ranking of SIMD
+      # candidates is the flat% each candidate function gets in these.
+      - name: Profile the hot-path benchmarks
+        run: |
+          set -exo pipefail
+          mkdir -p profiles
+          profile() {
+            local name="$1" pkg="$2" bench="$3"
+            go test -run '^$' -bench "${bench}" -benchtime=2s -cpuprofile "profiles/${name}.prof" -o "profiles/${name}.test" "${pkg}"
+            go tool pprof -top -nodecount=200 "profiles/${name}.test" "profiles/${name}.prof" > "profiles/${name}.txt"
+          }
+          profile sqlparser ./go/vt/sqlparser '^(BenchmarkParse3|BenchmarkNormalizeVTGate|BenchmarkGenerateQueryStringBinds|BenchmarkTokenizerScanString)$'
+          profile planbuilder ./go/vt/vtgate/planbuilder '^(BenchmarkOLTP|BenchmarkTPCC|BenchmarkTPCH)$'
+          profile evalengine ./go/vt/vtgate/evalengine '^BenchmarkCompilerExpressions$'
+          profile colldata ./go/mysql/collations/colldata '^(BenchmarkCollationCollate|BenchmarkCollationWeightString|BenchmarkCollationHash|BenchmarkCollateSharedPrefix)$'
+          profile engine ./go/vt/vtgate/engine '^BenchmarkScalarAggregate$'
+          profile sqltypes ./go/sqltypes '^BenchmarkEncodeSQL$'
+          rm -f profiles/*.test
+
+      - name: Upload profiles
+        if: "!cancelled()"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: profiles-${{ matrix.arch }}
+          path: profiles/

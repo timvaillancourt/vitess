@@ -17,7 +17,9 @@ limitations under the License.
 package sqlparser
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -294,5 +296,43 @@ func TestIntegerAndID(t *testing.T) {
 			}
 			require.Equal(t, expectedOut, out)
 		})
+	}
+}
+
+// BenchmarkTokenizerScanString measures scanning a single quoted string
+// literal, which the tokenizer does for every literal in every query vtgate
+// parses before it normalizes them into bind variables. The "clean" inputs
+// take the fast path that hunts for the closing delimiter; the "escape"
+// inputs carry one backslash escape in the middle, which hands the rest of
+// the literal to scanStringSlow.
+func BenchmarkTokenizerScanString(b *testing.B) {
+	const text = "The quick brown fox jumps over the lazy dog, then it does so again. "
+	for _, delim := range []struct {
+		name string
+		ch   byte
+	}{{"squote", '\''}, {"dquote", '"'}} {
+		for _, size := range []int{16, 64, 256, 4096} {
+			body := strings.Repeat(text, size/len(text)+1)[:size]
+			for _, shape := range []string{"clean", "escape"} {
+				literal := body
+				if shape == "escape" {
+					literal = body[:size/2] + `\n` + body[size/2+2:]
+				}
+				sql := string(delim.ch) + literal + string(delim.ch)
+				tkn := NewTestParser().NewStringTokenizer(sql)
+				b.Run(fmt.Sprintf("%s/%d/%s", delim.name, size, shape), func(b *testing.B) {
+					b.ReportAllocs()
+					b.SetBytes(int64(size))
+					for b.Loop() {
+						// Position just past the opening delimiter, as Scan does
+						// before it hands off to scanString.
+						tkn.Pos = 1
+						if id, _ := tkn.scanString(uint16(delim.ch), STRING); id != STRING {
+							b.Fatalf("scanString returned token %d, want STRING", id)
+						}
+					}
+				})
+			}
+		}
 	}
 }
