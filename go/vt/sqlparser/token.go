@@ -387,13 +387,18 @@ func (tkn *Tokenizer) scanIdentifier(isVariable bool) (int, string) {
 	start := tkn.Pos
 	tkn.skip(1)
 
-	for {
-		ch := tkn.cur()
-		if !isLetter(ch) && !isDigit(ch) && (!isVariable || !isCarat(ch)) {
-			break
-		}
-		tkn.skip(1)
+	// One table lookup per byte over the buffer directly, rather than a
+	// bounds-checked peek and a three-way class test each; identifiers are
+	// most of the tokens in a real query.
+	class := &identChars
+	if isVariable {
+		class = &variableIdentChars
 	}
+	buf, pos := tkn.buf, tkn.Pos
+	for pos < len(buf) && class[buf[pos]] {
+		pos++
+	}
+	tkn.Pos = pos
 	keywordName := tkn.buf[start:tkn.Pos]
 	if keywordID, found := keywordLookupTable.LookupString(keywordName); found {
 		return keywordID, keywordName
@@ -530,9 +535,11 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 // scanMantissa scans a sequence of numeric characters with the same base.
 // This is a helper function only called from the numeric scanners
 func (tkn *Tokenizer) scanMantissa(base int) {
-	for digitVal(tkn.cur()) < base {
-		tkn.skip(1)
+	buf, pos := tkn.buf, tkn.Pos
+	for pos < len(buf) && int(digitVals[buf[pos]]) < base {
+		pos++
 	}
+	tkn.Pos = pos
 }
 
 // scanNumber scans any SQL numeric literal, either floating point or integer
@@ -801,6 +808,26 @@ func (tkn *Tokenizer) peek(dist int) uint16 {
 // reset clears posVarIndex to reset the index count we assign to variables for a new query.
 func (tkn *Tokenizer) reset() {
 	tkn.posVarIndex = 0
+}
+
+// identChars marks the bytes that continue an identifier or keyword, and
+// variableIdentChars the bytes that continue an @-variable, which may also
+// carry a carat. digitVals is digitVal for every byte. All three are the
+// predicates below, tabulated, so the scan loops index a byte instead of
+// calling them; TestTokenizerClassTables pins them to the predicates.
+var (
+	identChars         [256]bool
+	variableIdentChars [256]bool
+	digitVals          [256]uint8
+)
+
+func init() {
+	for i := range 256 {
+		ch := uint16(i)
+		identChars[i] = isLetter(ch) || isDigit(ch)
+		variableIdentChars[i] = identChars[i] || isCarat(ch)
+		digitVals[i] = uint8(digitVal(ch))
+	}
 }
 
 func isLetter(ch uint16) bool {

@@ -359,3 +359,57 @@ func BenchmarkTokenizerScanString(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkTokenizerScan measures the Scan loop over the two token kinds
+// that make up most of a real query and were still scanned one bounds-checked
+// peek at a time: identifiers and numbers. Each input is 64 tokens long.
+func BenchmarkTokenizerScan(b *testing.B) {
+	var idents, nums strings.Builder
+	idents.WriteString("select ")
+	nums.WriteString("select ")
+	for i := range 64 {
+		if i > 0 {
+			idents.WriteString(", ")
+			nums.WriteString(", ")
+		}
+		fmt.Fprintf(&idents, "column_name_%02d", i)
+		fmt.Fprintf(&nums, "%d", 100000000+i*7919)
+	}
+	idents.WriteString(" from t")
+	nums.WriteString(" from t")
+	for _, tc := range []struct{ name, sql string }{{"identifiers", idents.String()}, {"numbers", nums.String()}} {
+		parser := NewTestParser()
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.sql)))
+			for b.Loop() {
+				tkn := parser.NewStringTokenizer(tc.sql)
+				for {
+					id, _ := tkn.Scan()
+					if id == 0 || id == LEX_ERROR {
+						break
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestTokenizerClassTables pins the byte-class tables the scan loops index
+// to the predicates they were built from, for every byte value.
+func TestTokenizerClassTables(t *testing.T) {
+	for i := range 256 {
+		ch := uint16(i)
+		assert.Equal(t, isLetter(ch) || isDigit(ch), identChars[i], "identChars[%#x]", i)
+		assert.Equal(t, isLetter(ch) || isDigit(ch) || isCarat(ch), variableIdentChars[i], "variableIdentChars[%#x]", i)
+		assert.Equal(t, digitVal(ch), int(digitVals[i]), "digitVals[%#x]", i)
+	}
+	// Bytes the tables must reject: the ones a scan loop stops on.
+	for _, ch := range []byte{' ', ',', '(', ')', '.', '\'', '"', '`', '@', 0, 0xFF} {
+		assert.False(t, identChars[ch], "identChars[%q]", ch)
+	}
+	for _, ch := range []byte{'.', '\'', '"', '`'} {
+		assert.True(t, variableIdentChars[ch], "variableIdentChars[%q]", ch)
+	}
+	assert.Equal(t, uint8(16), digitVals['g'], "non-digits map past any base")
+}
