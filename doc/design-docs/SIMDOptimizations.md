@@ -10,11 +10,11 @@ records a benchmark-gated prototype of the top three:
 1. **Bind-variable escaping** (`sqltypes.encodeBytesSQL*`): vttablet runs it
    through `ParsedQuery.GenerateQuery` on every query with a string or binary
    bind variable.
-2. **Tokenizer string-literal scanning** (`sqlparser.(*Tokenizer).scanString`):
-   vtgate runs it for every literal in every query it parses.
-3. **utf8mb4_0900 collation fast path**
+2. **utf8mb4_0900 collation fast path**
    (`uca.(*FastIterator900).FastForward32`): vtgate runs it for ORDER BY,
    GROUP BY, DISTINCT and hash joins once the tiny-weight comparison ties.
+3. **Tokenizer string-literal scanning** (`sqlparser.(*Tokenizer).scanString`):
+   vtgate runs it for every literal in every query it parses.
 
 Each fast path has a pure-Go scalar rewrite (the release path today) and a
 portable-`simd` kernel that only compiles under `goexperiment.simd`. **A
@@ -50,6 +50,18 @@ Verified against the go1.27.1 source tree (`$GOROOT/src/simd`).
     go1.27.1 (`internal compiler error: missing Types entry: Index@simd0`).
     The kernel body must be a plain function; a thin method that only calls
     it is fine. Closures that capture vector values hit the same error.
+  - **A call to a vector function costs the caller its inlining budget.**
+    The compiler clones each vector function per vector width, and a call
+    to one is charged like any non-inlined call, so a wrapper that does
+    "short input → scalar, else → kernel" lands at cost 72–91 against the
+    budget of 80. Whether it inlines decides whether every short input pays
+    a call: `uca.equalASCIIPrefix` fits (72) and 16-byte compares are
+    unchanged; `bytes2.(*ByteSet).Index` does not (88) and 8-byte inputs
+    pay about 1ns.
+  - **A kernel with a per-block mask store cannot beat stdlib assembly that
+    has a movemask.** `bytes.IndexByte` runs at ~42 GB/s on arm64; the
+    portable equivalent reached ~12 GB/s (§4). Where a stdlib primitive
+    already covers the scan, the fast path is to call it.
 
 ## 2. Current Vitess state
 
@@ -78,17 +90,21 @@ the follow-up that would replace this proxy.
 
 | Candidate | Benchmark | flat% | cum% | Notes |
 |---|---|---|---|---|
-| `(*Tokenizer).scanString` + `peek` | `Parse3`, `NormalizeVTGate` | 8.7 + 23.9 | **38.5** | `peek` is the bounds-checked one-byte read `scanString` does per byte. `scanStringSlow` (escapes) is a further 7.0% cum. |
+| `encodeBytesSQLBytes2` / `encodeBytesSQLStringBuilder` | `EncodeSQL` | 29.8 / 7.2 | 44.0 / 11.7 | Self-benchmark, so the share is of the encoder alone. Within `GenerateQueryStringBinds` the encoder is ~100% of the substitution cost; there was no existing benchmark that covered it. |
 | `(*Collation_utf8mb4_uca_0900).Collate` | `CollationCollate`, `CollateSharedPrefix` | 1.6 | **18.4** | `FastForward32` is 6.8% flat inside it; `NextWeightBlock64` 5.1% cum. |
-| `encodeBytesSQLBytes2` / `encodeBytesSQLStringBuilder` | `EncodeSQL` | 29.8 / 7.2 | 44.0 / 11.7 | Self-benchmark, so the share is of the encoder alone. Within `GenerateQueryStringBinds` the encoder is ~100% of the substitution cost. |
-| `(*Tokenizer).scanIdentifier`, `LookupString` | `Parse3`, `NormalizeVTGate` | 0 | 0.5, 1.1 | Identifiers are too short to vectorize. |
+| `(*Tokenizer).scanString` + `peek` | `NormalizeVTGate` (lobsters corpus) | 0 + 5.4 | **1.5** (`Scan` 8.5, `yyParse` 23.6) | On real queries the literals are short; `peek` is the bounds-checked read every scan routine does per byte. In `Parse3`, a 1 MB query of ten 100 KB literals, the same loop is 38.5% cum — a fair stress test of the primitive, not a corpus share. |
+| `(*Tokenizer).scanIdentifier`, `LookupString` | `NormalizeVTGate` | 0.3 | 2.7, 1.1 | Identifiers are too short to vectorize. |
 | planbuilder, evalengine, engine candidates | `OLTP/TPCC/TPCH`, `CompilerExpressions`, `ScalarAggregate` | — | — | Profiles are allocation-dominated (`mallocgc` 6%, `memmove` 1%); no byte-loop candidate appears above 0.5%. |
 
-The ranking puts the tokenizer first, not third as estimated before profiling:
-on a real query corpus the byte-at-a-time hunt for the closing quote is the
-single largest leaf in parsing. Bind-variable escaping is ranked by call
-frequency (every vttablet query with string binds) rather than by share of a
-parse benchmark, since no existing benchmark covered it.
+The ranking is by where the byte loop is a large share of a path that runs
+per query: escaping is the whole cost of bind substitution on vttablet, the
+collation is a fifth of every compare that reaches it, and the tokenizer's
+string hunt is a small share of parse time on a real corpus (an earlier draft
+of this table put it at 38.5% by mixing in `Parse3`; that number is the
+stress test, not the corpus). It stays on the list because the scalar
+rewrite is a one-line change to a proven-faster stdlib primitive, and long
+literals — JSON payloads, generated INSERTs — are where vtgate parse time
+actually goes when it goes anywhere.
 
 **Not candidates**, with reasons: `key.Compare` (inputs are 8 bytes,
 `bytes.Compare` is already assembly); `readLenEncInt` and MySQL packet
@@ -251,8 +267,105 @@ ranking in §3 suggests.
 ## Results
 
 Baseline commit: the first commit of this branch ("Add benchmarks and CI
-workflow for the SIMD hot-path candidates"). arm64 numbers are local (Apple
-M-series, `-count=10`); amd64 numbers come from the `simd_experiment`
-workflow artifacts and are filled in when that run exists.
+workflow for the SIMD hot-path candidates"), whose test binaries were kept
+and run against HEAD. arm64: Apple M4 Max, go1.27.1, `-count=10
+-benchtime=200ms`, `benchstat` default p<0.05. **amd64: pending** — the
+`simd_experiment` workflow produces it once the pull request is open; the
+verdicts below are arm64 only and the graduation gate re-runs on both.
 
-_(Filled in by the final commit of the branch.)_
+Columns: *today* = baseline commit; *scalar* = HEAD plain build (the release
+path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
+
+### Bind-variable escaping (`sqltypes`, `GenerateQuery`)
+
+| cell | today | scalar | simd |
+|---|---|---|---|
+| `EncodeSQL/Bytes2/8/clean` | 40.3n | 6.85n (−83.0%) | 7.25n (−82.0%) |
+| `EncodeSQL/Bytes2/32/sparse` | 85.5n | 17.2n (−79.9%) | 19.1n (−77.7%) |
+| `EncodeSQL/Bytes2/32/dense` | 63.2n | 17.5n (−72.4%) | 20.1n (−68.2%) |
+| `EncodeSQL/Bytes2/256/clean` | 462n | 82.1n (−82.2%) | 38.2n (−91.7%) |
+| `EncodeSQL/Bytes2/256/dense` | 478n | 103n (−78.5%) | 103n (−78.5%) |
+| `EncodeSQL/Bytes2/4096/clean` | 7.14µ | 1.07µ (−85.0%) | 486n (−93.2%) |
+| `EncodeSQL/Bytes2/4096/dense` | 7.34µ | 1.66µ (−77.4%) | 1.63µ (−77.9%) |
+| `EncodeSQL/StringBuilder/8/clean` | 29.8n | 20.6n (−30.7%) | 21.4n (−28.0%) |
+| `EncodeSQL/StringBuilder/256/clean` | 1.13µ | 109n (−90.4%) | 69.3n (−93.8%) |
+| `EncodeSQL/StringBuilder/4096/clean` | 19.4µ | 1.30µ (−93.3%) | 791n (−95.9%) |
+| `EncodeSQL` geomean | 389n | 121n (−78.6%) | 107n (−82.3%) |
+| `GenerateQueryStringBinds/64B` | 1.63µ | 490n (−69.9%) | 461n (−71.7%) |
+| `GenerateQueryStringBinds/1024B` | 33.1µ | 6.39µ (−80.7%) | 5.74µ (−82.6%) |
+
+- **Scalar rewrite: passes.** Every cell improves, 3.5–15×. This is the
+  release-build result.
+- **SIMD `ByteSet.Index` kernel: conditional on arm64.** Against the scalar
+  path it ships with, it is 2.1–2.2× faster on clean and sparse inputs of
+  256 bytes and up, at parity on dense inputs, and **slower by 0.4–2.6 ns on
+  the 8- and 32-byte `Bytes2` cells** (+6% to +15%, p<0.001): the `Index`
+  wrapper is over the inlining budget under the experiment (§1), and one
+  16-byte NEON block does not pay for its eight broadcasts at 32 bytes. On
+  the `StringBuilder` path vttablet uses the same cells are within 4%.
+  Under the gate as written this is a regression on arm64; the amd64
+  numbers (32/64-byte lanes) decide whether the kernel is narrowed to amd64,
+  its threshold raised, or it is deleted.
+
+### utf8mb4_0900 collation fast path (`colldata`, `internal/uca`)
+
+| cell | today | scalar | simd |
+|---|---|---|---|
+| `CollateSharedPrefix/16` | 28.6n | 28.7n (~) | 28.4n (~) |
+| `CollateSharedPrefix/short-16` | 27.3n | 27.4n (~) | 26.8n (−1.7%) |
+| `CollateSharedPrefix/64` | 36.4n | 36.2n (~) | 34.3n (−5.8%) |
+| `CollateSharedPrefix/256` | 70.4n | 71.2n (+1.1%) | 53.0n (−24.7%) |
+| `CollateSharedPrefix/1024` | 222n | 221n (~) | 136n (−38.9%) |
+| `CollationCollate/utf8mb4_0900_ai_ci` | 11.4µ | 10.8µ (−5.1%) | 10.9µ (−4.6%) |
+| `CollationCollate/utf8mb4_0900_bin` | 31.9n | 34.4n (+7.9%) | 32.3n (+1.1%) |
+
+- The scalar column is today's loop (the noasm `equalASCIIPrefix` is a
+  constant 0); its ±1–8% deltas are run-to-run noise on code that did not
+  change (`utf8mb4_0900_bin` is `bytes.Compare`).
+- **SIMD `equalASCIIPrefix` kernel: passes on arm64.** No cell regresses
+  (16 and short-16 at parity once the wrapper inlines), −5.8% at 64 B rising
+  to −38.9% at 1 KB shared prefix. The threshold is 32 bytes; at 16 the
+  16-byte cells lost 11–16%.
+
+### Tokenizer string scan (`sqlparser`)
+
+| cell | today | scalar | simd |
+|---|---|---|---|
+| `TokenizerScanString/squote/16/clean` | 28.5n | 10.3n (−63.9%) | 10.3n |
+| `TokenizerScanString/squote/64/clean` | 106n | 10.5n (−90.2%) | 10.6n |
+| `TokenizerScanString/squote/256/clean` | 417n | 12.8n (−96.9%) | 12.8n |
+| `TokenizerScanString/squote/4096/clean` | 6.62µ | 102n (−98.5%) | 103n |
+| `TokenizerScanString/squote/4096/escape` | 7.30µ | 4.09µ (−44.0%) | 4.18µ |
+| `TokenizerScanString` geomean | 1.74µ | 356n (−78.6%) | 357n |
+| `Parse3/normal` (1 MB query) | 1.50ms | 23.4µ (−98.4%) | 23.3µ |
+| `Parse3/escaped` | 2.19ms | 2.20ms (~) | 2.25ms (~) |
+| `NormalizeVTGate` (lobsters corpus) | 31.2ms | 31.6ms (~) | 30.6ms (−1.9%) |
+
+- **Scalar rewrite (two `bytes.IndexByte` scans): passes.** Clean literals
+  are 3–65× faster; escaped literals are bounded by `scanStringSlow`. The
+  corpus benchmark is unchanged, as §3 predicts for a 1.5% share.
+- **SIMD `IndexAny2` kernel: deleted.** Measured before removal (count=4):
+  2–3× slower than the `IndexByte` fallback on every clean cell of 64 bytes
+  or more (4096 B: 101 ns vs 314 ns; `IndexAny2/4096`: 90 ns vs 331 ns),
+  ahead only at 16 bytes. The cause is architecture-independent (§1: no
+  movemask in the portable API), so it was not held for the amd64 run. The
+  *simd* column above is therefore the same code as *scalar*.
+
+### Whole-branch gates
+
+`NormalizeVTGate`, `Parse3/escaped`, `CollationCollate/*` show no significant
+regression in either build mode. `BenchmarkGenerateQueryStringBinds` improves
+70–83%.
+
+### Summary
+
+| fast path | release-build win (scalar) | SIMD kernel, arm64 verdict |
+|---|---|---|
+| escaping | −79% geomean; `GenerateQuery` 33 µs → 6.4 µs | conditional: +2× at ≥256 B, −6–15% at 8–32 B (`Bytes2` path) |
+| UCA prefix | none (unchanged) | **pass**: −6% at 64 B to −39% at 1 KB, no regression |
+| tokenizer | −79% geomean; 1 MB query 1.5 ms → 23 µs | **deleted**: stdlib `IndexByte` is 2–3× faster |
+
+Two of the three release-build wins need no experiment at all, which is
+the more useful finding: the byte-at-a-time loops were the cost, and the
+portable `simd` package is the right tool only where no stdlib primitive
+already vectorizes the scan.
