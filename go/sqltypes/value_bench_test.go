@@ -125,3 +125,31 @@ func BenchmarkEncodeSQLReference(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkEncodeSQLBits measures BIT values, which encode as b'01010101'
+// text, one byte of input to eight of output, next to the fmt.Fprintf loop
+// that produced them before.
+func BenchmarkEncodeSQLBits(b *testing.B) {
+	for _, size := range []int{1, 8, 64} {
+		in := benchEncodeInput(size, "dense")
+		val := MakeTrusted(querypb.Type_BIT, in)
+		b.Run(fmt.Sprintf("table/%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(size))
+			var buf bytes2.Buffer
+			for b.Loop() {
+				buf.Reset()
+				val.EncodeSQLBytes2(&buf)
+			}
+		})
+		b.Run(fmt.Sprintf("fprintf/%d", size), func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(size))
+			var buf bytes2.Buffer
+			for b.Loop() {
+				buf.Reset()
+				encodeBytesSQLBitsReference(in, &buf)
+			}
+		})
+	}
+}
