@@ -79,6 +79,11 @@ func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 	hi := simd.BroadcastUint8s(0x80)
 	zero := simd.BroadcastUint8s(0)
 	w := hi.Len()
+	if n < w {
+		// Shorter than one vector: on the widest lanes the threshold lets
+		// this through, and the overlapping tail below needs a full block.
+		return 0
+	}
 	var tmp laneBuf
 
 	i := 0
@@ -91,15 +96,18 @@ func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 		}
 	}
 	if i < n {
-		// Both partial loads cover the same n-i bytes, so their zero-filled
-		// lanes are equal and ASCII and never flag; a flag is always a real
-		// one. With no flag the whole tail is equal ASCII and the scalar
-		// loop's own 4-byte bound applies to it.
-		v1, _ := simd.LoadUint8sPart(p1[i:n])
-		v2, _ := simd.LoadUint8sPart(p2[i:n])
+		// The tail is read as one full block ending at byte n, so it
+		// overlaps bytes the loop already cleared; those cannot flag, so a
+		// flag is always a real one. This avoids the partial load, which is
+		// a non-inlined call the compiler spills the live vectors around.
+		// With no flag the whole input is equal ASCII and the scalar loop's
+		// own 4-byte bound applies to it.
+		start := n - w
+		v1 := simd.LoadUint8s(p1[start:n])
+		v2 := simd.LoadUint8s(p2[start:n])
 		flag := v1.Or(v2).And(hi).NotEqual(zero).Or(v1.NotEqual(v2))
 		if k := firstLane(flag, w, &tmp); k >= 0 {
-			return (i + k) &^ 3
+			return (start + k) &^ 3
 		}
 		return n &^ 3
 	}

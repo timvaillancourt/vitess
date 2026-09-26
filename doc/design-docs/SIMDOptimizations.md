@@ -62,6 +62,26 @@ Verified against the go1.27.1 source tree (`$GOROOT/src/simd`).
     has a movemask.** `bytes.IndexByte` runs at ~42 GB/s on arm64; the
     portable equivalent reached ~12 GB/s (§4). Where a stdlib primitive
     already covers the scan, the fast path is to call it.
+  - **`LoadUint8sPart` is a real function call, not an intrinsic**, and Go's
+    ABI has no callee-saved vector registers, so the compiler spills and
+    reloads every live vector around it. In the eight-member `ByteSet`
+    kernel that was 16 `FMOVQ`s and a 240-byte frame; a 4-byte tail cost
+    more than a 16-byte block (+26% vs +5% over scalar). Read the tail as
+    an overlapping full block ending at the last byte instead: bytes the
+    loop already cleared cannot flag, so a hit there is real, and there is
+    no zero-fill to discount.
+  - **`BroadcastUint8s` from a scalar is three instructions** (`MOVBU`,
+    `VMOV` to lane 0, `VDUP`). Eight of them per call was the fixed cost
+    that made short inputs lose to the table walk. Pre-broadcasting each
+    member into a 64-byte row at construction makes it one vector load.
+  - **One 16-byte NEON block is about as expensive as 16 scalar table
+    lookups.** On an M4 the scalar walk runs at ~1 byte/cycle; a block is
+    8 `VCMEQ` + 7 `VORR` + the mask store, reload and word scan, ~17
+    cycles. SIMD wins only when consecutive clean blocks pipeline (~6
+    cycles/block on 4 KB clean, 2.3×); a scan that hits every ~32 bytes
+    never gets that overlap, so it pays the wrapper call and the setup for
+    parity. That is the shape of the remaining `dense` regression, and it
+    is a property of 128-bit lanes without a movemask, not of the code.
 
 ## 2. Current Vitess state
 
@@ -211,11 +231,13 @@ Normative for SIMD code in this repository.
    compiled), `*_noasm.go` (`//go:build !goexperiment.simd || !(amd64 || arm64)`)
    that delegates to it, `*_simd.go` (`//go:build goexperiment.simd && (amd64 || arm64)`).
 3. **Kernel shape.** The vector body is a plain function; exported methods
-   are thin wrappers (§1 compiler limitation). Broadcasts happen inside the
-   function, never in package-level `var`s. Inputs shorter than 16 bytes take
-   the scalar path. Partial loads (`LoadUint8sPart`) zero-fill, so a hit in a
-   lane at or past the returned count is discarded: `0x00` is a member of the
-   SQL escape set.
+   are thin wrappers (§1 compiler limitation). Constants a kernel compares
+   against are pre-broadcast into byte rows at construction and loaded with
+   `LoadUint8s`, never built with `BroadcastUint8s` per call or held in
+   package-level `var`s. Inputs shorter than the threshold take the scalar
+   path, and inputs shorter than one vector always do. The tail is read as
+   an overlapping full block ending at the last byte, not with
+   `LoadUint8sPart` (§1: it is a call that spills every live vector).
 4. **Equivalence is fuzzed.** Every kernel has a table test at the 16/32/64
    byte block boundaries and a fuzz target against the scalar reference; the
    fuzz targets run in the `simd_experiment` workflow under the experiment.
@@ -280,32 +302,44 @@ path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
 
 | cell | today | scalar | simd |
 |---|---|---|---|
-| `EncodeSQL/Bytes2/8/clean` | 40.3n | 6.85n (−83.0%) | 7.25n (−82.0%) |
-| `EncodeSQL/Bytes2/32/sparse` | 85.5n | 17.2n (−79.9%) | 19.1n (−77.7%) |
-| `EncodeSQL/Bytes2/32/dense` | 63.2n | 17.5n (−72.4%) | 20.1n (−68.2%) |
-| `EncodeSQL/Bytes2/256/clean` | 462n | 82.1n (−82.2%) | 38.2n (−91.7%) |
-| `EncodeSQL/Bytes2/256/dense` | 478n | 103n (−78.5%) | 103n (−78.5%) |
-| `EncodeSQL/Bytes2/4096/clean` | 7.14µ | 1.07µ (−85.0%) | 486n (−93.2%) |
-| `EncodeSQL/Bytes2/4096/dense` | 7.34µ | 1.66µ (−77.4%) | 1.63µ (−77.9%) |
-| `EncodeSQL/StringBuilder/8/clean` | 29.8n | 20.6n (−30.7%) | 21.4n (−28.0%) |
-| `EncodeSQL/StringBuilder/256/clean` | 1.13µ | 109n (−90.4%) | 69.3n (−93.8%) |
-| `EncodeSQL/StringBuilder/4096/clean` | 19.4µ | 1.30µ (−93.3%) | 791n (−95.9%) |
-| `EncodeSQL` geomean | 389n | 121n (−78.6%) | 107n (−82.3%) |
-| `GenerateQueryStringBinds/64B` | 1.63µ | 490n (−69.9%) | 461n (−71.7%) |
-| `GenerateQueryStringBinds/1024B` | 33.1µ | 6.39µ (−80.7%) | 5.74µ (−82.6%) |
+| `EncodeSQL/Bytes2/8/clean` | 40.3n | 6.75n (−83%) | 7.20n (−82%) |
+| `EncodeSQL/Bytes2/32/sparse` | 85.5n | 16.5n (−81%) | 18.0n (−79%) |
+| `EncodeSQL/Bytes2/32/dense` | 63.2n | 16.7n (−74%) | 18.0n (−72%) |
+| `EncodeSQL/Bytes2/32/clean` | 69.3n | 12.7n (−82%) | 10.8n (−84%) |
+| `EncodeSQL/Bytes2/256/clean` | 462n | 76.0n (−84%) | 36.5n (−92%) |
+| `EncodeSQL/Bytes2/256/dense` | 478n | 98.7n (−79%) | 102n (−79%) |
+| `EncodeSQL/Bytes2/4096/clean` | 7.14µ | 1.05µ (−85%) | 468n (−93%) |
+| `EncodeSQL/Bytes2/4096/sparse` | 7.18µ | 1.32µ (−82%) | 558n (−92%) |
+| `EncodeSQL/Bytes2/4096/dense` | 7.34µ | 1.62µ (−78%) | 1.62µ (−78%) |
+| `EncodeSQL/StringBuilder/8/clean` | 29.8n | 19.8n (−34%) | 20.5n (−31%) |
+| `EncodeSQL/StringBuilder/32/dense` | 105n | 32.8n (−69%) | 33.8n (−68%) |
+| `EncodeSQL/StringBuilder/256/clean` | 1.13µ | 107n (−91%) | 67.7n (−94%) |
+| `EncodeSQL/StringBuilder/4096/clean` | 19.4µ | 1.27µ (−93%) | 801n (−96%) |
+| `EncodeSQL` geomean | 389n | 80.7n (−79%) | 66.2n (−83%) |
+| `GenerateQueryStringBinds/64B` | 1.63µ | 490n (−70%) | 461n (−72%) |
+| `GenerateQueryStringBinds/1024B` | 33.1µ | 6.39µ (−81%) | 5.74µ (−83%) |
 
 - **Scalar rewrite: passes.** Every cell improves, 3.5–15×. This is the
   release-build result.
 - **SIMD `ByteSet.Index` kernel: conditional on arm64.** Against the scalar
-  path it ships with, it is 2.1–2.2× faster on clean and sparse inputs of
-  256 bytes and up, at parity on dense inputs, and **slower by 0.4–2.6 ns on
-  the 8- and 32-byte `Bytes2` cells** (+6% to +15%, p<0.001): the `Index`
-  wrapper is over the inlining budget under the experiment (§1), and one
-  16-byte NEON block does not pay for its eight broadcasts at 32 bytes. On
-  the `StringBuilder` path vttablet uses the same cells are within 4%.
-  Under the gate as written this is a regression on arm64; the amd64
-  numbers (32/64-byte lanes) decide whether the kernel is narrowed to amd64,
-  its threshold raised, or it is deleted.
+  path it ships with, it is 1.9–2.4× faster on clean and sparse inputs of
+  32 bytes and up, at parity on dense inputs of 256 bytes and up, and
+  **slower by 0.4–1.5 ns on the 8-byte cells and the 32-byte sparse/dense
+  cells** (+3% to +14% on the `Bytes2` path, +2% to +4% on the
+  `StringBuilder` path vttablet uses; all p<0.05). The disassembly and a
+  same-binary probe with the threshold pinned trace this to two costs that
+  are the experiment's (§1): the `Index` wrapper is over the inlining
+  budget, so 8-byte inputs pay a call the plain build does not, and one
+  16-byte NEON block with a stored-mask scan costs about what 16 table
+  lookups cost, so a scan that hits within its first block gains nothing
+  for its setup. Two further costs that were ours are fixed: eight
+  per-call broadcasts (now vector loads from pre-broadcast rows) and the
+  spilled `LoadUint8sPart` tail (now an overlapping block); together they
+  took the 8-byte regression from +16% to +7% and `4096/sparse` from 594 to
+  558 ns. Under the gate as written the small cells are still a regression
+  on arm64; the amd64 numbers (32/64-byte lanes with a cheaper block) decide
+  whether the kernel is narrowed to amd64, its threshold raised to 64, or
+  it is deleted.
 
 ### utf8mb4_0900 collation fast path (`colldata`, `internal/uca`)
 
@@ -361,7 +395,7 @@ regression in either build mode. `BenchmarkGenerateQueryStringBinds` improves
 
 | fast path | release-build win (scalar) | SIMD kernel, arm64 verdict |
 |---|---|---|
-| escaping | −79% geomean; `GenerateQuery` 33 µs → 6.4 µs | conditional: +2× at ≥256 B, −6–15% at 8–32 B (`Bytes2` path) |
+| escaping | −79% geomean; `GenerateQuery` 33 µs → 6.4 µs | conditional: ~2× at ≥32 B clean, +3–14% at 8 B and 32 B sparse/dense (`Bytes2` path) |
 | UCA prefix | none (unchanged) | **pass**: −6% at 64 B to −39% at 1 KB, no regression |
 | tokenizer | −79% geomean; 1 MB query 1.5 ms → 23 µs | **deleted**: stdlib `IndexByte` is 2–3× faster |
 

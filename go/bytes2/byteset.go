@@ -32,12 +32,23 @@ const byteSetMax = 8
 // A ByteSet is built once and shared; Index is safe for concurrent use.
 type ByteSet struct {
 	// vals is the set padded to byteSetMax with its first member, so the
-	// vectorized Index always has eight values to broadcast. Duplicates are
-	// harmless there because the compares are combined with OR.
+	// vectorized Index always has eight values to compare against.
+	// Duplicates are harmless there because the compares are combined with
+	// OR.
 	vals [byteSetMax]byte
 	// table is the membership table the scalar Index walks.
 	table [256]bool
+	// bcast holds each member repeated across a row as wide as the widest
+	// vector, so the vectorized Index gets a broadcast with one vector load
+	// instead of a scalar load, a lane insert and a duplicate per member.
+	// Eight of those per call is the fixed cost that made short inputs
+	// slower than the table walk.
+	bcast [byteSetMax][bcastWidth]byte
 }
+
+// bcastWidth is the widest vector any supported architecture offers, in
+// bytes (AVX-512).
+const bcastWidth = 64
 
 // NewByteSet returns the set of vals. It panics if vals is empty or has more
 // than eight members.
@@ -52,6 +63,11 @@ func NewByteSet(vals ...byte) *ByteSet {
 	for i, v := range vals {
 		s.vals[i] = v
 		s.table[v] = true
+	}
+	for i, v := range s.vals {
+		for j := range s.bcast[i] {
+			s.bcast[i][j] = v
+		}
 	}
 	return s
 }

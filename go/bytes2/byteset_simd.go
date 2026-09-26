@@ -81,15 +81,22 @@ func (s *ByteSet) Index(b []byte) int {
 }
 
 func indexSIMD(s *ByteSet, b []byte) int {
-	v0 := simd.BroadcastUint8s(s.vals[0])
-	v1 := simd.BroadcastUint8s(s.vals[1])
-	v2 := simd.BroadcastUint8s(s.vals[2])
-	v3 := simd.BroadcastUint8s(s.vals[3])
-	v4 := simd.BroadcastUint8s(s.vals[4])
-	v5 := simd.BroadcastUint8s(s.vals[5])
-	v6 := simd.BroadcastUint8s(s.vals[6])
-	v7 := simd.BroadcastUint8s(s.vals[7])
+	// Each member comes in as one vector load from its pre-broadcast row
+	// rather than a scalar load, a lane insert and a duplicate.
+	v0 := simd.LoadUint8s(s.bcast[0][:])
+	v1 := simd.LoadUint8s(s.bcast[1][:])
+	v2 := simd.LoadUint8s(s.bcast[2][:])
+	v3 := simd.LoadUint8s(s.bcast[3][:])
+	v4 := simd.LoadUint8s(s.bcast[4][:])
+	v5 := simd.LoadUint8s(s.bcast[5][:])
+	v6 := simd.LoadUint8s(s.bcast[6][:])
+	v7 := simd.LoadUint8s(s.bcast[7][:])
 	n := v0.Len()
+	if len(b) < n {
+		// Shorter than one vector: on the widest lanes the threshold lets
+		// this through, and the overlapping tail below needs a full block.
+		return s.indexScalar(b)
+	}
 	var tmp laneBuf
 
 	i := 0
@@ -100,11 +107,15 @@ func indexSIMD(s *ByteSet, b []byte) int {
 		}
 	}
 	if i < len(b) {
-		// The partial load zero-fills the lanes past the input, and 0x00 may
-		// be a member of the set, so a hit in a fill lane is not a hit.
-		x, got := simd.LoadUint8sPart(b[i:])
-		if k := firstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 && k < got {
-			return i + k
+		// The tail is read as one full block ending at the last byte, so it
+		// overlaps bytes the loop already cleared; a hit there is a real
+		// one, and there is no partial load, which is a non-inlined call the
+		// compiler spills all eight vectors around, and no zero-filled lanes
+		// to discount.
+		start := len(b) - n
+		x := simd.LoadUint8s(b[start:])
+		if k := firstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {
+			return start + k
 		}
 	}
 	return -1
