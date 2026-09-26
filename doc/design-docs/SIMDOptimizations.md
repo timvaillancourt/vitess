@@ -432,8 +432,11 @@ path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
 
 The branch's later commits — the lazy builder sizing, `scanStringSlow`, the
 BIT table and the identifier/digit tables — are pure Go; these numbers are
-the plain build at HEAD against a `main` build of the same benchmark file,
-`-count=8`.
+the plain build against a `main` build of the same benchmark file,
+`-count=8`. They were taken before the last commit (`bbe9ba38d1`), which
+made `sizeHint` look placeholders up instead of ranging the map; that costs
+the gated shapes +1–6% (`insert-100x1KB` +1.3%, `StringBinds/1024B` +5.7%,
+numbers in its commit message) and is within this table's noise elsewhere.
 
 | benchmark | `main` | HEAD | Δ | allocs |
 |---|---|---|---|---|
@@ -458,11 +461,38 @@ kernel on arm64 alongside the 8–32 B cells.
 So the honest headline for vttablet bind substitution on real OLTP traffic
 is **−42%**, not the −90% of the 8 × 1 KB cell; that cell is the tail, where
 the win is −85% to −86%. The experiment adds about a tenth of that on top
-on arm64, and takes some back on escape-dense documents. The escaping SIMD kernel's wins sit at ≥256 B, which
-is 8.7% of the corpus's literals, and its regressions at 8–32 B, where the
-median literal lives; corpus-weighted it is neutral to slightly negative on
-OLTP traffic, which is a further reason its verdict waits on amd64. The
-identifier/digit tables are the one change that touches the p50 query.
+on arm64, and takes some back on escape-dense documents. The escaping SIMD
+kernel's wins sit at ≥256 B, which is 8.7% of the corpus's literals, and
+its regressions at 8–32 B, where the median literal lives; corpus-weighted
+it is neutral to slightly negative on OLTP traffic, which is a further
+reason its verdict waits on amd64. The identifier/digit tables are the one
+change that touches the p50 query.
+
+### Whole vttablet query (release build, vs `main`)
+
+The per-path numbers above say how much faster each loop got; this says how
+much of a vttablet query those loops were. `tabletserver.BenchmarkExecuteVarBinary`
+runs a whole `tsv.Execute` — plan cache, bind substitution, `fakesqldb`
+standing in for MySQL — on a 1 MB query with ten 100 KB `VARBINARY` binds
+that carry an escape every eleven bytes. arm64, `-count=6`, `main` build vs
+the branch, measured before `bbe9ba38d1`:
+
+| | `main` | HEAD | HEAD + `GOEXPERIMENT=simd` |
+|---|---|---|---|
+| `ExecuteVarBinary` sec/op | 6.17 ms | **2.73 ms (−56%)** | 2.87 ms (−53%) |
+| B/op | 9.26 MiB | 4.66 MiB (−50%) | 4.69 MiB |
+| allocs/op | 102 | 64 | 65 |
+
+Bind substitution was more than half of everything vttablet itself did for
+that query, and it is gone. The experiment is +5% over the plain build on
+this shape, the escape-dense pattern again. For the corpus median (a 19 B
+literal) the same path saves ~90 ns against a per-query vttablet cost in the
+tens of microseconds — under 1%, below dashboard noise.
+
+The matching vtgate instrument, `vtgate.BenchmarkWithNormalizer`, fails on
+`main` as well as on this branch (`bench_test.go` is byte-identical on
+both), so no whole-vtgate number exists; `NormalizeVTGate` over the corpus
+is the closest proxy and is unchanged.
 
 ### Whole-branch gates
 
@@ -474,11 +504,50 @@ regression in either build mode. `BenchmarkGenerateQueryStringBinds` improves
 
 | fast path | release-build win (scalar) | SIMD kernel, arm64 verdict |
 |---|---|---|
-| escaping | −79% geomean; `GenerateQuery` 33 µs → 6.4 µs | conditional: ~2× at ≥32 B clean, +3–14% at 8 B and 32 B sparse/dense (`Bytes2` path) |
-| UCA prefix | none (unchanged) | **pass**: −6% at 64 B to −39% at 1 KB, no regression |
-| tokenizer | −79% geomean; 1 MB query 1.5 ms → 23 µs | **deleted**: stdlib `IndexByte` is 2–3× faster |
+| escaping + builder sizing | `EncodeSQL` −79% geomean; bind substitution −42% on the corpus, −86% on the tail; whole vttablet `Execute` −56% on a large-bind query | conditional: ~2× at ≥32 B clean; +3–14% at 8 B and 32 B sparse/dense, +31% on `json-64KB`, +5% on the 1 MB `Execute` |
+| UCA prefix | none (unchanged) | **pass**: −4% at 64 B to −40% at 1 KB, no regression |
+| tokenizer | `scanString` −79% geomean; 1 MB query 1.5 ms → 23 µs; identifier/digit scan −35% | **deleted**: stdlib `IndexByte` is 2–3× faster |
 
 Two of the three release-build wins need no experiment at all, which is
 the more useful finding: the byte-at-a-time loops were the cost, and the
 portable `simd` package is the right tool only where no stdlib primitive
 already vectorizes the scan.
+
+What an operator rolling this out would see, from the numbers above: on
+OLTP traffic, nothing attributable — the savings are sub-1% of a query's
+vttablet CPU and vtgate parse time is unchanged at the corpus level. On
+tablets serving bulk writes, VReplication targets with text/blob/JSON
+columns, or JSON-document workloads, a measurable CPU and allocation drop —
+hundreds of microseconds and a dozen-plus allocations per statement — that
+should show on `process_cpu_seconds_total` and `go_memstats_alloc_bytes_total`.
+On arm64 the experiment is a wash on OLTP and a regression on the JSON
+shape; the recommendation for arm64 is to ship the scalar rewrites and
+leave `GOEXPERIMENT=simd` off until the amd64 run says otherwise.
+
+## Status
+
+As of `bbe9ba38d1` (2026-09-27):
+
+- **Held.** The branch merges when a Go release ships `simd` without
+  `GOEXPERIMENT` and `main` has moved `go.mod` to it; the steps are in §6
+  "Graduation". Until then it is a Draft, rebased and re-measured on each Go
+  patch and pre-release.
+- **This document is the RFC.** No separate `Type: RFC` issue; discussion
+  happens on the pull request.
+- **Kernel verdicts (arm64):** UCA prefix skip passes; escaping
+  `ByteSet.Index` is conditional and the arm64 evidence is against it
+  (8–32 B cells, `json-64KB`, the 1 MB `Execute`); tokenizer `IndexAny2` was
+  deleted. **amd64 is unmeasured** — the `simd_experiment` workflow produces
+  it once the pull request exists — and decides whether the escaping kernel
+  is kept, narrowed to amd64, or dropped.
+- **Every number here is from one Apple M4 Max.** Server arm64 (Neoverse)
+  and amd64 may move the ±5% experiment deltas; the scalar wins are large
+  enough not to depend on it. No live cluster profile was taken; the
+  whole-vttablet figure is the in-process benchmark.
+- **Filed along the way:** vitessio/vitess#21242, `BufEncodeStringSQL`
+  rewriting invalid UTF-8 as `U+FFFD` (pre-existing, found comparing the two
+  encoders). Not yet filed: `vtgate.BenchmarkWithNormalizer` failing on
+  `main`.
+- **Open:** open the Draft PR to get amd64 numbers; run the `profile` job
+  (`workflow_dispatch`) for the amd64 ranking; re-run the §4 gate on the
+  graduating Go release; refresh the Results tables then.
