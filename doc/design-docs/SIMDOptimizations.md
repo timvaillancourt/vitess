@@ -158,6 +158,42 @@ Benchmarks, all with `-benchmem` and `b.SetBytes`:
 - `go/bytes2`: `BenchmarkByteSetIndex/{8,32,256,4096}/{clean,sparse,dense}`, `BenchmarkIndexAny2/{16,64,256,4096}`.
 - Regression gates: `BenchmarkParse3`, `BenchmarkNormalizeVTGate`, `BenchmarkCollationCollate`.
 
+### What real traffic looks like
+
+The cells above are chosen sizes. To weight them, the one real workload in
+the tree — `go/vt/sqlparser/testdata/lobsters.sql.gz`, 44,247 queries from a
+Rails app's query log — was tokenized and measured:
+
+| | p50 | p90 | p99 | max |
+|---|---|---|---|---|
+| query length | 93 B | 151 B | 896 B | 4.7 KB |
+| string literal length | 19 B | 237 B | 558 B | 862 B |
+| literal bytes per query | 0 | 23 B | 683 B | 1.7 KB |
+| identifier length | 7 | 10 | — | 26 |
+
+89.3% of queries carry a literal, so `GenerateQuery` runs for ~9 in 10; 29.5%
+carry a string literal (strings are 23.8% of bind variables, numbers the
+rest), so the escaping loop runs for ~3 in 10; 8.7% of string literals are
+≥256 B, so the lazy builder sizing fires for ~5% of queries; 8.8% of literals
+carry an escape, so `scanStringSlow` runs for ≤5%; identifiers are 29% of all
+query bytes and every query has them. `ORDER BY` is 7.7% and `DISTINCT` 0.7%,
+and vtgate only compares collations on scatter queries over text columns, so
+the UCA path's frequency cannot be read from this corpus; TPCH (82% `ORDER
+BY`, 68% `GROUP BY`) is the shape where it matters. There is no BIT literal.
+
+What that does to the cells: 8/32/256 B bracket the p50–p99 literal well; the
+4096 B cells, the 8 × 1 KB `GenerateQueryStringBinds` case and the 1 MB
+`Parse3` query are all beyond anything in the corpus. They stand in for the
+shapes a production fleet has and this log does not — bulk `INSERT`s of text
+columns, ORM `IN` lists, JSON documents, bounded above by
+`--grpc-max-message-size` (16 MB) and MySQL's `max_allowed_packet` — and are
+reported as the tail, not as representative. Two benchmarks make the split
+explicit: `BenchmarkGenerateQueryCorpus` replays the whole log through
+`Parse2` → `Normalize` → `GenerateQuery`, the vtgate-to-vttablet path, and
+`BenchmarkGenerateQueryTail` / `BenchmarkParseTail` run three named tail
+shapes (a 100-row `INSERT` of 1 KB text, a 500-id `IN` list, a 64 KB JSON
+literal).
+
 ### Procedure
 
 ```sh
@@ -391,6 +427,32 @@ path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
   ahead only at 16 bytes. The cause is architecture-independent (§1: no
   movemask in the portable API), so it was not held for the amd64 run. The
   *simd* column above is therefore the same code as *scalar*.
+
+### Corpus-weighted and tail results (release build, vs `main`)
+
+The branch's later commits — the lazy builder sizing, `scanStringSlow`, the
+BIT table and the identifier/digit tables — are pure Go; these numbers are
+the plain build at HEAD against a `main` build of the same benchmark file,
+`-count=8`.
+
+| benchmark | `main` | HEAD | Δ | allocs |
+|---|---|---|---|---|
+| `GenerateQueryCorpus` (all 44k lobsters queries, one pass) | 9.48 ms | 5.50 ms | **−42%** | 88.4k → 86.6k |
+| `GenerateQueryTail/insert-100x1KB` | 432 µs | 60 µs | **−86%** | 12 → 3 |
+| `GenerateQueryTail/in-500` | 5.76 µs | 4.04 µs | −30% | 12 → 3 |
+| `GenerateQueryTail/json-64KB` | 286 µs | 43 µs | **−85%** | 20 → 3 |
+| `ParseTail/insert-100x1KB` | 266 µs | 143 µs | −46% | same |
+| `ParseTail/in-500` | 68.0 µs | 66.2 µs | −2.7% | same |
+| `ParseTail/json-64KB` | 144 µs | 94.5 µs | −34% | same |
+| `NormalizeVTGate` | 29.6 ms | 29.8 ms | ~ | same |
+
+So the honest headline for vttablet bind substitution on real OLTP traffic
+is **−42%**, not the −90% of the 8 × 1 KB cell; that cell is the tail, where
+the win is −85% to −86%. The escaping SIMD kernel's wins sit at ≥256 B, which
+is 8.7% of the corpus's literals, and its regressions at 8–32 B, where the
+median literal lives; corpus-weighted it is neutral to slightly negative on
+OLTP traffic, which is a further reason its verdict waits on amd64. The
+identifier/digit tables are the one change that touches the p50 query.
 
 ### Whole-branch gates
 
