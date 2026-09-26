@@ -234,10 +234,12 @@ Normative for SIMD code in this repository.
    compiled), `*_noasm.go` (`//go:build !goexperiment.simd || !(amd64 || arm64)`)
    that delegates to it, `*_simd.go` (`//go:build goexperiment.simd && (amd64 || arm64)`).
 3. **Kernel shape.** The vector body is a plain function; exported methods
-   are thin wrappers (§1 compiler limitation). Constants a kernel compares
+   are thin wrappers (§1 compiler limitation). Set members a kernel compares
    against are pre-broadcast into byte rows at construction and loaded with
-   `LoadUint8s`, never built with `BroadcastUint8s` per call or held in
-   package-level `var`s. Inputs shorter than the threshold take the scalar
+   `LoadUint8s`; the cost that rule removes is eight `MOVBU`+`VMOV`+`VDUP`
+   sequences per call, so a kernel that needs one literal constant (the UCA
+   kernel's `0x80` mask) may broadcast it in-function. Neither is held in a
+   package-level `var`. Inputs shorter than the threshold take the scalar
    path, and inputs shorter than one vector always do. The tail is read as
    an overlapping full block ending at the last byte, not with
    `LoadUint8sPart` (§1: it is a call that spills every live vector).
