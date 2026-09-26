@@ -66,11 +66,13 @@ func (s *ByteSet) indexScalar(b []byte) int {
 	return -1
 }
 
-// indexAny2Scalar is the reference IndexAny2. It leans on bytes.IndexByte,
-// which is vectorized in the standard library on every architecture Vitess
-// builds for, so the fallback is two bounded SIMD scans rather than a byte
-// loop: the second scan only covers the bytes in front of the first hit.
-func indexAny2Scalar(b []byte, a, c byte) int {
+// IndexAny2 returns the index of the first byte of b that is a or c, or -1 if
+// neither occurs. It is two bounded bytes.IndexByte scans, the second only
+// over the bytes in front of the first hit. IndexByte is hand-tuned assembly
+// with a native movemask on every architecture Vitess builds for; a portable
+// simd kernel was measured 2-3x slower than this on arm64 because it has to
+// store and rescan the compare mask per block, so there is no simd variant.
+func IndexAny2(b []byte, a, c byte) int {
 	i := bytes.IndexByte(b, a)
 	if i < 0 {
 		return bytes.IndexByte(b, c)

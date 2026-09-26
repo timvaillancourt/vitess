@@ -23,9 +23,3 @@ package bytes2
 func (s *ByteSet) Index(b []byte) int {
 	return s.indexScalar(b)
 }
-
-// IndexAny2 returns the index of the first byte of b that is a or c, or -1 if
-// neither occurs.
-func IndexAny2(b []byte, a, c byte) int {
-	return indexAny2Scalar(b, a, c)
-}

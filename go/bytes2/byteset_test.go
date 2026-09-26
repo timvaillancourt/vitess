@@ -125,9 +125,7 @@ func TestByteSetIndex(t *testing.T) {
 
 func TestIndexAny2(t *testing.T) {
 	check := func(t *testing.T, name string, in []byte, a, c byte) {
-		want := refIndex(in, []byte{a, c})
-		assert.Equal(t, want, indexAny2Scalar(in, a, c), "%s: scalar", name)
-		assert.Equal(t, want, IndexAny2(in, a, c), "%s: IndexAny2", name)
+		assert.Equal(t, refIndex(in, []byte{a, c}), IndexAny2(in, a, c), name)
 	}
 
 	for _, n := range boundarySizes {
@@ -197,9 +195,6 @@ func FuzzIndexAny2(f *testing.F) {
 		want := refIndex(in, []byte{a, c})
 		if got := IndexAny2(in, a, c); got != want {
 			t.Fatalf("IndexAny2(%q, %#x, %#x) = %d, want %d", in, a, c, got, want)
-		}
-		if got := indexAny2Scalar(in, a, c); got != want {
-			t.Fatalf("indexAny2Scalar(%q, %#x, %#x) = %d, want %d", in, a, c, got, want)
 		}
 	})
 }

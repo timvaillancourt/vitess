@@ -109,34 +109,3 @@ func indexSIMD(s *ByteSet, b []byte) int {
 	}
 	return -1
 }
-
-// IndexAny2 returns the index of the first byte of b that is a or c, or -1 if
-// neither occurs.
-func IndexAny2(b []byte, a, c byte) int {
-	if len(b) < simdThreshold {
-		return indexAny2Scalar(b, a, c)
-	}
-	return indexAny2SIMD(b, a, c)
-}
-
-func indexAny2SIMD(b []byte, a, c byte) int {
-	va := simd.BroadcastUint8s(a)
-	vc := simd.BroadcastUint8s(c)
-	n := va.Len()
-	var tmp laneBuf
-
-	i := 0
-	for ; i+n <= len(b); i += n {
-		x := simd.LoadUint8s(b[i : i+n])
-		if k := firstLane(x.Equal(va).Or(x.Equal(vc)), n, &tmp); k >= 0 {
-			return i + k
-		}
-	}
-	if i < len(b) {
-		x, got := simd.LoadUint8sPart(b[i:])
-		if k := firstLane(x.Equal(va).Or(x.Equal(vc)), n, &tmp); k >= 0 && k < got {
-			return i + k
-		}
-	}
-	return -1
-}
