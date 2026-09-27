@@ -57,8 +57,9 @@ const bindValueOverhead = 16
 // for a pass over the placeholders. Measured on arm64, sizing at 64-byte
 // values cost the short-string shape 7%, and pre-growing by a
 // per-placeholder pad cost it 3% by moving its append chain onto larger
-// size classes; at 256 with no pad both shapes are unchanged, and sizing
-// every tuple regardless of length cost a three-int IN list 16%.
+// size classes; at 256 with no pad both shapes are unchanged, and a
+// three-int IN list got 16% faster once tuples below the estimate stopped
+// being sized.
 const bindLargeValue = 256
 
 // sizeHint estimates the generated query's length from the query text and

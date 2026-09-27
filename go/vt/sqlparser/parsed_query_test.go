@@ -516,8 +516,9 @@ func TestIsLargeBind(t *testing.T) {
 // TestAppendReusesBuilder appends into a builder that already holds text,
 // more than once, which is how VReplication builds a bulk INSERT: one
 // Append per row into the same values buffer. The large bind makes each
-// Append size the builder, and that sizing must be for the text it writes,
-// not for the builder's whole contents.
+// Append take the sizing path, and the output must be the exact
+// concatenation whatever the builder already holds and however many rows
+// came before.
 func TestAppendReusesBuilder(t *testing.T) {
 	stmt, err := NewTestParser().Parse("insert into t(a, b) values (:a, :b)")
 	require.NoError(t, err)
