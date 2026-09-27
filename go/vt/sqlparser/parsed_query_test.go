@@ -478,27 +478,51 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 
 // BenchmarkGenerateQueryIntBinds is the shape where pre-sizing the builder
 // buys the least and its size pass costs the most: many small integer binds
-// whose text is barely longer than the placeholders it replaces.
+// whose text is barely longer than the placeholders it replaces. The
+// "scalars" cell is one placeholder per value; the "tuple" cells are the
+// shape vtgate actually sends, one `IN ::__vals` placeholder bound to a
+// TUPLE, which is what Append's tuple arm sizes the builder for.
 func BenchmarkGenerateQueryIntBinds(b *testing.B) {
-	var q strings.Builder
-	q.WriteString("select * from t where id in (")
-	bindVars := map[string]*querypb.BindVariable{}
-	for i := range 64 {
+	ints := func(n int) []any {
+		vals := make([]any, n)
+		for i := range vals {
+			vals[i] = int64(i * 1000003)
+		}
+		return vals
+	}
+	var scalars strings.Builder
+	scalars.WriteString("select * from t where id in (")
+	scalarBinds := map[string]*querypb.BindVariable{}
+	for i, v := range ints(64) {
 		if i > 0 {
-			q.WriteString(", ")
+			scalars.WriteString(", ")
 		}
 		name := fmt.Sprintf("v%d", i)
-		fmt.Fprintf(&q, ":%s", name)
-		bindVars[name] = sqltypes.Int64BindVariable(int64(i * 1000003))
+		fmt.Fprintf(&scalars, ":%s", name)
+		scalarBinds[name] = sqltypes.Int64BindVariable(v.(int64))
 	}
-	q.WriteString(")")
-	stmt, err := NewTestParser().Parse(q.String())
-	require.NoError(b, err)
-	pq := NewParsedQuery(stmt)
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
-			b.Fatal(err)
-		}
+	scalars.WriteString(")")
+
+	cases := []struct {
+		name     string
+		query    string
+		bindVars map[string]*querypb.BindVariable
+	}{
+		{"scalars/64", scalars.String(), scalarBinds},
+		{"tuple/64", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(ints(64))}},
+		{"tuple/3", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(ints(3))}},
+	}
+	for _, tc := range cases {
+		stmt, err := NewTestParser().Parse(tc.query)
+		require.NoError(b, err)
+		pq := NewParsedQuery(stmt)
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := pq.GenerateQuery(tc.bindVars, nil); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

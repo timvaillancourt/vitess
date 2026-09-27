@@ -49,14 +49,16 @@ func NewParsedQuery(node SQLNode) *ParsedQuery {
 // tuple parens and ", " separators.
 const bindValueOverhead = 16
 
-// bindLargeValue is the value length from which Append sizes the builder
-// for the whole query instead of letting it grow. Below it the builder's
-// own doubling covers the value in a few small allocations, and the common
-// shapes (an IN list of integers, a row of short strings) never pay for a
-// pass over the map. Measured on arm64, sizing at 64-byte values cost the
-// short-string shape 7%, and pre-growing by a per-placeholder pad cost it
-// 3% by moving its append chain onto larger size classes; at 256 with no
-// pad both shapes are unchanged.
+// bindLargeValue is the encoded size from which Append sizes the builder
+// for the whole query instead of letting it grow: a scalar of that many
+// bytes, or a tuple whose estimate reaches it. Below it the builder's own
+// doubling covers the value in a few small allocations, and the common
+// shapes (a short IN list of integers, a row of short strings) never pay
+// for a pass over the placeholders. Measured on arm64, sizing at 64-byte
+// values cost the short-string shape 7%, and pre-growing by a
+// per-placeholder pad cost it 3% by moving its append chain onto larger
+// size classes; at 256 with no pad both shapes are unchanged, and sizing
+// every tuple regardless of length cost a three-int IN list 16%.
 const bindLargeValue = 256
 
 // sizeHint estimates the generated query's length from the query text and
@@ -95,6 +97,21 @@ func valueSizeHint(bv *querypb.BindVariable) int {
 	return n
 }
 
+// isLargeBind reports whether bv is worth sizing the builder for: a scalar
+// of bindLargeValue bytes or more, or a tuple whose estimate reaches that.
+// A tuple of bindLargeValue/bindValueOverhead elements or more reaches it on
+// the per-element overhead alone, so the count check spares long IN lists
+// the pass over their values; short ones stay on the builder's own doubling.
+func isLargeBind(bv *querypb.BindVariable) bool {
+	if len(bv.Value) >= bindLargeValue {
+		return true
+	}
+	if len(bv.Values) == 0 {
+		return false
+	}
+	return len(bv.Values) >= bindLargeValue/bindValueOverhead || valueSizeHint(bv) >= bindLargeValue
+}
+
 // GenerateQuery generates a query by substituting the specified
 // bindVariables. The extras parameter specifies special parameters
 // that can perform custom encoding.
@@ -125,13 +142,13 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 			if err != nil {
 				return err
 			}
-			// The first large value sizes the builder for the whole query,
+			// The first large bind sizes the builder for the whole query,
 			// once; Grow is a no-op if it already fits. Growing per value let
 			// a query with a few KB of string binds double its way through a
 			// dozen allocations, and sizing up front would charge every
-			// query a pass over the map that a query of small binds never
-			// needs.
-			if !sized && (len(supplied.Value) >= bindLargeValue || len(supplied.Values) > 0) {
+			// query a pass over the placeholders that a query of small binds
+			// never needs.
+			if !sized && isLargeBind(supplied) {
 				written := buf.Len() - queryStart
 				if need := pq.sizeHint(bindVariables) - written; need > 0 {
 					buf.Grow(need)
