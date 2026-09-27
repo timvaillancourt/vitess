@@ -221,8 +221,8 @@ make build-experimental-simd
 The `simd_experiment.yml` bench job runs this comparison on amd64 and arm64
 and uploads `plain.txt`, `simd.txt` and the `benchstat` output as artifacts.
 It runs on every push to `main` and on `workflow_dispatch`; on a pull request
-it runs only while the `Benchmark me` label is on it, since the matrix costs
-~90 runner-minutes per architecture and the build-and-test job is what
+it runs only while the `Benchmark me` label is on it, since the matrix has
+a 90-minute budget per architecture and the build-and-test job is what
 catches drift. Its build job calls `make build-experimental-simd`
 explicitly. `benchstat` at
 its default significance level (p < 0.05) decides; `-count=10` per cell.

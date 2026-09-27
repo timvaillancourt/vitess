@@ -11,6 +11,11 @@ name: SIMD Experiment
 # packages. The bench job is a 10x500ms benchstat matrix on two runners, so
 # on pull requests it only runs when the "Benchmark me" label is present; it
 # always runs on pushes to main and on workflow_dispatch.
+#
+# A label event shares the concurrency group with the push that preceded
+# it, so it cancels whatever is in flight for the ref; the build-and-test
+# job therefore runs on label events too, rather than leaving the head SHA
+# without a result.
 
 on:
   push:
@@ -132,9 +137,6 @@ jobs:
 
   simd-build-test:
     name: "Build and test (experimental SIMD, ${{ matrix.arch }})"
-    # Already ran when the PR was opened or pushed; a label change only
-    # needs to start the bench job.
-    if: github.event.action != 'labeled'
     timeout-minutes: 45
     strategy:
       fail-fast: false
