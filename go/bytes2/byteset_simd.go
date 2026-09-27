@@ -35,18 +35,18 @@ func init() {
 	}
 }
 
-// LaneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
+// laneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
 // caller owns one per call rather than per block, since Store overwrites the
-// words that are read and zeroing 64 bytes per block is measurable. It is
-// exported for the other SIMD kernel in the tree, collations/uca, which
-// needs the same movemask stand-in.
-type LaneBuf [8]uint64
+// words that are read and zeroing 64 bytes per block is measurable. It and
+// firstLane stay unexported: the RFC's adoption policy (§6, rule 6) keeps
+// simd types out of exported signatures, so collations/uca carries its own
+// copy rather than importing these.
+type laneBuf [8]uint64
 
-// FirstLane returns the index of the first true lane of m, given n lanes, or
+// firstLane returns the index of the first true lane of m, given n lanes, or
 // -1 if none is set. The simd package has no movemask, so the mask is stored
-// as 0xFF-per-true-lane bytes and scanned a word at a time. It is small
-// enough to inline into a caller in another package.
-func FirstLane(m simd.Mask8s, n int, tmp *LaneBuf) int {
+// as 0xFF-per-true-lane bytes and scanned a word at a time.
+func firstLane(m simd.Mask8s, n int, tmp *laneBuf) int {
 	m.ToInt8s().ToBits().ReshapeToUint64s().Store(tmp[:])
 	for j := 0; j < n/8; j++ {
 		if w := tmp[j]; w != 0 {
@@ -101,12 +101,12 @@ func indexSIMD(s *ByteSet, b []byte) int {
 	v5 := simd.LoadUint8s(s.bcast[5][:])
 	v6 := simd.LoadUint8s(s.bcast[6][:])
 	v7 := simd.LoadUint8s(s.bcast[7][:])
-	var tmp LaneBuf
+	var tmp laneBuf
 
 	i := 0
 	for ; i+n <= len(b); i += n {
 		x := simd.LoadUint8s(b[i : i+n])
-		if k := FirstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {
+		if k := firstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {
 			return i + k
 		}
 	}
@@ -116,7 +116,7 @@ func indexSIMD(s *ByteSet, b []byte) int {
 		// vectors.
 		start := len(b) - n
 		x := simd.LoadUint8s(b[start:])
-		if k := FirstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {
+		if k := firstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {
 			return start + k
 		}
 	}
