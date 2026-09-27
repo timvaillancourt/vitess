@@ -113,11 +113,12 @@ func asciiRun(n int) []byte {
 }
 
 // prefixCases returns pairs that share an equal-ASCII prefix and then
-// diverge in every way the kernel has to notice: a differing byte, a
+// diverge in every way the kernel has to notice: a differing byte (a case
+// flip, so the weights stay equal and the scalar loop carries on), a
 // non-ASCII byte on one side or both, or the shorter input ending. The
-// trailing-block cases are the ways the scalar loop resolves the first
-// block the skip stops on: unequal bytes with equal weights, an ignorable,
-// and a block that is all Unicode.
+// trailing-block cases are the other ways the scalar loop resolves the
+// first block the skip stops on: an ignorable, and a block that is all
+// Unicode.
 func prefixCases() []struct {
 	name   string
 	p1, p2 []byte
@@ -132,6 +133,7 @@ func prefixCases() []struct {
 			p1, p2 []byte
 		}{name, p1, p2})
 	}
+	lastAt := -1
 	for _, n := range []int{0, 3, 4, 8, 15, 16, 17, 20, 31, 32, 33, 47, 48, 63, 64, 65, 100, 128, 129} {
 		add(fmt.Sprintf("equal %d", n), asciiRun(n), asciiRun(n))
 		add(fmt.Sprintf("equal %d vs %d", n, n+3), asciiRun(n), asciiRun(n+3))
@@ -150,19 +152,19 @@ func prefixCases() []struct {
 			add(fmt.Sprintf("non-ascii both at %d of %d", pos, n), p1, p2)
 		}
 		p2 := asciiRun(n + 8)
-		p2[n] = 'A' + byte(n%26)
-		add(fmt.Sprintf("case-only difference after %d", n), asciiRun(n+8), p2)
-		p2 = asciiRun(n + 8)
 		p2[n] = 0x01
 		add(fmt.Sprintf("ignorable after %d", n), asciiRun(n+8), p2)
 		// On the 4-byte block boundary at or after n, so the block is all
-		// Unicode for every n and the scalar loop's `it.unicode++` branch
-		// is what resolves it.
-		at := (n + 3) &^ 3
-		p1, p2 := asciiRun(at+4), asciiRun(at+4)
-		copy(p1[at:], "\xE2\x82\xAC\xC3")
-		copy(p2[at:], "\xE2\x82\xAC\xC3")
-		add(fmt.Sprintf("unicode block at %d after %d", at, n), p1, p2)
+		// Unicode and the scalar loop's `it.unicode++` branch is what
+		// resolves it. Neighbouring lengths round to the same boundary;
+		// emit each once.
+		if at := (n + 3) &^ 3; at != lastAt {
+			lastAt = at
+			p1, p2 := asciiRun(at+4), asciiRun(at+4)
+			copy(p1[at:], "\xE2\x82\xAC\xC3")
+			copy(p2[at:], "\xE2\x82\xAC\xC3")
+			add(fmt.Sprintf("unicode block at %d", at), p1, p2)
+		}
 	}
 	return cases
 }
