@@ -44,124 +44,6 @@ func NewParsedQuery(node SQLNode) *ParsedQuery {
 	return buf.ParsedQuery()
 }
 
-// bindValueOverhead is the room the size estimates leave per bound value
-// beyond the value's own bytes: the quotes, a `_binary` introducer, the
-// tuple parens and ", " separators.
-const bindValueOverhead = 16
-
-// bindElemOverhead is what a tuple element costs beyond its own bytes when
-// it carries no quotes or introducer of its own: the ", " that joins it to
-// the next one. The last element does not need one, which leaves the tuple's
-// own parens covered. A long IN list of short numbers is mostly this, so
-// charging it the full bindValueOverhead oversizes the builder several times
-// over.
-const bindElemOverhead = 2
-
-// bindLargeValue is the encoded size from which Append sizes the builder
-// for the whole query instead of letting it grow: a scalar of that many
-// bytes, or a tuple whose estimate reaches it. Below it the builder's own
-// doubling covers the value in a few small allocations, and the common
-// shapes (a short IN list of integers, a row of short strings) never pay for
-// a pass over the placeholders. 64 measurably regressed short strings and a
-// per-placeholder pad regressed them again; 256 with no pad did neither.
-// Numbers in the RFC and in the commit that set it.
-const bindLargeValue = 256
-
-// sizeHint estimates the generated query's length from the query text and
-// the bind variables its placeholders resolve to, so the builder can be
-// sized once. It looks each placeholder up rather than ranging the map,
-// because the map is whatever the caller sent, not what this query uses:
-// vtgate hands a join's right side the whole left-side map on every row,
-// and a range would size the builder for binds the query never writes.
-// Custom Encodable values are skipped because the interface has no
-// side-effect-free size operation; encoding one twice would be a stronger
-// contract than it promises.
-//
-// It reports false at the first placeholder it cannot resolve, rather than
-// counting the rest: that query is about to be rejected, and sizing for the
-// whole of it first means a request whose one missing bind var comes early
-// still allocates for every large value named after it.
-func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable, extras map[string]Encodable) (int, bool) {
-	n := len(pq.Query)
-	for _, loc := range pq.bindLocations {
-		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
-		if _, ok := extras[name[1:]]; ok {
-			continue
-		}
-		bv, _, err := FetchBindVar(name, bindVariables)
-		if err != nil {
-			return 0, false
-		}
-		n += valueSizeHint(bv)
-	}
-	return n, true
-}
-
-// valueSizeHint is the best-effort room to leave for one bind variable's
-// encoded text: its bytes, a sixteenth more for escapes, and the fixed
-// overhead for each quoted scalar or tuple element. Escape-dense values can
-// still make the builder grow once.
-//
-// It reads the same field EncodeValue does and no other, at the top level
-// and for each tuple element. Nothing rejects a bind variable that also
-// carries the field its type does not use -- a NULL with a Value, a scalar
-// with Values -- and counting those sizes the builder for bytes that are
-// never written, once for every placeholder that names it.
-func valueSizeHint(bv *querypb.BindVariable) int {
-	switch bv.Type {
-	case querypb.Type_TUPLE, querypb.Type_ROW_TUPLE:
-		var n int
-		for _, v := range bv.Values {
-			switch {
-			case v.Type == querypb.Type_NULL_TYPE:
-				// ProtoToValue drops a null element's Value the way
-				// MakeTrusted does at the top level, so the element is
-				// the literal whatever it carries.
-				n += bindElemOverhead + len(sqltypes.NullStr)
-			case sqltypes.IsNumber(v.Type):
-				// A number encodes as its own bytes, unquoted and with
-				// nothing to escape.
-				n += bindElemOverhead + len(v.Value)
-			default:
-				n += bindValueOverhead + len(v.Value) + len(v.Value)/16
-			}
-		}
-		return n
-	case querypb.Type_NULL_TYPE:
-		// EncodeValue writes the literal and never looks at Value.
-		return len(sqltypes.NullStr)
-	}
-	n := len(bv.Value) + len(bv.Value)/16
-	if sqltypes.IsQuoted(bv.Type) {
-		n += bindValueOverhead
-	}
-	return n
-}
-
-// bindLargeTupleLen is the element count from which a quoted tuple's
-// estimate reaches bindLargeValue on the per-element overhead alone,
-// rounded up so it stays a sufficient condition whatever the two constants
-// are. A tuple of numbers reaches the count before its estimate, so the
-// short-circuit sizes it early; that only spends a Grow the builder wanted
-// anyway, and it spares long lists the pass over their values.
-const bindLargeTupleLen = (bindLargeValue + bindValueOverhead - 1) / bindValueOverhead
-
-// isLargeBind reports whether bv is worth sizing the builder for: a scalar
-// of bindLargeValue bytes or more, or a tuple whose estimate reaches that.
-// The count check spares long IN lists the pass over their values; short
-// ones stay on the builder's own doubling. It switches on the type for the
-// same reason valueSizeHint does: the field a type does not encode says
-// nothing about how much room the query needs.
-func isLargeBind(bv *querypb.BindVariable) bool {
-	switch bv.Type {
-	case querypb.Type_TUPLE, querypb.Type_ROW_TUPLE:
-		return len(bv.Values) >= bindLargeTupleLen || valueSizeHint(bv) >= bindLargeValue
-	case querypb.Type_NULL_TYPE:
-		return false
-	}
-	return len(bv.Value) >= bindLargeValue
-}
-
 // GenerateQuery generates a query by substituting the specified
 // bindVariables. The extras parameter specifies special parameters
 // that can perform custom encoding.
@@ -179,9 +61,7 @@ func (pq *ParsedQuery) GenerateQuery(bindVariables map[string]*querypb.BindVaria
 
 // Append appends the generated query to the provided buffer.
 func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*querypb.BindVariable, extras map[string]Encodable) error {
-	queryStart := buf.Len()
 	current := 0
-	sized := false
 	for _, loc := range pq.bindLocations {
 		buf.WriteString(pq.Query[current:loc.Offset])
 		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
@@ -191,24 +71,6 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 			supplied, _, err := FetchBindVar(name, bindVariables)
 			if err != nil {
 				return err
-			}
-			// The first large bind sizes the builder for the whole query,
-			// once; Grow is a no-op if it already fits. Growing per value
-			// made a query with a few KB of string binds double its way
-			// through a dozen allocations, and sizing up front would charge
-			// every query a pass over the placeholders that a query of small
-			// binds never needs.
-			if !sized && isLargeBind(supplied) {
-				// Sized once either way: if the estimate stopped at a
-				// placeholder with no bind var, retrying it for the next
-				// large value walks the list again for a query that is
-				// going to be rejected.
-				if hint, ok := pq.sizeHint(bindVariables, extras); ok {
-					if need := hint - (buf.Len() - queryStart); need > 0 {
-						buf.Grow(need)
-					}
-				}
-				sized = true
 			}
 			EncodeValue(buf, supplied)
 		}

@@ -954,22 +954,12 @@ func EncodeStringSQL(val string) string {
 	return buf.String()
 }
 
-// bitPatterns holds the eight-character binary text of every byte value,
-// so encodeBytesSQLBits writes a BIT value with one table lookup per byte
-// instead of a fmt.Fprintf, which went through reflection for each one.
-var bitPatterns = func() (t [256]string) {
-	for i := range t {
-		t[i] = fmt.Sprintf("%08b", i)
-	}
-	return t
-}()
-
 func encodeBytesSQLBits(val []byte, b BinWriter) {
-	b.Write(hack.StringBytes("b'"))
+	fmt.Fprint(b, "b'")
 	for _, ch := range val {
-		b.Write(hack.StringBytes(bitPatterns[ch]))
+		fmt.Fprintf(b, "%08b", ch)
 	}
-	b.Write(hack.StringBytes("'"))
+	fmt.Fprint(b, "'")
 }
 
 // SQLEncodeMap specifies how to escape binary data with '\'.

@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"vitess.io/vitess/go/bytes2"
-	querypb "vitess.io/vitess/go/vt/proto/query"
 )
 
 // encodeBytesSQLReference is the old encodeBytesSQLBytes2, verbatim: the
@@ -148,49 +147,4 @@ func FuzzEncodeBytesSQL(f *testing.F) {
 			t.Fatalf("StringBuilder encoder diverged for %q:\n got %q\nwant %q", in, gotSB, want)
 		}
 	})
-}
-
-// encodeBytesSQLBitsReference is the old encodeBytesSQLBits, verbatim: a
-// fmt.Fprintf per byte. It is the definition of correct BIT output.
-func encodeBytesSQLBitsReference(val []byte, b BinWriter) {
-	fmt.Fprint(b, "b'")
-	for _, ch := range val {
-		fmt.Fprintf(b, "%08b", ch)
-	}
-	fmt.Fprint(b, "'")
-}
-
-func TestEncodeBytesSQLBitsMatchesReference(t *testing.T) {
-	check := func(t *testing.T, name string, val []byte) {
-		t.Helper()
-		var want, got bytes2.Buffer
-		encodeBytesSQLBitsReference(val, &want)
-		encodeBytesSQLBits(val, &got)
-		require.Equal(t, want.String(), got.String(), name)
-	}
-	check(t, "empty", nil)
-	for i := range 256 {
-		check(t, fmt.Sprintf("byte %#x", i), []byte{byte(i)})
-	}
-	check(t, "all bytes", func() []byte {
-		b := make([]byte, 256)
-		for i := range b {
-			b[i] = byte(i)
-		}
-		return b
-	}())
-	rng := rand.New(rand.NewPCG(3, 4))
-	for i := range 1000 {
-		n := rng.IntN(64)
-		in := make([]byte, n)
-		for j := range in {
-			in[j] = byte(rng.Uint32())
-		}
-		check(t, fmt.Sprintf("random #%d", i), in)
-	}
-	// Through the public entry points too, so the Bit branch is the one
-	// exercised, not just the helper.
-	var buf bytes2.Buffer
-	MakeTrusted(querypb.Type_BIT, []byte{0xA5, 0x01}).EncodeSQLBytes2(&buf)
-	require.Equal(t, "b'1010010100000001'", buf.String())
 }

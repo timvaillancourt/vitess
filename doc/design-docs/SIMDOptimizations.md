@@ -185,7 +185,7 @@ Rails app's query log — was tokenized and measured:
 89.3% of queries carry a literal, so `GenerateQuery` runs for ~9 in 10; 29.5%
 carry a string literal (strings are 23.8% of bind variables, numbers the
 rest), so the escaping loop runs for ~3 in 10; 8.7% of string literals are
-≥256 B, so the lazy builder sizing fires for ~5% of queries; 8.8% of literals
+≥256 B, which is where the escaping kernel's wins sit; 8.8% of literals
 carry an escape, so `scanStringSlow` runs for ≤5%; identifiers are 29% of all
 query bytes and every query has them. `ORDER BY` is 7.7% and `DISTINCT` 0.7%,
 and vtgate only compares collations on scatter queries over text columns, so
@@ -463,13 +463,17 @@ Percentages are vs *today*.
 
 ### Corpus-weighted and tail results (release build, vs `main`)
 
-The branch's later commits — the lazy builder sizing, `scanStringSlow`, the
-BIT table and the identifier/digit tables — are pure Go; these numbers are
-the plain build against a `main` build of the same benchmark file,
-`-count=8`. They were taken before the last commit (`bbe9ba38d1`), which
-made `sizeHint` look placeholders up instead of ranging the map; that costs
-the gated shapes +1–6% (`insert-100x1KB` +1.3%, `StringBinds/1024B` +5.7%,
-numbers in its commit message) and is within this table's noise elsewhere.
+**These numbers were measured with the bind-substitution allocation work
+still on the branch, and it has since moved to a follow-up pull request**
+(lazy builder sizing, the BIT table, the identifier/digit class tables). The
+sizing is what produces most of what this table shows, so the rows below
+describe the two pull requests stacked, not this one alone. Splitting the
+attribution needs a re-run of the §4 procedure against each; until that
+happens, read them as the combined result. The scalar escaping rewrite and
+`scanString`, which are what remains here, are measured on their own in the
+three per-path sections above.
+
+Plain build against a `main` build of the same benchmark file, `-count=8`:
 
 | benchmark | `main` | HEAD | Δ | allocs |
 |---|---|---|---|---|
@@ -498,8 +502,9 @@ on arm64, and takes some back on escape-dense documents. The escaping SIMD
 kernel's wins sit at ≥256 B, which is 8.7% of the corpus's literals, and
 its regressions at 8–32 B, where the median literal lives; corpus-weighted
 it is neutral to slightly negative on OLTP traffic, which is a further
-reason its verdict waits on amd64. The identifier/digit tables are the one
-change that touches the p50 query.
+reason its verdict waits on amd64. Nothing left on this branch touches the
+p50 query: the escaping rewrite needs a literal ≥256 B to pay, and the
+identifier/digit tables that did touch every query went to the follow-up.
 
 ### Whole vttablet query (release build, vs `main`)
 
@@ -508,7 +513,9 @@ much of a vttablet query those loops were. `tabletserver.BenchmarkExecuteVarBina
 runs a whole `tsv.Execute` — plan cache, bind substitution, `fakesqldb`
 standing in for MySQL — on a 1 MB query with ten 100 KB `VARBINARY` binds
 that carry an escape every eleven bytes. arm64, `-count=6`, `main` build vs
-the branch, measured before `bbe9ba38d1`:
+the branch. **Measured with the bind-substitution allocation work still on
+the branch**, so as with the table above this is the two pull requests
+stacked; the sizing is the larger half of it:
 
 | | `main` | HEAD | HEAD + experimental SIMD |
 |---|---|---|---|
@@ -537,9 +544,9 @@ regression in either build mode. `BenchmarkGenerateQueryStringBinds` improves
 
 | fast path | release-build win (scalar) | SIMD kernel, arm64 verdict |
 |---|---|---|
-| escaping + builder sizing | `EncodeSQL` −79% geomean; bind substitution −42% on the corpus, −86% on the tail; whole vttablet `Execute` −56% on a large-bind query | conditional: ~2× at ≥32 B clean; +3–14% at 8 B and 32 B sparse/dense, +31% on `json-64KB`, +5% on the 1 MB `Execute` |
+| escaping | `EncodeSQL` −79% geomean. The corpus, tail and whole-`Execute` figures above are this plus the follow-up's builder sizing, stacked | conditional: ~2× at ≥32 B clean; +3–14% at 8 B and 32 B sparse/dense, +31% on `json-64KB`, +5% on the 1 MB `Execute` |
 | UCA prefix | none (unchanged) | **pass**: −4% at 64 B to −40% at 1 KB, no regression |
-| tokenizer | `scanString` −79% geomean; 1 MB query 1.5 ms → 23 µs; identifier/digit scan −35% | **deleted**: stdlib `IndexByte` is 2–3× faster |
+| tokenizer | `scanString` −79% geomean; 1 MB query 1.5 ms → 23 µs | **deleted**: stdlib `IndexByte` is 2–3× faster |
 
 Two of the three release-build wins need no experiment at all, which is
 the more useful finding: the byte-at-a-time loops were the cost, and the
@@ -567,6 +574,12 @@ As of this branch (2026-09-27):
   through the default target.
 - **This document is the RFC.** No separate `Type: RFC` issue; discussion
   happens on the pull request.
+- **Scoped to the three ranked paths.** The pure-Go allocation work that grew
+  alongside the prototypes -- lazy builder sizing in `ParsedQuery.Append`, the
+  BIT literal table, the identifier/digit class tables -- is a follow-up pull
+  request. It is a good result on its own and it is not SIMD, so crediting it
+  to the experiment overstated what the kernels do. The two Results tables
+  that were measured before the split say so where they appear.
 - **Kernel verdicts (arm64):** UCA prefix skip passes; escaping
   `ByteSet.Index` is conditional and the arm64 evidence is against it
   (8–32 B cells, `json-64KB`, the 1 MB `Execute`); tokenizer `IndexAny2` was
@@ -584,4 +597,6 @@ As of this branch (2026-09-27):
 - **Open:** open the Draft PR and label it `Benchmark me` to get amd64
   numbers; collect the amd64 ranking
   with the §3 profiling procedure; re-run the §4 gate on the graduating Go
-  release; refresh the Results tables then.
+  release; refresh the Results tables then, which is also when the
+  corpus and whole-`Execute` rows get split between this branch and the
+  follow-up.
