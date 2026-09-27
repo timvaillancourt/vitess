@@ -98,13 +98,26 @@ func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable, 
 // encoded text: its bytes, a sixteenth more for escapes, and the fixed
 // overhead for each quoted scalar or tuple element. Escape-dense values can
 // still make the builder grow once.
+//
+// It reads the same field EncodeValue does and no other. Nothing rejects a
+// bind variable that also carries the field its type does not use -- a NULL
+// with a Value, a scalar with Values -- and counting those sizes the builder
+// for bytes that are never written.
 func valueSizeHint(bv *querypb.BindVariable) int {
+	switch bv.Type {
+	case querypb.Type_TUPLE, querypb.Type_ROW_TUPLE:
+		var n int
+		for _, v := range bv.Values {
+			n += len(v.Value) + len(v.Value)/16 + bindValueOverhead
+		}
+		return n
+	case querypb.Type_NULL_TYPE:
+		// EncodeValue writes the literal and never looks at Value.
+		return len(sqltypes.NullStr)
+	}
 	n := len(bv.Value) + len(bv.Value)/16
 	if sqltypes.IsQuoted(bv.Type) {
 		n += bindValueOverhead
-	}
-	for _, v := range bv.Values {
-		n += len(v.Value) + len(v.Value)/16 + bindValueOverhead
 	}
 	return n
 }
@@ -117,15 +130,17 @@ const bindLargeTupleLen = (bindLargeValue + bindValueOverhead - 1) / bindValueOv
 // isLargeBind reports whether bv is worth sizing the builder for: a scalar
 // of bindLargeValue bytes or more, or a tuple whose estimate reaches that.
 // The count check spares long IN lists the pass over their values; short
-// ones stay on the builder's own doubling.
+// ones stay on the builder's own doubling. It switches on the type for the
+// same reason valueSizeHint does: the field a type does not encode says
+// nothing about how much room the query needs.
 func isLargeBind(bv *querypb.BindVariable) bool {
-	if len(bv.Value) >= bindLargeValue {
-		return true
-	}
-	if len(bv.Values) == 0 {
+	switch bv.Type {
+	case querypb.Type_TUPLE, querypb.Type_ROW_TUPLE:
+		return len(bv.Values) >= bindLargeTupleLen || valueSizeHint(bv) >= bindLargeValue
+	case querypb.Type_NULL_TYPE:
 		return false
 	}
-	return len(bv.Values) >= bindLargeTupleLen || valueSizeHint(bv) >= bindLargeValue
+	return len(bv.Value) >= bindLargeValue
 }
 
 // GenerateQuery generates a query by substituting the specified

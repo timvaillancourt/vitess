@@ -511,6 +511,16 @@ func TestIsLargeBind(t *testing.T) {
 		{"short tuple, large by estimate", sqltypes.TestBindVariable(strs(3, 100)), true},
 		{"short tuple, small by estimate", sqltypes.TestBindVariable(strs(2, 100)), false},
 		{"short row tuple", createRowTupleBV(), false},
+		// Fields the type does not encode say nothing about the room needed.
+		{"null carrying a large Value", &querypb.BindVariable{
+			Type:  querypb.Type_NULL_TYPE,
+			Value: []byte(strings.Repeat("x", bindLargeValue)),
+		}, false},
+		{"scalar carrying large unused Values", &querypb.BindVariable{
+			Type:   querypb.Type_VARCHAR,
+			Value:  []byte("x"),
+			Values: []*querypb.Value{{Type: querypb.Type_VARCHAR, Value: []byte(strings.Repeat("x", bindLargeValue))}},
+		}, false},
 	}
 	for _, tc := range tcases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -520,6 +530,55 @@ func TestIsLargeBind(t *testing.T) {
 	// At the count, the estimate itself is already past the threshold even
 	// for one-byte elements; that is what lets the count stand in for it.
 	assert.GreaterOrEqual(t, valueSizeHint(sqltypes.TestBindVariable(strs(bindLargeTupleLen, 1))), bindLargeValue)
+	// A null costs the literal, whatever it carries.
+	assert.Equal(t, len(sqltypes.NullStr), valueSizeHint(sqltypes.NullBindVariable))
+	assert.Equal(t, len(sqltypes.NullStr), valueSizeHint(&querypb.BindVariable{
+		Type:  querypb.Type_NULL_TYPE,
+		Value: []byte(strings.Repeat("x", 1<<20)),
+	}))
+}
+
+// TestAppendSizesOnlyWhatItEncodes holds the estimate to the field
+// EncodeValue reads. Nothing rejects a bind variable that also carries the
+// field its type does not use, and sizing for that field asks for room the
+// query never writes -- once for every placeholder that names it.
+func TestAppendSizesOnlyWhatItEncodes(t *testing.T) {
+	payload := strings.Repeat("x", 1<<20)
+	tcases := []struct {
+		desc string
+		bv   *querypb.BindVariable
+		text string
+	}{{
+		desc: "null carrying a Value",
+		bv:   &querypb.BindVariable{Type: querypb.Type_NULL_TYPE, Value: []byte(payload)},
+		text: "null",
+	}, {
+		desc: "scalar carrying unused Values",
+		bv: &querypb.BindVariable{
+			Type:   querypb.Type_VARCHAR,
+			Value:  []byte("x"),
+			Values: []*querypb.Value{{Type: querypb.Type_VARCHAR, Value: []byte(payload)}},
+		},
+		text: "'x'",
+	}}
+	for _, tc := range tcases {
+		t.Run(tc.desc, func(t *testing.T) {
+			binds := map[string]*querypb.BindVariable{"x": tc.bv}
+			// Validation accepts both shapes, which is what makes them
+			// worth sizing correctly.
+			require.NoError(t, sqltypes.ValidateBindVariables(binds))
+
+			stmt, err := NewTestParser().Parse("select :x" + strings.Repeat(", :x", 63) + " from t")
+			require.NoError(t, err)
+			pq := NewParsedQuery(stmt)
+
+			var buf strings.Builder
+			require.NoError(t, pq.Append(&buf, binds, nil))
+			require.Equal(t, "select "+tc.text+strings.Repeat(", "+tc.text, 63)+" from t", buf.String())
+			assert.Less(t, buf.Cap(), 4*buf.Len(),
+				"sized for a field EncodeValue never reads")
+		})
+	}
 }
 
 // TestAppendReusesBuilder appends into a builder that already holds text,
