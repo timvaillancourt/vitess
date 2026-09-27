@@ -25,7 +25,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // sqlEscapeBytes is the set the SQL literal encoders scan for, which is the
@@ -47,8 +46,11 @@ func refIndex(b []byte, set []byte) int {
 
 // boundarySizes are the input lengths around the 128-, 256- and 512-bit
 // vector widths, where the full-block loop hands over to the partial tail,
-// and around IndexAny2's first two window edges (256 and 256+1024).
-var boundarySizes = []int{0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 128, 129, 255, 256, 257, 1279, 1280, 1281}
+// and around IndexAny2's first two window edges (256 and 256+1024). 20, 25
+// and 40 are clean lengths that are a multiple of no vector width: 0x00 is in
+// the set the escapers scan for, so a zero-filled partial tail load would
+// forge a hit at one of them.
+var boundarySizes = []int{0, 1, 7, 8, 15, 16, 17, 20, 25, 31, 32, 33, 40, 63, 64, 65, 100, 128, 129, 255, 256, 257, 1279, 1280, 1281}
 
 func clean(n int) []byte {
 	b := make([]byte, n)
@@ -119,17 +121,6 @@ func TestByteSetIndex(t *testing.T) {
 		})
 	}
 
-	// A clean input whose length is not a multiple of the vector width
-	// must not report a hit: 0x00 is in the set, so a tail read through a
-	// zero-filled partial load would forge one. The kernel reads the tail
-	// as an overlapping full block, and this pins that.
-	t.Run("clean tail", func(t *testing.T) {
-		for _, n := range []int{17, 20, 25, 31, 33, 40, 63} {
-			in := clean(n)
-			require.Equal(t, -1, set.Index(in), "size %d", n)
-		}
-	})
-
 	// A set that is all one byte, which exercises the padding path. The
 	// member is outside the a..z corpus clean produces.
 	t.Run("single member", func(t *testing.T) {
@@ -145,7 +136,7 @@ func TestByteSetIndex(t *testing.T) {
 
 func TestIndexAny2(t *testing.T) {
 	check := func(t *testing.T, name string, in []byte, a, c byte) {
-		assert.Equal(t, refIndex(in, []byte{a, c}), IndexAny2(in, a, c), name)
+		assert.Equal(t, refIndex(in, []byte{a, c}), IndexAny2(string(in), a, c), name)
 	}
 
 	for _, n := range boundarySizes {
@@ -177,16 +168,16 @@ func TestIndexAny2(t *testing.T) {
 	t.Run("zero as a needle", func(t *testing.T) {
 		for _, n := range []int{17, 25, 33, 63} {
 			in := clean(n)
-			assert.Equal(t, -1, IndexAny2(in, 0, '"'), "size %d", n)
+			assert.Equal(t, -1, IndexAny2(string(in), 0, '"'), "size %d", n)
 			in[n-1] = 0
-			assert.Equal(t, n-1, IndexAny2(in, 0, '"'), "size %d", n)
+			assert.Equal(t, n-1, IndexAny2(string(in), 0, '"'), "size %d", n)
 		}
 	})
 
 	t.Run("same byte twice", func(t *testing.T) {
 		in := clean(40)
 		in[33] = '\''
-		assert.Equal(t, 33, IndexAny2(in, '\'', '\''))
+		assert.Equal(t, 33, IndexAny2(string(in), '\'', '\''))
 	})
 
 	// The windows: a hit in a later window is found, the earlier of two hits
@@ -196,15 +187,15 @@ func TestIndexAny2(t *testing.T) {
 		for _, pos := range []int{0, 255, 256, 257, 1279, 1280, 1281, 5000} {
 			in := clean(6000)
 			in[pos] = '\\'
-			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "lone c at %d", pos)
+			assert.Equal(t, pos, IndexAny2(string(in), '\'', '\\'), "lone c at %d", pos)
 			in = clean(6000)
 			in[pos] = '\''
 			in[5999] = '\\'
-			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "a at %d before c at the end", pos)
+			assert.Equal(t, pos, IndexAny2(string(in), '\'', '\\'), "a at %d before c at the end", pos)
 			in = clean(6000)
 			in[pos] = '\\'
 			in[5999] = '\''
-			assert.Equal(t, pos, IndexAny2(in, '\'', '\\'), "c at %d before a at the end", pos)
+			assert.Equal(t, pos, IndexAny2(string(in), '\'', '\\'), "c at %d before a at the end", pos)
 		}
 	})
 }
@@ -232,7 +223,7 @@ func FuzzIndexAny2(f *testing.F) {
 	f.Add(append(clean(31), 0), byte(0), byte('x'))
 	f.Fuzz(func(t *testing.T, in []byte, a, c byte) {
 		want := refIndex(in, []byte{a, c})
-		if got := IndexAny2(in, a, c); got != want {
+		if got := IndexAny2(string(in), a, c); got != want {
 			t.Fatalf("IndexAny2(%q, %#x, %#x) = %d, want %d", in, a, c, got, want)
 		}
 	})
@@ -283,7 +274,10 @@ func BenchmarkByteSetIndex(b *testing.B) {
 
 func BenchmarkIndexAny2(b *testing.B) {
 	for _, size := range []int{16, 64, 256, 4096} {
-		in := clean(size)
+		// Converted outside the loop: the tokenizer passes a substring of a
+		// string it already has, so an allocation per call is not the shape
+		// being measured.
+		in := string(clean(size))
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(size))

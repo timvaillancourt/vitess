@@ -521,6 +521,10 @@ func TestIsLargeBind(t *testing.T) {
 			Value:  []byte("x"),
 			Values: []*querypb.Value{{Type: querypb.Type_VARCHAR, Value: []byte(strings.Repeat("x", bindLargeValue))}},
 		}, false},
+		{"tuple whose null element carries a large Value", &querypb.BindVariable{
+			Type:   querypb.Type_TUPLE,
+			Values: []*querypb.Value{{Type: querypb.Type_NULL_TYPE, Value: []byte(strings.Repeat("x", bindLargeValue))}},
+		}, false},
 	}
 	for _, tc := range tcases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -532,6 +536,15 @@ func TestIsLargeBind(t *testing.T) {
 	assert.GreaterOrEqual(t, valueSizeHint(sqltypes.TestBindVariable(strs(bindLargeTupleLen, 1))), bindLargeValue)
 	// A null costs the literal, whatever it carries.
 	assert.Equal(t, len(sqltypes.NullStr), valueSizeHint(sqltypes.NullBindVariable))
+	// So does a null element of a tuple, plus the separator.
+	assert.Equal(t, bindElemOverhead+len(sqltypes.NullStr), valueSizeHint(&querypb.BindVariable{
+		Type:   querypb.Type_TUPLE,
+		Values: []*querypb.Value{{Type: querypb.Type_NULL_TYPE, Value: []byte(strings.Repeat("x", 1<<20))}},
+	}))
+	// A number element costs its digits and the separator: a long IN list of
+	// short numbers is mostly separator, and charging it the quoted overhead
+	// sized the builder for several times the text it writes.
+	assert.Equal(t, 3*(bindElemOverhead+1), valueSizeHint(sqltypes.TestBindVariable([]any{int64(1), int64(2), int64(3)})))
 	assert.Equal(t, len(sqltypes.NullStr), valueSizeHint(&querypb.BindVariable{
 		Type:  querypb.Type_NULL_TYPE,
 		Value: []byte(strings.Repeat("x", 1<<20)),
@@ -539,19 +552,25 @@ func TestIsLargeBind(t *testing.T) {
 }
 
 // TestAppendSizesOnlyWhatItEncodes holds the estimate to the field
-// EncodeValue reads. Nothing rejects a bind variable that also carries the
-// field its type does not use, and sizing for that field asks for room the
-// query never writes -- once for every placeholder that names it.
+// EncodeValue reads, at the top level and for each tuple element. Nothing
+// rejects a bind variable that also carries the field its type does not use,
+// and ProtoToValue drops a null tuple element's Value the same way, so sizing
+// for either asks for room the query never writes -- once for every
+// placeholder that names it, which is what scales one oversized value.
 func TestAppendSizesOnlyWhatItEncodes(t *testing.T) {
 	payload := strings.Repeat("x", 1<<20)
+	scalars := "select :x" + strings.Repeat(", :x", 63) + " from t"
+	tuples := "select 1 from t where a in ::x" + strings.Repeat(" or a in ::x", 15)
 	tcases := []struct {
-		desc string
-		bv   *querypb.BindVariable
-		text string
+		desc  string
+		bv    *querypb.BindVariable
+		query string
+		want  string
 	}{{
-		desc: "null carrying a Value",
-		bv:   &querypb.BindVariable{Type: querypb.Type_NULL_TYPE, Value: []byte(payload)},
-		text: "null",
+		desc:  "null carrying a Value",
+		bv:    &querypb.BindVariable{Type: querypb.Type_NULL_TYPE, Value: []byte(payload)},
+		query: scalars,
+		want:  "select null" + strings.Repeat(", null", 63) + " from t",
 	}, {
 		desc: "scalar carrying unused Values",
 		bv: &querypb.BindVariable{
@@ -559,22 +578,35 @@ func TestAppendSizesOnlyWhatItEncodes(t *testing.T) {
 			Value:  []byte("x"),
 			Values: []*querypb.Value{{Type: querypb.Type_VARCHAR, Value: []byte(payload)}},
 		},
-		text: "'x'",
+		query: scalars,
+		want:  "select 'x'" + strings.Repeat(", 'x'", 63) + " from t",
+	}, {
+		desc: "tuple whose null element carries a Value",
+		bv: &querypb.BindVariable{
+			Type: querypb.Type_TUPLE,
+			Values: []*querypb.Value{
+				{Type: querypb.Type_NULL_TYPE, Value: []byte(payload)},
+				{Type: querypb.Type_INT64, Value: []byte("1")},
+			},
+		},
+		query: tuples,
+		want:  "select 1 from t where a in (null, 1)" + strings.Repeat(" or a in (null, 1)", 15),
 	}}
 	for _, tc := range tcases {
 		t.Run(tc.desc, func(t *testing.T) {
 			binds := map[string]*querypb.BindVariable{"x": tc.bv}
-			// Validation accepts both shapes, which is what makes them
-			// worth sizing correctly.
+			// Validation accepts every shape here, which is what makes them
+			// worth sizing correctly; a tuple element is validated on its
+			// own type and Value.
 			require.NoError(t, sqltypes.ValidateBindVariables(binds))
 
-			stmt, err := NewTestParser().Parse("select :x" + strings.Repeat(", :x", 63) + " from t")
+			stmt, err := NewTestParser().Parse(tc.query)
 			require.NoError(t, err)
 			pq := NewParsedQuery(stmt)
 
 			var buf strings.Builder
 			require.NoError(t, pq.Append(&buf, binds, nil))
-			require.Equal(t, "select "+tc.text+strings.Repeat(", "+tc.text, 63)+" from t", buf.String())
+			require.Equal(t, tc.want, buf.String())
 			assert.Less(t, buf.Cap(), 4*buf.Len(),
 				"sized for a field EncodeValue never reads")
 		})
@@ -639,11 +671,25 @@ func TestAppendDoesNotSizeAFailingQuery(t *testing.T) {
 // "scalars" cell is one placeholder per value; the "tuple" cells are the
 // shape vtgate actually sends, one `IN ::__vals` placeholder bound to a
 // TUPLE, which is what Append's tuple arm sizes the builder for.
+//
+// The long cells are there for B/op rather than ns/op: the estimate leaves
+// bindValueOverhead per element whatever the element's type, so a long list
+// of short values reserves several times the text it writes, and
+// strings.Builder hands that buffer back with the string. "tuple/10000-short"
+// is the worst case for that -- single-digit values, where the overhead is
+// the whole estimate -- and "tuple/10000" is what an ORM sends.
 func BenchmarkGenerateQueryIntBinds(b *testing.B) {
 	ints := func(n int) []any {
 		vals := make([]any, n)
 		for i := range vals {
 			vals[i] = int64(i * 1000003)
+		}
+		return vals
+	}
+	shortInts := func(n int) []any {
+		vals := make([]any, n)
+		for i := range vals {
+			vals[i] = int64(i % 10)
 		}
 		return vals
 	}
@@ -668,6 +714,8 @@ func BenchmarkGenerateQueryIntBinds(b *testing.B) {
 		{"scalars/64", scalars.String(), scalarBinds},
 		{"tuple/64", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(ints(64))}},
 		{"tuple/3", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(ints(3))}},
+		{"tuple/10000", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(ints(10000))}},
+		{"tuple/10000-short", "select * from t where id in ::__vals", map[string]*querypb.BindVariable{"__vals": sqltypes.TestBindVariable(shortInts(10000))}},
 	}
 	for _, tc := range cases {
 		stmt, err := NewTestParser().Parse(tc.query)

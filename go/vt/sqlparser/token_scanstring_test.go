@@ -30,7 +30,7 @@ import (
 // against a fresh tokenizer over the same input. It is the definition of
 // correct output: token id, string and final position must all match. It
 // hands off to scanStringSlowReference, the old slow path, so the whole
-// reference chain is the code that shipped before either rewrite.
+// reference chain is the code that shipped before the rewrite.
 func scanStringReference(tkn *Tokenizer, delim uint16, typ int) (int, string) {
 	start := tkn.Pos
 
@@ -56,9 +56,10 @@ func scanStringReference(tkn *Tokenizer, delim uint16, typ int) (int, string) {
 	}
 }
 
-// scanStringSlowReference is the old scanStringSlow, verbatim: its inner
-// hunt for the next delimiter or backslash was a byte-at-a-time loop,
-// which the rewrite replaced with one IndexAny2 scan.
+// scanStringSlowReference is the old scanStringSlow, verbatim -- and still
+// identical to it, because the rewrite deliberately left its inner
+// byte-at-a-time hunt alone (see scanStringSlow for why). It is a copy so
+// the reference chain stays independent of the code it checks.
 func scanStringSlowReference(tkn *Tokenizer, buffer *strings.Builder, delim uint16, typ int) (int, string) {
 	for {
 		ch := tkn.cur()

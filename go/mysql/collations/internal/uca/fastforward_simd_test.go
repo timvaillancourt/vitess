@@ -37,11 +37,28 @@ func vectorWidth() int {
 	return zero.Len()
 }
 
+// requireVectors skips when the simd package is emulating vectors in
+// software. init raises simdThreshold past any input length in that build, so
+// every case below would read as "under a guard" and the comparison against
+// the scalar reference would never run -- the tests would pass having checked
+// nothing. GODEBUG=simd=0 asks for emulation, and so does a CPU whose feature
+// check comes back short. Skip out loud instead.
+func requireVectors(tb testing.TB) {
+	tb.Helper()
+	if simd.Emulated() {
+		tb.Skip("simd is emulated, so equalASCIIPrefix always returns 0 and there is no kernel to compare")
+	}
+}
+
 // TestEqualASCIIPrefixMatchesReference pins the vectorized kernel to the
 // scalar block loop for every input long enough to take the vector path,
-// and pins it to the fallback for everything between the two guards.
+// and pins it to the fallback for everything between the two guards. The
+// count at the end fails the test if no case reached the comparison, so a
+// future threshold change cannot quietly empty it out.
 func TestEqualASCIIPrefixMatchesReference(t *testing.T) {
+	requireVectors(t)
 	w := vectorWidth()
+	compared := 0
 	for _, tc := range prefixCases() {
 		n := min(len(tc.p1), len(tc.p2))
 		switch {
@@ -52,8 +69,10 @@ func TestEqualASCIIPrefixMatchesReference(t *testing.T) {
 				"%s: %d bytes is under one %d-byte vector, so the scalar loop does the walk", tc.name, n, w)
 		default:
 			require.Equalf(t, refEqualASCIIPrefix(tc.p1, tc.p2), equalASCIIPrefix(tc.p1, tc.p2), tc.name)
+			compared++
 		}
 	}
+	require.NotZero(t, compared, "no case reached the reference comparison, so the kernel went unchecked")
 }
 
 // TestFastForward32SkipMatchesReference pins what the skip leaves behind,
@@ -78,6 +97,7 @@ func TestFastForward32SkipMatchesReference(t *testing.T) {
 }
 
 func FuzzEqualASCIIPrefix(f *testing.F) {
+	requireVectors(f)
 	f.Add(asciiRun(64), asciiRun(64))
 	f.Add(asciiRun(33), append(asciiRun(32), 0xC3))
 	f.Add(asciiRun(20), asciiRun(17))

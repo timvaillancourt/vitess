@@ -49,17 +49,22 @@ func NewParsedQuery(node SQLNode) *ParsedQuery {
 // tuple parens and ", " separators.
 const bindValueOverhead = 16
 
+// bindElemOverhead is what a tuple element costs beyond its own bytes when
+// it carries no quotes or introducer of its own: the ", " that joins it to
+// the next one. The last element does not need one, which leaves the tuple's
+// own parens covered. A long IN list of short numbers is mostly this, so
+// charging it the full bindValueOverhead oversizes the builder several times
+// over.
+const bindElemOverhead = 2
+
 // bindLargeValue is the encoded size from which Append sizes the builder
 // for the whole query instead of letting it grow: a scalar of that many
 // bytes, or a tuple whose estimate reaches it. Below it the builder's own
 // doubling covers the value in a few small allocations, and the common
-// shapes (a short IN list of integers, a row of short strings) never pay
-// for a pass over the placeholders. Measured on arm64, sizing at 64-byte
-// values cost the short-string shape 7%, and pre-growing by a
-// per-placeholder pad cost it 3% by moving its append chain onto larger
-// size classes; at 256 with no pad both shapes are unchanged, and a
-// three-int IN list got 16% faster once tuples below the estimate stopped
-// being sized.
+// shapes (a short IN list of integers, a row of short strings) never pay for
+// a pass over the placeholders. 64 measurably regressed short strings and a
+// per-placeholder pad regressed them again; 256 with no pad did neither.
+// Numbers in the RFC and in the commit that set it.
 const bindLargeValue = 256
 
 // sizeHint estimates the generated query's length from the query text and
@@ -68,9 +73,7 @@ const bindLargeValue = 256
 // because the map is whatever the caller sent, not what this query uses:
 // vtgate hands a join's right side the whole left-side map on every row,
 // and a range would size the builder for binds the query never writes.
-// Append only calls this once it has met a large value, so the lookups
-// are paid by queries whose substitution already costs far more. Custom
-// Encodable values are skipped because the interface has no
+// Custom Encodable values are skipped because the interface has no
 // side-effect-free size operation; encoding one twice would be a stronger
 // contract than it promises.
 //
@@ -99,16 +102,29 @@ func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable, 
 // overhead for each quoted scalar or tuple element. Escape-dense values can
 // still make the builder grow once.
 //
-// It reads the same field EncodeValue does and no other. Nothing rejects a
-// bind variable that also carries the field its type does not use -- a NULL
-// with a Value, a scalar with Values -- and counting those sizes the builder
-// for bytes that are never written.
+// It reads the same field EncodeValue does and no other, at the top level
+// and for each tuple element. Nothing rejects a bind variable that also
+// carries the field its type does not use -- a NULL with a Value, a scalar
+// with Values -- and counting those sizes the builder for bytes that are
+// never written, once for every placeholder that names it.
 func valueSizeHint(bv *querypb.BindVariable) int {
 	switch bv.Type {
 	case querypb.Type_TUPLE, querypb.Type_ROW_TUPLE:
 		var n int
 		for _, v := range bv.Values {
-			n += len(v.Value) + len(v.Value)/16 + bindValueOverhead
+			switch {
+			case v.Type == querypb.Type_NULL_TYPE:
+				// ProtoToValue drops a null element's Value the way
+				// MakeTrusted does at the top level, so the element is
+				// the literal whatever it carries.
+				n += bindElemOverhead + len(sqltypes.NullStr)
+			case sqltypes.IsNumber(v.Type):
+				// A number encodes as its own bytes, unquoted and with
+				// nothing to escape.
+				n += bindElemOverhead + len(v.Value)
+			default:
+				n += bindValueOverhead + len(v.Value) + len(v.Value)/16
+			}
 		}
 		return n
 	case querypb.Type_NULL_TYPE:
@@ -122,9 +138,12 @@ func valueSizeHint(bv *querypb.BindVariable) int {
 	return n
 }
 
-// bindLargeTupleLen is the element count from which a tuple's estimate
-// reaches bindLargeValue on the per-element overhead alone, rounded up so it
-// stays a sufficient condition whatever the two constants are.
+// bindLargeTupleLen is the element count from which a quoted tuple's
+// estimate reaches bindLargeValue on the per-element overhead alone,
+// rounded up so it stays a sufficient condition whatever the two constants
+// are. A tuple of numbers reaches the count before its estimate, so the
+// short-circuit sizes it early; that only spends a Grow the builder wanted
+// anyway, and it spares long lists the pass over their values.
 const bindLargeTupleLen = (bindLargeValue + bindValueOverhead - 1) / bindValueOverhead
 
 // isLargeBind reports whether bv is worth sizing the builder for: a scalar
@@ -174,11 +193,11 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 				return err
 			}
 			// The first large bind sizes the builder for the whole query,
-			// once; Grow is a no-op if it already fits. Growing per value let
-			// a query with a few KB of string binds double its way through a
-			// dozen allocations, and sizing up front would charge every
-			// query a pass over the placeholders that a query of small binds
-			// never needs.
+			// once; Grow is a no-op if it already fits. Growing per value
+			// made a query with a few KB of string binds double its way
+			// through a dozen allocations, and sizing up front would charge
+			// every query a pass over the placeholders that a query of small
+			// binds never needs.
 			if !sized && isLargeBind(supplied) {
 				// Sized once either way: if the estimate stopped at a
 				// placeholder with no bind var, retrying it for the next

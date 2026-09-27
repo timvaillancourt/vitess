@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"vitess.io/vitess/go/bytes2"
-	"vitess.io/vitess/go/hack"
 	"vitess.io/vitess/go/sqltypes"
 )
 
@@ -626,8 +625,7 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 	// Most literals have no escapes, so the common case scans for the closing
 	// delimiter or a backslash instead of peeking once per byte. Keep the
 	// first few bytes on the scalar loop: IndexAny2's fixed first window costs
-	// more when the first escape is nearby. The string is only read through
-	// the byte view, never written.
+	// more when the first escape is nearby.
 	end := min(start+scanStringScalarPrefix, len(tkn.buf))
 	for tkn.Pos < end {
 		ch := uint16(tkn.buf[tkn.Pos])
@@ -637,7 +635,7 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 		tkn.Pos++
 	}
 	if tkn.Pos == end {
-		i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[end:]), byte(delim), '\\')
+		i := bytes2.IndexAny2(tkn.buf[end:], byte(delim), '\\')
 		if i < 0 {
 			tkn.Pos = len(tkn.buf)
 			return LEX_ERROR, tkn.buf[start:]

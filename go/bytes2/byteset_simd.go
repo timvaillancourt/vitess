@@ -38,9 +38,7 @@ func init() {
 // laneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
 // caller owns one per call rather than per block, since Store overwrites the
 // words that are read and zeroing 64 bytes per block is measurable. It and
-// firstLane stay unexported: the RFC's adoption policy (§6, rule 6) keeps
-// simd types out of exported signatures, so collations/uca carries its own
-// copy rather than importing these.
+// firstLane stay unexported per §6 rule 6, so collations/uca carries a copy.
 type laneBuf [8]uint64
 
 // firstLane returns the index of the first true lane of m, given n lanes, or

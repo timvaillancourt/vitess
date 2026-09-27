@@ -16,7 +16,7 @@ limitations under the License.
 
 package bytes2
 
-import "bytes"
+import "strings"
 
 // byteSetMax is the largest set a ByteSet can hold. It is the number of
 // broadcast compares the vectorized Index does per block, so it is kept small
@@ -28,6 +28,11 @@ const byteSetMax = 8
 // encoders: the escaping loop asks where the next special byte is and copies
 // the clean run in front of it in one write, instead of testing and writing
 // one byte at a time.
+//
+// A ByteSet must come from NewByteSet. The zero value is not an empty set:
+// its membership table holds nothing while its broadcast rows read as
+// {0x00}, so the scalar and vectorized Index disagree on it. There is no
+// empty set to represent anyway -- NewByteSet panics on one.
 //
 // A ByteSet is built once and shared; Index is safe for concurrent use.
 type ByteSet struct {
@@ -80,38 +85,40 @@ func (s *ByteSet) indexScalar(b []byte) int {
 // the input, and it bounds what a call can spend on a far-off byte.
 const indexAny2Window = 256
 
-// IndexAny2 returns the index of the first byte of b that is a or c, or -1 if
-// neither occurs. It is two bytes.IndexByte scans per window, the second only
-// over the bytes in front of the first hit. IndexByte is hand-tuned assembly
-// with a native movemask on every architecture Vitess builds for; a portable
-// simd kernel was measured 2-3x slower than this on arm64 because it has to
-// store and rescan the compare mask per block, so there is no simd variant.
+// IndexAny2 returns the index of the first byte of s that is a or c, or -1 if
+// neither occurs. It is two strings.IndexByte scans per window, the second
+// only over the bytes in front of the first hit. IndexByte is hand-tuned
+// assembly with a native movemask on every architecture Vitess builds for; a
+// portable simd kernel was measured 2-3x slower than this on arm64 because it
+// has to store and rescan the compare mask per block, so there is no simd
+// variant. It takes a string because its one caller has one, and passing the
+// bytes through an unsafe view to get here is not worth the conversion.
 //
 // The scan runs in windows that start at indexAny2Window bytes and quadruple,
-// rather than over all of b at once, because a caller that resumes after
-// every hit must not pay for a distant a on each call: the tokenizer's slow
-// string path resumes after every escape, and an unbounded first scan for the
-// closing quote made a literal with an escape every few bytes quadratic
-// (2ms to 57ms on a 1MB query). The fixed first window is paid even for a
-// nearby hit; after that, geometric growth keeps the total work bounded by
-// the initial window plus a constant factor of the distance to the hit.
-func IndexAny2(b []byte, a, c byte) int {
+// rather than over all of s at once, because c can only be searched in front
+// of a: with no window, a literal whose backslash is early and whose closing
+// quote is far away pays the whole scan to the quote before it can look for
+// the backslash. Measured on arm64, a 64KB literal with an escape at byte 9
+// costs 6ns windowed against 644ns unwindowed. The fixed first window is paid
+// even for a nearby hit; after that, geometric growth keeps the total work
+// bounded by the initial window plus a constant factor of the distance.
+func IndexAny2(s string, a, c byte) int {
 	window := indexAny2Window
-	for off := 0; off < len(b); {
-		end := off + min(window, len(b)-off)
-		w := b[off:end]
-		i := bytes.IndexByte(w, a)
+	for off := 0; off < len(s); {
+		end := off + min(window, len(s)-off)
+		w := s[off:end]
+		i := strings.IndexByte(w, a)
 		if i >= 0 {
 			w = w[:i]
 		}
-		if j := bytes.IndexByte(w, c); j >= 0 {
+		if j := strings.IndexByte(w, c); j >= 0 {
 			return off + j
 		}
 		if i >= 0 {
 			return off + i
 		}
 		off = end
-		remaining := len(b) - off
+		remaining := len(s) - off
 		if window > remaining/4 {
 			window = remaining
 		} else {

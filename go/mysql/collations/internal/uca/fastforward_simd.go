@@ -38,10 +38,8 @@ func init() {
 	}
 }
 
-// laneBuf holds a stored byte mask: 64 bytes covers the widest vector. It
-// and firstLane are a copy of the bytes2 helpers, not an import: sharing
-// them would put a simd type in an exported signature, which the RFC's
-// adoption policy (§6, rule 6) rules out.
+// laneBuf holds a stored byte mask: 64 bytes covers the widest vector. It and
+// firstLane are copied from bytes2; §6 rule 6 keeps simd types unexported.
 type laneBuf [8]uint64
 
 // firstLane returns the index of the first true lane of m, given n lanes, or
