@@ -20,19 +20,39 @@ package uca
 
 import (
 	"fmt"
+	"simd"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// vectorWidth is the native vector width in bytes. The kernel has two
+// guards, not one: it takes the scalar path below simdThreshold and again
+// below one whole vector, so a test that knows only the threshold expects
+// vector work the kernel does not do. The two coincide at 16-byte NEON,
+// which is why arm64 alone never notices; at 64-byte AVX-512 the band
+// between them is 32 bytes wide.
+func vectorWidth() int {
+	var zero simd.Uint8s
+	return zero.Len()
+}
+
 // TestEqualASCIIPrefixMatchesReference pins the vectorized kernel to the
-// scalar block loop for every input long enough to take the vector path.
+// scalar block loop for every input long enough to take the vector path,
+// and pins it to the fallback for everything between the two guards.
 func TestEqualASCIIPrefixMatchesReference(t *testing.T) {
+	w := vectorWidth()
 	for _, tc := range prefixCases() {
-		if min(len(tc.p1), len(tc.p2)) < simdThreshold {
+		n := min(len(tc.p1), len(tc.p2))
+		switch {
+		case n < simdThreshold:
 			continue
+		case n < w:
+			require.Zerof(t, equalASCIIPrefix(tc.p1, tc.p2),
+				"%s: %d bytes is under one %d-byte vector, so the scalar loop does the walk", tc.name, n, w)
+		default:
+			require.Equalf(t, refEqualASCIIPrefix(tc.p1, tc.p2), equalASCIIPrefix(tc.p1, tc.p2), tc.name)
 		}
-		require.Equalf(t, refEqualASCIIPrefix(tc.p1, tc.p2), equalASCIIPrefix(tc.p1, tc.p2), tc.name)
 	}
 }
 
@@ -61,16 +81,16 @@ func FuzzEqualASCIIPrefix(f *testing.F) {
 	f.Add(asciiRun(64), asciiRun(64))
 	f.Add(asciiRun(33), append(asciiRun(32), 0xC3))
 	f.Add(asciiRun(20), asciiRun(17))
+	w := vectorWidth()
 	f.Fuzz(func(t *testing.T, p1, p2 []byte) {
 		got := equalASCIIPrefix(p1, p2)
-		ref := refEqualASCIIPrefix(p1, p2)
-		if min(len(p1), len(p2)) < simdThreshold {
+		if n := min(len(p1), len(p2)); n < simdThreshold || n < w {
 			if got != 0 {
-				t.Fatalf("short input took the vector path: got %d", got)
+				t.Fatalf("input of %d bytes is under a guard but took the vector path: got %d", n, got)
 			}
 			return
 		}
-		if got != ref {
+		if ref := refEqualASCIIPrefix(p1, p2); got != ref {
 			t.Fatalf("equalASCIIPrefix(%q, %q) = %d, want %d", p1, p2, got, ref)
 		}
 	})
