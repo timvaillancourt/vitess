@@ -62,7 +62,7 @@ env:
   # The benchmarks that the viability gate compares. -bench matches each
   # slash-separated name component separately, so a top-level name matches
   # all of its sub-benchmarks.
-  BENCH_PATTERN: "^(BenchmarkByteSetIndex|BenchmarkIndexAny2|BenchmarkEncodeSQL|BenchmarkEncodeSQLReference|BenchmarkGenerateQueryStringBinds|BenchmarkGenerateQueryCorpus|BenchmarkGenerateQueryTail|BenchmarkParseTail|BenchmarkTokenizerScanString|BenchmarkTokenizerScanStringReference|BenchmarkCollateSharedPrefix|BenchmarkCollationCollate|BenchmarkParse3|BenchmarkNormalizeVTGate)$"
+  BENCH_PATTERN: "^(BenchmarkByteSetIndex|BenchmarkIndexAny2|BenchmarkEncodeSQL|BenchmarkEncodeSQLReference|BenchmarkEncodeSQLBits|BenchmarkGenerateQueryStringBinds|BenchmarkGenerateQueryIntBinds|BenchmarkGenerateQueryCorpus|BenchmarkGenerateQueryTail|BenchmarkParseTail|BenchmarkTokenizerScan|BenchmarkTokenizerScanString|BenchmarkTokenizerScanStringReference|BenchmarkCollateSharedPrefix|BenchmarkCollationCollate|BenchmarkParse3|BenchmarkNormalizeVTGate)$"
   BENCH_PACKAGES: "./go/bytes2/... ./go/sqltypes/... ./go/mysql/collations/colldata/... ./go/vt/sqlparser/..."
   # The packages that carry a SIMD fast path. collations/integration is left
   # out because its TestMain needs a live MySQL.
