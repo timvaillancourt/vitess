@@ -138,22 +138,24 @@ func TestScanStringBoundaries(t *testing.T) {
 
 	for _, delim := range []byte{'\'', '"'} {
 		d := string(delim)
-		// A clean literal of every length around IndexByte's block edges
-		// and IndexAny2's first window, with the closing delimiter at each.
-		for _, n := range []int{0, 1, 14, 15, 16, 17, 30, 31, 32, 33, 62, 63, 64, 65, 100, 4096} {
+		// A clean literal of every length around the scanStringScalarPrefix
+		// handoff, IndexByte's block edges and IndexAny2's first window, with
+		// the closing delimiter at each.
+		for _, n := range []int{0, 1, 7, 8, 9, 14, 15, 16, 17, 30, 31, 32, 33, 62, 63, 64, 65, 100, 4096} {
 			requireScansLikeReference(t, fmt.Sprintf("%c clean %d", delim, n), body(n)+d+" and more", delim)
 			// Unterminated: the delimiter never comes.
 			requireScansLikeReference(t, fmt.Sprintf("%c unterminated %d", delim, n), body(n), delim)
 		}
-		// A backslash escape at the block edges, before the closing
-		// delimiter further on.
-		for _, pos := range []int{0, 15, 16, 31, 32, 63, 64} {
+		// A backslash escape at the handoff and the block edges, before the
+		// closing delimiter further on.
+		for _, pos := range []int{0, 7, 8, 9, 15, 16, 31, 32, 63, 64} {
 			b := []byte(body(80))
 			b[pos] = '\\'
 			requireScansLikeReference(t, fmt.Sprintf("%c backslash at %d", delim, pos), string(b)+d+" x", delim)
 		}
-		// A doubled delimiter straddling a block edge, and at the end.
-		for _, pos := range []int{15, 31, 63} {
+		// A doubled delimiter straddling the handoff or a block edge, and at
+		// the end.
+		for _, pos := range []int{7, 8, 15, 31, 63} {
 			b := []byte(body(80))
 			b[pos], b[pos+1] = delim, delim
 			requireScansLikeReference(t, fmt.Sprintf("%c doubled at %d", delim, pos), string(b)+d+" x", delim)

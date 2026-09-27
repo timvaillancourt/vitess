@@ -610,6 +610,10 @@ exit:
 	return token, tkn.buf[start:tkn.Pos]
 }
 
+// scanStringScalarPrefix is how many bytes scanString checks one at a time
+// before it hands the hunt for the closing delimiter to IndexAny2. Its fixed
+// first window is a bad trade for a literal that closes, or escapes, within
+// the first few bytes.
 const scanStringScalarPrefix = 8
 
 // scanString scans a string surrounded by the given `delim`, which can be
