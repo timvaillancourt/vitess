@@ -90,7 +90,7 @@ func TestEncodeBytesSQLMatchesReference(t *testing.T) {
 
 	// Every escape byte at every position around the vector block
 	// boundaries, so a hit lands in the last lane of a full block, the first
-	// lane of the next, and in the zero-filled tail of a partial load.
+	// lane of the next, and inside the overlapping tail block.
 	for _, n := range []int{0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65} {
 		requireEncodesLikeReference(t, fmt.Sprintf("clean %d", n), clean(n))
 		for pos := range n {

@@ -46,7 +46,7 @@ export REWRITER=go/vt/sqlparser/rewriter.go
 # Since we are not using this Makefile for compilation, limiting parallelism will not increase build time.
 .NOTPARALLEL:
 
-.PHONY: all build install test clean unit_test unit_test_cover unit_test_race integration_test proto proto_banner site_test site_integration_test docker_bootstrap docker_test docker_unit_test java_test reshard_tests e2e_test e2e_test_race lint lint-fix minimaltools tools generate-flag-testdata
+.PHONY: all build build-static build-experimental-simd install test clean unit_test unit_test_cover unit_test_race integration_test proto proto_banner site_test site_integration_test docker_bootstrap docker_test docker_unit_test java_test reshard_tests e2e_test e2e_test_race lint lint-fix minimaltools tools generate-flag-testdata
 
 all: build
 
@@ -84,8 +84,14 @@ endif
 		-tags "$(EXTRA_BUILD_TAGS)" \
 		-o ${VTROOTBIN} ./go/...
 
+build: build-static
+
+# build the vitess binaries with the experimental SIMD fast paths
+build-experimental-simd:
+	GOEXPERIMENT=simd $(MAKE) build-static EXTRA_BUILD_TAGS="$(EXTRA_BUILD_TAGS) simd"
+
 # build the vitess binaries statically
-build:
+build-static:
 ifndef NOBANNER
 	echo $$(date): Building source tree
 endif

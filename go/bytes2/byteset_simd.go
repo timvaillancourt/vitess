@@ -1,4 +1,4 @@
-//go:build goexperiment.simd && (amd64 || arm64)
+//go:build simd && goexperiment.simd && (amd64 || arm64)
 
 /*
 Copyright 2026 The Vitess Authors.
@@ -24,12 +24,9 @@ import (
 	"simd"
 )
 
-// simdThreshold is the input length below which the scalar path wins: the
-// broadcasts and the mask extraction cost more than a table walk over a few
-// bytes. It is a single comparison rather than a separate "is SIMD usable"
-// flag so the exported wrappers stay under the inlining budget; init raises
-// it past any length when the simd package is emulating vectors in
-// software, where the scalar paths are always faster.
+// simdThreshold keeps short inputs on the scalar path; init disables SIMD
+// when vectors are emulated. One comparison keeps Index within the inlining
+// budget.
 var simdThreshold = 16
 
 func init() {
@@ -40,7 +37,9 @@ func init() {
 
 // laneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
 // caller owns one per call rather than per block, since Store overwrites the
-// words that are read and zeroing 64 bytes per block is measurable.
+// words that are read and zeroing 64 bytes per block is measurable. The mask
+// helpers stay local to avoid spending more of the experiment's tight inlining
+// budget.
 type laneBuf [8]uint64
 
 // firstLane returns the index of the first true lane of m, given n lanes, or
@@ -111,11 +110,9 @@ func indexSIMD(s *ByteSet, b []byte) int {
 		}
 	}
 	if i < len(b) {
-		// The tail is read as one full block ending at the last byte, so it
-		// overlaps bytes the loop already cleared; a hit there is a real
-		// one, and there is no partial load, which is a non-inlined call the
-		// compiler spills all eight vectors around, and no zero-filled lanes
-		// to discount.
+		// Read the tail as an overlapping full block; bytes the loop cleared
+		// cannot flag, and avoiding a partial load also avoids spilling the
+		// vectors.
 		start := len(b) - n
 		x := simd.LoadUint8s(b[start:])
 		if k := firstLane(match8(x, v0, v1, v2, v3, v4, v5, v6, v7), n, &tmp); k >= 0 {

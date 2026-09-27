@@ -1,4 +1,4 @@
-//go:build goexperiment.simd && (amd64 || arm64)
+//go:build simd && goexperiment.simd && (amd64 || arm64)
 
 /*
 Copyright 2026 The Vitess Authors.
@@ -38,7 +38,9 @@ func init() {
 	}
 }
 
-// laneBuf holds a stored byte mask: 64 bytes covers the widest vector.
+// laneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
+// mask helpers stay local to avoid spending more of the experiment's tight
+// inlining budget.
 type laneBuf [8]uint64
 
 // firstLane returns the index of the first true lane of m, given n lanes, or
@@ -98,12 +100,9 @@ func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 		}
 	}
 	if i < n {
-		// The tail is read as one full block ending at byte n, so it
-		// overlaps bytes the loop already cleared; those cannot flag, so a
-		// flag is always a real one. This avoids the partial load, which is
-		// a non-inlined call the compiler spills the live vectors around.
-		// With no flag the whole input is equal ASCII and the scalar loop's
-		// own 4-byte bound applies to it.
+		// Read the tail as an overlapping full block; bytes the loop cleared
+		// cannot flag, and avoiding a partial load also avoids spilling the
+		// vectors. With no flag the scalar loop's 4-byte bound applies.
 		start := n - w
 		v1 := simd.LoadUint8s(p1[start:n])
 		v2 := simd.LoadUint8s(p2[start:n])

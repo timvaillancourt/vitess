@@ -63,26 +63,29 @@ func TestNewByteSet(t *testing.T) {
 	assert.Panics(t, func() { NewByteSet(1, 2, 3, 4, 5, 6, 7, 8, 9) })
 
 	// Every pre-broadcast row is its member repeated across the widest
-	// vector. Only the simd Index reads the rows, and that build is not the
+	// vector. Only the SIMD Index reads the rows, and that build is not the
 	// default one, so this pins the fill in every build.
-	rowsMatchMembers := func(t *testing.T, s *ByteSet) {
+	rowsMatchMembers := func(t *testing.T, s *ByteSet, vals []byte) {
 		t.Helper()
-		for i, v := range s.vals {
+		for i := range s.bcast {
+			v := vals[0]
+			if i < len(vals) {
+				v = vals[i]
+			}
 			assert.Equal(t, bytes.Repeat([]byte{v}, bcastWidth), s.bcast[i][:], "row %d", i)
 		}
 	}
 
 	s := NewByteSet('x')
-	assert.Equal(t, [8]byte{'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'}, s.vals, "a short set pads with its first member")
 	assert.True(t, s.table['x'])
 	assert.False(t, s.table['y'])
-	rowsMatchMembers(t, s)
+	rowsMatchMembers(t, s, []byte{'x'})
 
 	s = NewByteSet(sqlEscapeBytes...)
 	for _, v := range sqlEscapeBytes {
 		assert.True(t, s.table[v], "byte %#x", v)
 	}
-	rowsMatchMembers(t, s)
+	rowsMatchMembers(t, s, sqlEscapeBytes)
 }
 
 func TestByteSetIndex(t *testing.T) {

@@ -138,9 +138,8 @@ func TestScanStringBoundaries(t *testing.T) {
 
 	for _, delim := range []byte{'\'', '"'} {
 		d := string(delim)
-		// A clean literal of every length around the vector block edges,
-		// so the closing delimiter lands in the last lane of a full block,
-		// the first lane of the next, and in a partial tail.
+		// A clean literal of every length around IndexByte's block edges
+		// and IndexAny2's first window, with the closing delimiter at each.
 		for _, n := range []int{0, 1, 14, 15, 16, 17, 30, 31, 32, 33, 62, 63, 64, 65, 100, 4096} {
 			requireScansLikeReference(t, fmt.Sprintf("%c clean %d", delim, n), body(n)+d+" and more", delim)
 			// Unterminated: the delimiter never comes.

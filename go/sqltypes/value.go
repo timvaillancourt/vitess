@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1083,14 +1082,10 @@ func init() {
 			SQLEncodeMap[byte(i)] = to
 		}
 	}
-	// Sorted so the set's member order does not depend on map iteration:
-	// the order is irrelevant to Index, but a reproducible one is easier to
-	// read in a debugger.
 	escapes := make([]byte, 0, len(encodeRef))
 	for ch := range encodeRef {
 		escapes = append(escapes, ch)
 	}
-	slices.Sort(escapes)
 	sqlEscapeSet = bytes2.NewByteSet(escapes...)
 
 	for i := range SQLDecodeMap {

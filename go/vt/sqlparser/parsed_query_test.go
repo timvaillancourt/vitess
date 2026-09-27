@@ -454,6 +454,26 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 		}
 	})
 	assert.LessOrEqual(t, allocs, 4.0, "GenerateQuery should not regrow its builder per value")
+
+	// The hint stays deliberately below the worst-case encoded size rather
+	// than charging ordinary strings for a buffer twice their input length.
+	// An escape-dense value may grow once, but not once per bound value.
+	escapeDense := strings.Repeat("\x00", 1024)
+	bindVars = map[string]*querypb.BindVariable{
+		"a": sqltypes.StringBindVariable(escapeDense),
+		"b": sqltypes.StringBindVariable(escapeDense),
+		"c": sqltypes.BytesBindVariable([]byte(escapeDense)),
+		"d": sqltypes.BytesBindVariable([]byte(escapeDense)),
+	}
+	out, err := pq.GenerateQuery(bindVars, nil)
+	require.NoError(t, err)
+	assert.Less(t, pq.sizeHint(bindVars), len(out), "the case must exceed the best-effort hint")
+	allocs = testing.AllocsPerRun(100, func() {
+		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assert.LessOrEqual(t, allocs, 5.0, "an escape-dense value should grow at most once beyond the hint")
 }
 
 // BenchmarkGenerateQueryIntBinds is the shape where pre-sizing the builder

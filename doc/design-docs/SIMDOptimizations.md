@@ -17,11 +17,12 @@ records a benchmark-gated prototype of the top three:
    vtgate runs it for every literal in every query it parses.
 
 Each fast path has a pure-Go scalar rewrite (the release path today) and a
-portable-`simd` kernel that only compiles under `goexperiment.simd`. **A
-kernel ships only if it is measurably faster** than the scalar path it
-replaces, with no significant regression in any benchmark cell (§4). Release
-builds never set `GOEXPERIMENT`; the SIMD kernels become the default path when
-a Go release ships `simd` without the experiment gate (§6).
+portable-`simd` kernel that compiles only when `GOEXPERIMENT=simd` and the
+`simd` build tag are both set. **A kernel ships only if it is measurably
+faster** than the scalar path it replaces, with no significant regression in
+any benchmark cell (§4). Regular `make build` stays on the scalar release
+path; `make build-experimental-simd` and the experiment workflow supply both
+opt-ins explicitly (§6).
 
 ## 1. Go SIMD status
 
@@ -85,8 +86,10 @@ Verified against the go1.27.1 source tree (`$GOROOT/src/simd`).
 
 ## 2. Current Vitess state
 
-- `go.mod` is `go 1.27.1`. No `GOEXPERIMENT`, `GOAMD64` or `GOARM64` is set
-  in `Makefile`, `build.env`, the Docker images or CI.
+- `go.mod` is `go 1.27.1`. `make build` remains scalar;
+  `make build-experimental-simd` and the experiment workflow set
+  `GOEXPERIMENT=simd` and `-tags simd`. Direct Go builds, `build.env` and the
+  Docker images do not. No `GOAMD64` or `GOARM64` is set.
 - Hand-written SIMD already in tree: `go/vt/vthash/highway` (AVX2, SSE4, NEON
   and ppc64le assembly with `golang.org/x/sys/cpu` dispatch and a `noasm`
   opt-out), used only for the plan-cache key; `go/atomic2` (128-bit atomics).
@@ -108,6 +111,13 @@ and normalize the lobsters query log; `BenchmarkOLTP/TPCC/TPCH` plan them;
 evalengine and aggregation. A live vtgate/vttablet profile under sysbench is
 the follow-up that would replace this proxy.
 
+Profiles were captured per package with:
+
+```sh
+go test -run '^$' -bench "$BENCH" -benchtime=2s -cpuprofile cpu.prof -o pkg.test "$PKG"
+go tool pprof -top -nodecount=200 pkg.test cpu.prof
+```
+
 | Candidate | Benchmark | flat% | cum% | Notes |
 |---|---|---|---|---|
 | `encodeBytesSQLBytes2` / `encodeBytesSQLStringBuilder` | `EncodeSQL` | 29.8 / 7.2 | 44.0 / 11.7 | Self-benchmark, so the share is of the encoder alone. Within `GenerateQueryStringBinds` the encoder is ~100% of the substitution cost; there was no existing benchmark that covered it. |
@@ -119,12 +129,10 @@ the follow-up that would replace this proxy.
 The ranking is by where the byte loop is a large share of a path that runs
 per query: escaping is the whole cost of bind substitution on vttablet, the
 collation is a fifth of every compare that reaches it, and the tokenizer's
-string hunt is a small share of parse time on a real corpus (an earlier draft
-of this table put it at 38.5% by mixing in `Parse3`; that number is the
-stress test, not the corpus). It stays on the list because the scalar
-rewrite is a one-line change to a proven-faster stdlib primitive, and long
-literals — JSON payloads, generated INSERTs — are where vtgate parse time
-actually goes when it goes anywhere.
+string hunt is a small share of parse time on a real corpus. It stays on the
+list because the scalar rewrite is a one-line change to a proven-faster
+stdlib primitive, and long literals — JSON payloads, generated INSERTs — are
+where vtgate parse time actually goes when it goes anywhere.
 
 **Not candidates**, with reasons: `key.Compare` (inputs are 8 bytes,
 `bytes.Compare` is already assembly); `readLenEncInt` and MySQL packet
@@ -153,7 +161,10 @@ Benchmarks, all with `-benchmem` and `b.SetBytes`:
 
 - `go/sqltypes`: `BenchmarkEncodeSQL/{Bytes2,StringBuilder}/{8,32,256,4096}/{clean,sparse,dense}`.
 - `go/vt/sqlparser`: `BenchmarkGenerateQueryStringBinds/{64B,1KB}`,
-  `BenchmarkTokenizerScanString/{squote,dquote}/{16,64,256,4096}/{clean,escape}`.
+  `BenchmarkTokenizerScanString/{squote,dquote}/{16,64,256,4096}/{clean,escape,escape-run-{2,4,6,16}}`.
+  The `escape-run-N` cells keep exactly N clean bytes between escapes, covering
+  both sides of the scalar prefix and the fixed first-window cost that follows
+  it.
 - `go/mysql/collations/colldata`: `BenchmarkCollateSharedPrefix/utf8mb4_0900_ai_ci/{16,64,256,1024,short-16}`.
 - `go/bytes2`: `BenchmarkByteSetIndex/{8,32,256,4096}/{clean,sparse,dense}`, `BenchmarkIndexAny2/{16,64,256,4096}`.
 - Regression gates: `BenchmarkParse3`, `BenchmarkNormalizeVTGate`, `BenchmarkCollationCollate`.
@@ -197,16 +208,20 @@ literal).
 ### Procedure
 
 ```sh
-# plain build → the scalar path; GOEXPERIMENT=simd → the SIMD kernels
+# plain build → the scalar path; both opt-ins → the SIMD kernels
 go test -run '^$' -bench "$BENCH_PATTERN" -count=10 -benchmem $PKGS | tee plain.txt
-GOEXPERIMENT=simd go test -run '^$' -bench "$BENCH_PATTERN" -count=10 -benchmem $PKGS | tee simd.txt
+GOEXPERIMENT=simd go test -tags simd -run '^$' -bench "$BENCH_PATTERN" -count=10 -benchmem $PKGS | tee simd.txt
 go tool -modfile=tools/benchstat/go.mod benchstat plain.txt simd.txt
+
+# Whole-tree compile through each build path.
+make build
+make build-experimental-simd
 ```
 
-The `simd_experiment.yml` workflow runs exactly this on amd64 and arm64 and
-uploads `plain.txt`, `simd.txt` and the `benchstat` comparison as artifacts.
-`benchstat` at its default significance level (p < 0.05) decides; `-count=10`
-per cell.
+The `simd_experiment.yml` bench job runs this comparison on amd64 and arm64
+and uploads `plain.txt`, `simd.txt` and the `benchstat` output as artifacts.
+Its build job calls `make build-experimental-simd` explicitly. `benchstat` at
+its default significance level (p < 0.05) decides; `-count=10` per cell.
 
 ### Gate
 
@@ -232,10 +247,6 @@ it merges on:
 
 If no kernel passes, the branch is reduced to the benchmarks and this document
 and merges without waiting for the experiment to graduate.
-
-### Results
-
-Filled in as the fast paths land; see the "Results" section at the end.
 
 ## 5. Alternatives considered
 
@@ -268,9 +279,11 @@ Normative for SIMD code in this repository.
 1. **Portable `simd` first.** `simd/archsimd` only where the portable API has
    no equivalent (today: permutes for table lookups), in files tagged to the
    architecture that has the instruction.
-2. **Three files per fast path.** `*_scalar.go` (untagged reference, always
-   compiled), `*_noasm.go` (`//go:build !goexperiment.simd || !(amd64 || arm64)`)
-   that delegates to it, `*_simd.go` (`//go:build goexperiment.simd && (amd64 || arm64)`).
+2. **Two tagged files per SIMD fast path.** `*_noasm.go`
+   (`//go:build !simd || !goexperiment.simd || !(amd64 || arm64)`) and
+   `*_simd.go` (`//go:build simd && goexperiment.simd && (amd64 || arm64)`)
+   define the same entry point. The scalar fallback stays untagged, either as
+   a helper or in the caller's existing loop.
 3. **Kernel shape.** The vector body is a plain function; exported methods
    are thin wrappers (§1 compiler limitation). Set members a kernel compares
    against are pre-broadcast into byte rows at construction and loaded with
@@ -287,18 +300,21 @@ Normative for SIMD code in this repository.
 5. **Kernels must pass the gate in §4 to exist.** A kernel that is not
    measurably faster than its fallback is deleted, not kept for later.
 6. **No SIMD type in an exported signature; no new `unsafe`.**
-7. **Release builds never set `GOEXPERIMENT`.** The SIMD kernels are dormant
-   in production until graduation.
+7. **Manual opt-in while experimental.** `make build` remains the scalar
+   release path. The experiment workflow calls `build-experimental-simd`,
+   which supplies both controls and remains the explicit local shortcut.
 
 ### Graduation
 
 When a Go release ships `simd` without `GOEXPERIMENT` and Vitess `main` has
-moved `go.mod` to it: rebase; replace `goexperiment.simd && (amd64 || arm64)`
-with `!noasm && (amd64 || arm64)` and the `_noasm.go` constraint with
+moved `go.mod` to it: rebase; replace
+`simd && goexperiment.simd && (amd64 || arm64)` with
+`!noasm && (amd64 || arm64)` and the `_noasm.go` constraint with
 `noasm || !(amd64 || arm64)`, so the kernels are on by default with a
-`-tags noasm` opt-out, matching `highway`; drop `GOEXPERIMENT=simd` from the
-workflow and have it compare `-tags noasm` against the default build; re-run
-the gate on the final release; refresh the results below.
+`-tags noasm` opt-out, matching `highway`; remove the
+`build-experimental-simd` target and drop both experiment opt-ins from the
+workflow; have it compare `-tags noasm` against the default build; re-run the
+gate on the final release; refresh the results below.
 
 ## 7. Roadmap
 
@@ -320,14 +336,15 @@ ranking in §3 suggests.
 - **Experiment API churn.** The kernels are small and unexported; a rename in
   Go 1.28 is a mechanical fix. The workflow runs on every Go patch and
   pre-release to surface it early.
-- **Whole-tree compile under the experiment.** `go build ./go/...` under
-  `GOEXPERIMENT=simd` is a workflow step; if an unrelated dependency fails it
-  is narrowed to the SIMD packages and the reason recorded here.
+- **Whole-tree compile under the experiment.** The workflow's
+  `make build-experimental-simd` expands to
+  `GOEXPERIMENT=simd go build -tags simd ./go/...`. If an unrelated dependency
+  fails, it is narrowed to the SIMD packages and the reason recorded here.
 - **Emulated path.** On a CPU where `simd.Emulated()` is true the kernels
   route to the scalar path at run time.
-- **Deferred merge.** The branch is held until graduation; the benchmarks and
-  this document could merge earlier, but the user's preference was one pull
-  request.
+- **Release default.** `make build`, `make install`, Docker images and the
+  ordinary CI workflows remain scalar; only the explicit experimental target
+  and workflow supply the SIMD controls.
 
 ## Results
 
@@ -339,7 +356,8 @@ and run against HEAD. arm64: Apple M4 Max, go1.27.1, `-count=10
 verdicts below are arm64 only and the graduation gate re-runs on both.
 
 Columns: *today* = baseline commit; *scalar* = HEAD plain build (the release
-path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
+path); *simd* = HEAD with `GOEXPERIMENT=simd` and `-tags simd`.
+Percentages are vs *today*.
 
 ### Bind-variable escaping (`sqltypes`, `GenerateQuery`)
 
@@ -419,8 +437,14 @@ path); *simd* = HEAD under `GOEXPERIMENT=simd`. Percentages are vs *today*.
 | `NormalizeVTGate` (lobsters corpus) | 31.2ms | 31.6ms (~) | 30.6ms (−1.9%) |
 
 - **Scalar rewrite (two `bytes.IndexByte` scans): passes.** Clean literals
-  are 3–65× faster; escaped literals are bounded by `scanStringSlow`. The
-  corpus benchmark is unchanged, as §3 predicts for a 1.5% share.
+  are 3–65× faster. A review sweep over 2/4/6/16-byte runs found that calling
+  `IndexAny2` after every escape regressed the 4-byte cells by 43–62% and the
+  6-byte cells by 13–22%. `scanStringSlow` therefore keeps the old byte loop;
+  only the initial hunt uses `IndexAny2`, after an 8-byte scalar prefix. On
+  arm64 (`-count=6`), the 4/6-byte cells from 16 B through 4 KB are now at
+  parity or within +5% of the reference, while clean literals retain 66–99%
+  wins and the single-escape cells retain 11–46% wins. The corpus benchmark is
+  unchanged, as §3 predicts for a 1.5% share.
 - **SIMD `IndexAny2` kernel: deleted.** Measured before removal (count=4):
   2–3× slower than the `IndexByte` fallback on every clean cell of 64 bytes
   or more (4096 B: 101 ns vs 314 ns; `IndexAny2/4096`: 90 ns vs 331 ns),
@@ -449,8 +473,8 @@ numbers in its commit message) and is within this table's noise elsewhere.
 | `ParseTail/json-64KB` | 144 µs | 94.5 µs | −34% | same |
 | `NormalizeVTGate` | 29.6 ms | 29.8 ms | ~ | same |
 
-With `GOEXPERIMENT=simd` on top of that (HEAD scalar vs HEAD simd, arm64,
-`-count=8`): `GenerateQueryCorpus` −3.7% (124 → 120 ns/query),
+With `GOEXPERIMENT=simd` and `-tags simd` on top of that (HEAD scalar
+vs HEAD simd, arm64, `-count=8`): `GenerateQueryCorpus` −3.7% (124 → 120 ns/query),
 `insert-100x1KB` −5.4%, `in-500` ~, **`json-64KB` +31%** (43 → 56 µs), the
 `ParseTail` cells within ±2%. The JSON document has an escape every ~20
 bytes, so it is the hit-dense shape where `ByteSet.Index` pays its per-call
@@ -477,7 +501,7 @@ standing in for MySQL — on a 1 MB query with ten 100 KB `VARBINARY` binds
 that carry an escape every eleven bytes. arm64, `-count=6`, `main` build vs
 the branch, measured before `bbe9ba38d1`:
 
-| | `main` | HEAD | HEAD + `GOEXPERIMENT=simd` |
+| | `main` | HEAD | HEAD + experimental SIMD |
 |---|---|---|---|
 | `ExecuteVarBinary` sec/op | 6.17 ms | **2.73 ms (−56%)** | 2.87 ms (−53%) |
 | B/op | 9.26 MiB | 4.66 MiB (−50%) | 4.69 MiB |
@@ -521,17 +545,17 @@ columns, or JSON-document workloads, a measurable CPU and allocation drop —
 hundreds of microseconds and a dozen-plus allocations per statement — that
 should show on `process_cpu_seconds_total` and `go_memstats_alloc_bytes_total`.
 On arm64 the experiment is a wash on OLTP and a regression on the JSON
-shape; the recommendation for arm64 is to ship the scalar rewrites and
-leave `GOEXPERIMENT=simd` off until the amd64 run says otherwise.
+shape; the recommendation for arm64 is to ship the scalar rewrites and leave
+both SIMD opt-ins off until the amd64 run says otherwise.
 
 ## Status
 
-As of `bbe9ba38d1` (2026-09-27):
+As of this branch (2026-09-27):
 
-- **Held.** The branch merges when a Go release ships `simd` without
-  `GOEXPERIMENT` and `main` has moved `go.mod` to it; the steps are in §6
-  "Graduation". Until then it is a Draft, rebased and re-measured on each Go
-  patch and pre-release.
+- **Draft POC with explicit opt-in.** `make build` remains scalar, while
+  `build-experimental-simd` and the workflow supply both opt-ins. Release,
+  install, Docker and ordinary CI consumers cannot inherit the experiment
+  through the default target.
 - **This document is the RFC.** No separate `Type: RFC` issue; discussion
   happens on the pull request.
 - **Kernel verdicts (arm64):** UCA prefix skip passes; escaping
@@ -548,6 +572,6 @@ As of `bbe9ba38d1` (2026-09-27):
   rewriting invalid UTF-8 as `U+FFFD` (pre-existing, found comparing the two
   encoders). Not yet filed: `vtgate.BenchmarkWithNormalizer` failing on
   `main`.
-- **Open:** open the Draft PR to get amd64 numbers; run the `profile` job
-  (`workflow_dispatch`) for the amd64 ranking; re-run the §4 gate on the
-  graduating Go release; refresh the Results tables then.
+- **Open:** open the Draft PR to get amd64 numbers; collect the amd64 ranking
+  with the §3 profiling procedure; re-run the §4 gate on the graduating Go
+  release; refresh the Results tables then.

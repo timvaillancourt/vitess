@@ -610,6 +610,8 @@ exit:
 	return token, tkn.buf[start:tkn.Pos]
 }
 
+const scanStringScalarPrefix = 8
+
 // scanString scans a string surrounded by the given `delim`, which can be
 // either single or double quotes. Assumes that the given delimiter has just
 // been scanned. If the skin contains any escape sequences, this function
@@ -617,16 +619,27 @@ exit:
 func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 	start := tkn.Pos
 
-	// Most literals have no escapes, so the common case is one scan for the
-	// closing delimiter or a backslash, whichever comes first, instead of a
-	// bounds-checked peek per byte. The string is only read through the
-	// byte view, never written.
-	i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[start:]), byte(delim), '\\')
-	if i < 0 {
-		tkn.Pos = len(tkn.buf)
-		return LEX_ERROR, tkn.buf[start:]
+	// Most literals have no escapes, so the common case scans for the closing
+	// delimiter or a backslash instead of peeking once per byte. Keep the
+	// first few bytes on the scalar loop: IndexAny2's fixed first window costs
+	// more when the first escape is nearby. The string is only read through
+	// the byte view, never written.
+	end := min(start+scanStringScalarPrefix, len(tkn.buf))
+	for tkn.Pos < end {
+		ch := uint16(tkn.buf[tkn.Pos])
+		if ch == delim || ch == '\\' {
+			break
+		}
+		tkn.Pos++
 	}
-	tkn.Pos = start + i
+	if tkn.Pos == end {
+		i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[end:]), byte(delim), '\\')
+		if i < 0 {
+			tkn.Pos = len(tkn.buf)
+			return LEX_ERROR, tkn.buf[start:]
+		}
+		tkn.Pos = end + i
+	}
 
 	if tkn.cur() == delim && tkn.peek(1) != delim {
 		tkn.skip(1)
@@ -652,15 +665,16 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 		}
 
 		if ch != delim && ch != '\\' {
-			// Scan ahead to the next interesting character in one pass,
-			// the same hunt scanString does before it lands here; between
-			// escapes a literal is clean text.
+			// Scan ahead to the next interesting character. Once a literal
+			// contains an escape, short clean runs are common enough that the
+			// byte loop is cheaper than paying IndexAny2's fixed first window
+			// after every one.
 			start := tkn.Pos
-			if i := bytes2.IndexAny2(hack.StringBytes(tkn.buf[start:]), byte(delim), '\\'); i >= 0 {
-				tkn.Pos = start + i
+			for ; tkn.Pos < len(tkn.buf); tkn.Pos++ {
 				ch = uint16(tkn.buf[tkn.Pos])
-			} else {
-				tkn.Pos = len(tkn.buf)
+				if ch == delim || ch == '\\' {
+					break
+				}
 			}
 
 			buffer.WriteString(tkn.buf[start:tkn.Pos])

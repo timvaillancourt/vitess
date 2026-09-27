@@ -66,23 +66,24 @@ const bindLargeValue = 256
 // vtgate hands a join's right side the whole left-side map on every row,
 // and a range would size the builder for binds the query never writes.
 // Append only calls this once it has met a large value, so the lookups
-// are paid by queries whose substitution already costs far more.
+// are paid by queries whose substitution already costs far more. Custom
+// Encodable values are left out because the interface has no side-effect-free
+// size operation; encoding one twice would be a stronger contract than it
+// promises.
 func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable) int {
 	n := len(pq.Query)
 	for _, loc := range pq.bindLocations {
-		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
-		// Same prefix handling as FetchBindVar: one colon, or two for a list.
-		name = strings.TrimPrefix(strings.TrimPrefix(name, ":"), ":")
-		if bv, ok := bindVariables[name]; ok {
+		if bv, _, err := FetchBindVar(pq.Query[loc.Offset:loc.Offset+loc.Length], bindVariables); err == nil {
 			n += valueSizeHint(bv)
 		}
 	}
 	return n
 }
 
-// valueSizeHint is the room to leave for one bind variable's encoded text:
-// its bytes, a sixteenth more for escapes, and the fixed overhead for each
-// quoted scalar or tuple element.
+// valueSizeHint is the best-effort room to leave for one bind variable's
+// encoded text: its bytes, a sixteenth more for escapes, and the fixed
+// overhead for each quoted scalar or tuple element. Escape-dense values can
+// still make the builder grow once.
 func valueSizeHint(bv *querypb.BindVariable) int {
 	n := len(bv.Value) + len(bv.Value)/16
 	if sqltypes.IsQuoted(bv.Type) {
@@ -111,6 +112,7 @@ func (pq *ParsedQuery) GenerateQuery(bindVariables map[string]*querypb.BindVaria
 
 // Append appends the generated query to the provided buffer.
 func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*querypb.BindVariable, extras map[string]Encodable) error {
+	queryStart := buf.Len()
 	current := 0
 	sized := false
 	for _, loc := range pq.bindLocations {
@@ -130,7 +132,8 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 			// query a pass over the map that a query of small binds never
 			// needs.
 			if !sized && (len(supplied.Value) >= bindLargeValue || len(supplied.Values) > 0) {
-				if need := pq.sizeHint(bindVariables) - buf.Len(); need > 0 {
+				written := buf.Len() - queryStart
+				if need := pq.sizeHint(bindVariables) - written; need > 0 {
 					buf.Grow(need)
 				}
 				sized = true

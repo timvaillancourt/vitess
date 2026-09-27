@@ -1,4 +1,4 @@
-//go:build !goexperiment.simd || !(amd64 || arm64)
+//go:build !simd || !goexperiment.simd || !(amd64 || arm64)
 
 /*
 Copyright 2026 The Vitess Authors.

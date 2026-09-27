@@ -310,9 +310,10 @@ type scanStringBenchCase struct {
 }
 
 // scanStringBenchCases returns a literal for each delimiter, size and shape
-// the scanString benchmarks cover. The "clean" literals take the fast path
-// that hunts for the closing delimiter; the "escape" literals carry one
-// backslash escape in the middle, which hands the rest to scanStringSlow.
+// the scanString benchmarks cover. The "clean" literals take the fast path;
+// the "escape" literals carry one backslash escape in the middle. The
+// escape-run cells keep a fixed number of clean bytes between escapes and
+// cover both sides of scanStringScalarPrefix.
 func scanStringBenchCases() []scanStringBenchCase {
 	const text = "The quick brown fox jumps over the lazy dog, then it does so again. "
 	var cases []scanStringBenchCase
@@ -322,13 +323,25 @@ func scanStringBenchCases() []scanStringBenchCase {
 	}{{"squote", '\''}, {"dquote", '"'}} {
 		for _, size := range []int{16, 64, 256, 4096} {
 			body := strings.Repeat(text, size/len(text)+1)[:size]
-			for _, shape := range []string{"clean", "escape"} {
-				literal := body
-				if shape == "escape" {
-					literal = body[:size/2] + `\n` + body[size/2+2:]
-				}
+			for _, shape := range []struct {
+				name    string
+				literal string
+			}{{"clean", body}, {"escape", body[:size/2] + `\n` + body[size/2+2:]}} {
 				cases = append(cases, scanStringBenchCase{
-					name:  fmt.Sprintf("%s/%d/%s", delim.name, size, shape),
+					name:  fmt.Sprintf("%s/%d/%s", delim.name, size, shape.name),
+					delim: delim.ch,
+					size:  size,
+					sql:   string(delim.ch) + shape.literal + string(delim.ch),
+				})
+			}
+			for _, run := range []int{2, 4, 6, 16} {
+				unit := strings.Repeat("a", run) + `\n`
+				if len(unit) > size {
+					continue
+				}
+				literal := strings.Repeat(unit, size/len(unit)+1)[:size]
+				cases = append(cases, scanStringBenchCase{
+					name:  fmt.Sprintf("%s/%d/escape-run-%d", delim.name, size, run),
 					delim: delim.ch,
 					size:  size,
 					sql:   string(delim.ch) + literal + string(delim.ch),

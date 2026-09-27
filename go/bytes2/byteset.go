@@ -31,20 +31,11 @@ const byteSetMax = 8
 //
 // A ByteSet is built once and shared; Index is safe for concurrent use.
 type ByteSet struct {
-	// vals is the set padded to byteSetMax with its first member, so the
-	// vectorized Index always has eight values to compare against.
-	// Duplicates are harmless there because the compares are combined with
-	// OR.
-	vals [byteSetMax]byte
 	// table is the membership table the scalar Index walks.
 	table [256]bool
-	// bcast holds each member repeated across a row as wide as the widest
-	// vector, so the vectorized Index gets a broadcast with one vector load
-	// instead of a scalar load, a lane insert and a duplicate per member.
-	// Eight of those per call is the fixed cost that made short inputs
-	// slower than the table walk. Only the simd build reads it; the type is
-	// shared by every build, so NewByteSet fills the 512 bytes regardless,
-	// once per set, and a set is built once and shared.
+	// bcast holds each member repeated across the widest vector row, so the
+	// SIMD path can load a broadcast instead of building one. Every build
+	// fills it; sets are built once and shared.
 	bcast [byteSetMax][bcastWidth]byte
 }
 
@@ -59,14 +50,14 @@ func NewByteSet(vals ...byte) *ByteSet {
 		panic("bytes2.NewByteSet: a set needs between 1 and 8 members")
 	}
 	s := &ByteSet{}
-	for i := range s.vals {
-		s.vals[i] = vals[0]
-	}
-	for i, v := range vals {
-		s.vals[i] = v
+	for _, v := range vals {
 		s.table[v] = true
 	}
-	for i, v := range s.vals {
+	for i := range s.bcast {
+		v := vals[0]
+		if i < len(vals) {
+			v = vals[i]
+		}
 		for j := range s.bcast[i] {
 			s.bcast[i][j] = v
 		}
@@ -101,12 +92,13 @@ const indexAny2Window = 256
 // every hit must not pay for a distant a on each call: the tokenizer's slow
 // string path resumes after every escape, and an unbounded first scan for the
 // closing quote made a literal with an escape every few bytes quadratic
-// (2ms to 57ms on a 1MB query). Each window's cost is bounded by its size, so
-// a call costs a constant factor of the distance to the nearest hit.
+// (2ms to 57ms on a 1MB query). The fixed first window is paid even for a
+// nearby hit; after that, geometric growth keeps the total work bounded by
+// the initial window plus a constant factor of the distance to the hit.
 func IndexAny2(b []byte, a, c byte) int {
 	window := indexAny2Window
 	for off := 0; off < len(b); {
-		end := min(off+window, len(b))
+		end := off + min(window, len(b)-off)
 		w := b[off:end]
 		i := bytes.IndexByte(w, a)
 		if i >= 0 {
@@ -119,7 +111,12 @@ func IndexAny2(b []byte, a, c byte) int {
 			return off + i
 		}
 		off = end
-		window *= 4
+		remaining := len(b) - off
+		if window > remaining/4 {
+			window = remaining
+		} else {
+			window *= 4
+		}
 	}
 	return -1
 }

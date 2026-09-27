@@ -16,12 +16,7 @@ limitations under the License.
 
 package uca
 
-import (
-	"fmt"
-	"testing"
-
-	"github.com/stretchr/testify/require"
-)
+import "fmt"
 
 // refEqualASCIIPrefix is the 4-byte block loop FastForward32 runs, reduced
 // to the question equalASCIIPrefix answers: how many leading bytes are in
@@ -83,23 +78,4 @@ func prefixCases() []struct {
 		}
 	}
 	return cases
-}
-
-// TestEqualASCIIPrefixInvariants holds in every build: the noasm build
-// returns 0 and the simd build returns the reference count for inputs long
-// enough to vectorize, so the result is one of those two, a multiple of 4,
-// and never claims a prefix that is not equal ASCII.
-func TestEqualASCIIPrefixInvariants(t *testing.T) {
-	for _, tc := range prefixCases() {
-		got := equalASCIIPrefix(tc.p1, tc.p2)
-		ref := refEqualASCIIPrefix(tc.p1, tc.p2)
-		require.Truef(t, got == 0 || got == ref, "%s: got %d, reference %d", tc.name, got, ref)
-		require.Zerof(t, got%4, "%s: %d is not a multiple of 4", tc.name, got)
-		require.LessOrEqual(t, got, len(tc.p1), tc.name)
-		require.LessOrEqual(t, got, len(tc.p2), tc.name)
-		for i := range got {
-			require.Equalf(t, tc.p1[i], tc.p2[i], "%s: byte %d differs inside the reported prefix", tc.name, i)
-			require.Zerof(t, tc.p1[i]&0x80, "%s: byte %d is non-ASCII inside the reported prefix", tc.name, i)
-		}
-	}
 }
