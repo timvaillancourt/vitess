@@ -220,7 +220,11 @@ make build-experimental-simd
 
 The `simd_experiment.yml` bench job runs this comparison on amd64 and arm64
 and uploads `plain.txt`, `simd.txt` and the `benchstat` output as artifacts.
-Its build job calls `make build-experimental-simd` explicitly. `benchstat` at
+It runs on every push to `main` and on `workflow_dispatch`; on a pull request
+it runs only while the `Benchmark me` label is on it, since the matrix costs
+~90 runner-minutes per architecture and the build-and-test job is what
+catches drift. Its build job calls `make build-experimental-simd`
+explicitly. `benchstat` at
 its default significance level (p < 0.05) decides; `-count=10` per cell.
 
 ### Gate
@@ -352,8 +356,9 @@ Baseline commit: the first commit of this branch ("Add benchmarks and CI
 workflow for the SIMD hot-path candidates"), whose test binaries were kept
 and run against HEAD. arm64: Apple M4 Max, go1.27.1, `-count=10
 -benchtime=200ms`, `benchstat` default p<0.05. **amd64: pending** — the
-`simd_experiment` workflow produces it once the pull request is open; the
-verdicts below are arm64 only and the graduation gate re-runs on both.
+`simd_experiment` workflow produces it once the pull request is open and
+labelled `Benchmark me`; the verdicts below are arm64 only and the
+graduation gate re-runs on both.
 
 Columns: *today* = baseline commit; *scalar* = HEAD plain build (the release
 path); *simd* = HEAD with `GOEXPERIMENT=simd` and `-tags simd`.
@@ -572,6 +577,7 @@ As of this branch (2026-09-27):
   rewriting invalid UTF-8 as `U+FFFD` (pre-existing, found comparing the two
   encoders). Not yet filed: `vtgate.BenchmarkWithNormalizer` failing on
   `main`.
-- **Open:** open the Draft PR to get amd64 numbers; collect the amd64 ranking
+- **Open:** open the Draft PR and label it `Benchmark me` to get amd64
+  numbers; collect the amd64 ranking
   with the §3 profiling procedure; re-run the §4 gate on the graduating Go
   release; refresh the Results tables then.

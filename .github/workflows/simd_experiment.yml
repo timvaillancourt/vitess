@@ -6,6 +6,11 @@ name: SIMD Experiment
 # the viability gate in doc/design-docs/SIMDOptimizations.md is judged on, and
 # it catches drift in the experimental simd API early. Regular release builds
 # set neither opt-in.
+#
+# The build-and-test job runs on every pull request that touches these
+# packages. The bench job is a 10x500ms benchstat matrix on two runners, so
+# on pull requests it only runs when the "Benchmark me" label is present; it
+# always runs on pushes to main and on workflow_dispatch.
 
 on:
   push:
@@ -21,6 +26,7 @@ on:
       - ".github/workflows/simd_experiment.yml"
   pull_request:
     branches: "**"
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "go/bytes2/**"
       - "go/sqltypes/**"
@@ -57,6 +63,7 @@ env:
 jobs:
   bench:
     name: "Bench (${{ matrix.arch }})"
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'Benchmark me')
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -125,6 +132,9 @@ jobs:
 
   simd-build-test:
     name: "Build and test (experimental SIMD, ${{ matrix.arch }})"
+    # Already ran when the PR was opened or pushed; a label change only
+    # needs to start the bench job.
+    if: github.event.action != 'labeled'
     timeout-minutes: 45
     strategy:
       fail-fast: false
