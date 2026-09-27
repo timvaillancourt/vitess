@@ -155,10 +155,14 @@ func prefixCases() []struct {
 		p2 = asciiRun(n + 8)
 		p2[n] = 0x01
 		add(fmt.Sprintf("ignorable after %d", n), asciiRun(n+8), p2)
-		p1, p2 := asciiRun(n+8), asciiRun(n+8)
-		copy(p1[n:], "\xE2\x82\xAC\xC3")
-		copy(p2[n:], "\xE2\x82\xAC\xC3")
-		add(fmt.Sprintf("unicode block after %d", n), p1, p2)
+		// On the 4-byte block boundary at or after n, so the block is all
+		// Unicode for every n and the scalar loop's `it.unicode++` branch
+		// is what resolves it.
+		at := (n + 3) &^ 3
+		p1, p2 := asciiRun(at+4), asciiRun(at+4)
+		copy(p1[at:], "\xE2\x82\xAC\xC3")
+		copy(p2[at:], "\xE2\x82\xAC\xC3")
+		add(fmt.Sprintf("unicode block at %d after %d", at, n), p1, p2)
 	}
 	return cases
 }
