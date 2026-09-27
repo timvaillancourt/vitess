@@ -19,6 +19,7 @@ limitations under the License.
 package uca
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,27 @@ func TestEqualASCIIPrefixMatchesReference(t *testing.T) {
 			continue
 		}
 		require.Equalf(t, refEqualASCIIPrefix(tc.p1, tc.p2), equalASCIIPrefix(tc.p1, tc.p2), tc.name)
+	}
+}
+
+// TestFastForward32SkipMatchesReference pins what the skip leaves behind,
+// not just how far it goes: after FastForward32 the return value, both
+// inputs and the unicode counter must match the loop that walked every
+// block itself. A miscounted `it.unicode` would not change a comparison,
+// only when the fast path switches itself off, which the collation golden
+// tests cannot see. Counters at and past maxUnicodeBlocks cover the early
+// return.
+func TestFastForward32SkipMatchesReference(t *testing.T) {
+	for _, tc := range prefixCases() {
+		for _, unicode := range []int{0, 1, maxUnicodeBlocks, maxUnicodeBlocks + 1} {
+			name := fmt.Sprintf("%s (unicode=%d)", tc.name, unicode)
+			ref, ref2 := fastForwardIterator(tc.p1, unicode), fastForwardIterator(tc.p2, 0)
+			got, got2 := fastForwardIterator(tc.p1, unicode), fastForwardIterator(tc.p2, 0)
+			require.Equal(t, refFastForward32(ref, ref2), got.FastForward32(got2), "%s: return", name)
+			require.Equal(t, len(ref.input), len(got.input), "%s: it.input", name)
+			require.Equal(t, len(ref2.input), len(got2.input), "%s: it2.input", name)
+			require.Equal(t, ref.unicode, got.unicode, "%s: it.unicode", name)
+		}
 	}
 }
 
