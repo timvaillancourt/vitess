@@ -393,7 +393,7 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 			"list": createRowTupleBV(),
 		},
 	}, {
-		desc:  "missing bind var is not counted",
+		desc:  "missing bind var stops the hint",
 		query: "select * from t where a = :a and b = :b",
 		bindVars: map[string]*querypb.BindVariable{
 			"a": sqltypes.StringBindVariable(payload),
@@ -404,13 +404,16 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 			stmt, err := parser.Parse(tc.query)
 			require.NoError(t, err)
 			pq := NewParsedQuery(stmt)
-			hint := pq.sizeHint(tc.bindVars)
+			hint, ok := pq.sizeHint(tc.bindVars, nil)
 			out, err := pq.GenerateQuery(tc.bindVars, nil)
 			if err != nil {
-				// The missing-bind case: the hint still counts what it can.
-				assert.GreaterOrEqual(t, hint, len(pq.Query)+len(payload))
+				// The missing-bind case: no estimate at all, so Append
+				// grows for nothing it is about to reject.
+				assert.False(t, ok)
+				assert.Zero(t, hint)
 				return
 			}
+			require.True(t, ok)
 			assert.GreaterOrEqual(t, hint, len(out), "hint must cover the output of an escape-free value")
 		})
 	}
@@ -426,7 +429,11 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 		"a": sqltypes.StringBindVariable(payload),
 		"b": sqltypes.BytesBindVariable(make([]byte, 8<<20)),
 	}
-	assert.Equal(t, pq.sizeHint(used), pq.sizeHint(withUnused), "an unused bind variable must not inflate the hint")
+	usedHint, ok := pq.sizeHint(used, nil)
+	require.True(t, ok)
+	unusedHint, ok := pq.sizeHint(withUnused, nil)
+	require.True(t, ok)
+	assert.Equal(t, usedHint, unusedHint, "an unused bind variable must not inflate the hint")
 	allocs := testing.AllocsPerRun(20, func() {
 		if _, err := pq.GenerateQuery(withUnused, nil); err != nil {
 			t.Fatal(err)
@@ -467,7 +474,9 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 	}
 	out, err := pq.GenerateQuery(bindVars, nil)
 	require.NoError(t, err)
-	assert.Less(t, pq.sizeHint(bindVars), len(out), "the case must exceed the best-effort hint")
+	denseHint, ok := pq.sizeHint(bindVars, nil)
+	require.True(t, ok)
+	assert.Less(t, denseHint, len(out), "the case must exceed the best-effort hint")
 	allocs = testing.AllocsPerRun(100, func() {
 		if _, err := pq.GenerateQuery(bindVars, nil); err != nil {
 			t.Fatal(err)
@@ -540,6 +549,29 @@ func TestAppendReusesBuilder(t *testing.T) {
 		require.NoError(t, pq.Append(&buf, bindVars, nil))
 		assert.Equal(t, prefix+want+want, buf.String(), "prefix of %d bytes, second Append", len(prefix))
 	}
+}
+
+// TestAppendDoesNotSizeAFailingQuery holds Append to sizing only what it
+// will write. A request whose missing bind var comes after a large one, and
+// which names that large one again further on, used to grow the builder for
+// every later placeholder before the missing one failed it.
+func TestAppendDoesNotSizeAFailingQuery(t *testing.T) {
+	payload := strings.Repeat("x", 4096)
+	require.GreaterOrEqual(t, len(payload), bindLargeValue)
+	var query strings.Builder
+	query.WriteString("select :x, :missing")
+	for range 48 {
+		query.WriteString(", :x")
+	}
+	stmt, err := NewTestParser().Parse(query.String())
+	require.NoError(t, err)
+	pq := NewParsedQuery(stmt)
+	bindVars := map[string]*querypb.BindVariable{"x": sqltypes.StringBindVariable(payload)}
+
+	var buf strings.Builder
+	require.ErrorContains(t, pq.Append(&buf, bindVars, nil), "missing bind var missing")
+	assert.Less(t, buf.Cap(), 4*len(payload),
+		"Append sized for the whole query before the missing bind var rejected it")
 }
 
 // BenchmarkGenerateQueryIntBinds is the shape where pre-sizing the builder

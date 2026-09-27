@@ -70,17 +70,28 @@ const bindLargeValue = 256
 // and a range would size the builder for binds the query never writes.
 // Append only calls this once it has met a large value, so the lookups
 // are paid by queries whose substitution already costs far more. Custom
-// Encodable values are left out because the interface has no side-effect-free
-// size operation; encoding one twice would be a stronger contract than it
-// promises.
-func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable) int {
+// Encodable values are skipped because the interface has no
+// side-effect-free size operation; encoding one twice would be a stronger
+// contract than it promises.
+//
+// It reports false at the first placeholder it cannot resolve, rather than
+// counting the rest: that query is about to be rejected, and sizing for the
+// whole of it first means a request whose one missing bind var comes early
+// still allocates for every large value named after it.
+func (pq *ParsedQuery) sizeHint(bindVariables map[string]*querypb.BindVariable, extras map[string]Encodable) (int, bool) {
 	n := len(pq.Query)
 	for _, loc := range pq.bindLocations {
-		if bv, _, err := FetchBindVar(pq.Query[loc.Offset:loc.Offset+loc.Length], bindVariables); err == nil {
-			n += valueSizeHint(bv)
+		name := pq.Query[loc.Offset : loc.Offset+loc.Length]
+		if _, ok := extras[name[1:]]; ok {
+			continue
 		}
+		bv, _, err := FetchBindVar(name, bindVariables)
+		if err != nil {
+			return 0, false
+		}
+		n += valueSizeHint(bv)
 	}
-	return n
+	return n, true
 }
 
 // valueSizeHint is the best-effort room to leave for one bind variable's
@@ -154,9 +165,14 @@ func (pq *ParsedQuery) Append(buf *strings.Builder, bindVariables map[string]*qu
 			// query a pass over the placeholders that a query of small binds
 			// never needs.
 			if !sized && isLargeBind(supplied) {
-				written := buf.Len() - queryStart
-				if need := pq.sizeHint(bindVariables) - written; need > 0 {
-					buf.Grow(need)
+				// Sized once either way: if the estimate stopped at a
+				// placeholder with no bind var, retrying it for the next
+				// large value walks the list again for a query that is
+				// going to be rejected.
+				if hint, ok := pq.sizeHint(bindVariables, extras); ok {
+					if need := hint - (buf.Len() - queryStart); need > 0 {
+						buf.Grow(need)
+					}
 				}
 				sized = true
 			}
