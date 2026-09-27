@@ -476,6 +476,43 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 	assert.LessOrEqual(t, allocs, 5.0, "an escape-dense value should grow at most once beyond the hint")
 }
 
+// TestIsLargeBind pins the trigger Append sizes the builder on: a scalar of
+// bindLargeValue bytes, a tuple whose estimate reaches it, and the count
+// short-circuit for long tuples, which must not fire before the estimate
+// it stands in for would.
+func TestIsLargeBind(t *testing.T) {
+	strs := func(n, size int) []any {
+		vals := make([]any, n)
+		for i := range vals {
+			vals[i] = strings.Repeat("x", size)
+		}
+		return vals
+	}
+	tcases := []struct {
+		name string
+		bv   *querypb.BindVariable
+		want bool
+	}{
+		{"scalar one below", sqltypes.StringBindVariable(strings.Repeat("x", bindLargeValue-1)), false},
+		{"scalar at threshold", sqltypes.StringBindVariable(strings.Repeat("x", bindLargeValue)), true},
+		{"int scalar", sqltypes.Int64BindVariable(1), false},
+		{"short int tuple", sqltypes.TestBindVariable([]any{int64(1), int64(2), int64(3)}), false},
+		{"tuple one below the count", sqltypes.TestBindVariable(strs(bindLargeTupleLen-1, 1)), false},
+		{"tuple at the count", sqltypes.TestBindVariable(strs(bindLargeTupleLen, 1)), true},
+		{"short tuple, large by estimate", sqltypes.TestBindVariable(strs(3, 100)), true},
+		{"short tuple, small by estimate", sqltypes.TestBindVariable(strs(2, 100)), false},
+		{"short row tuple", createRowTupleBV(), false},
+	}
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isLargeBind(tc.bv))
+		})
+	}
+	// At the count, the estimate itself is already past the threshold even
+	// for one-byte elements; that is what lets the count stand in for it.
+	assert.GreaterOrEqual(t, valueSizeHint(sqltypes.TestBindVariable(strs(bindLargeTupleLen, 1))), bindLargeValue)
+}
+
 // TestAppendReusesBuilder appends into a builder that already holds text,
 // more than once, which is how VReplication builds a bulk INSERT: one
 // Append per row into the same values buffer. The large bind makes each

@@ -97,11 +97,15 @@ func valueSizeHint(bv *querypb.BindVariable) int {
 	return n
 }
 
+// bindLargeTupleLen is the element count from which a tuple's estimate
+// reaches bindLargeValue on the per-element overhead alone, rounded up so it
+// stays a sufficient condition whatever the two constants are.
+const bindLargeTupleLen = (bindLargeValue + bindValueOverhead - 1) / bindValueOverhead
+
 // isLargeBind reports whether bv is worth sizing the builder for: a scalar
 // of bindLargeValue bytes or more, or a tuple whose estimate reaches that.
-// A tuple of bindLargeValue/bindValueOverhead elements or more reaches it on
-// the per-element overhead alone, so the count check spares long IN lists
-// the pass over their values; short ones stay on the builder's own doubling.
+// The count check spares long IN lists the pass over their values; short
+// ones stay on the builder's own doubling.
 func isLargeBind(bv *querypb.BindVariable) bool {
 	if len(bv.Value) >= bindLargeValue {
 		return true
@@ -109,7 +113,7 @@ func isLargeBind(bv *querypb.BindVariable) bool {
 	if len(bv.Values) == 0 {
 		return false
 	}
-	return len(bv.Values) >= bindLargeValue/bindValueOverhead || valueSizeHint(bv) >= bindLargeValue
+	return len(bv.Values) >= bindLargeTupleLen || valueSizeHint(bv) >= bindLargeValue
 }
 
 // GenerateQuery generates a query by substituting the specified
