@@ -20,8 +20,9 @@ package uca
 
 import (
 	"math"
-	"math/bits"
 	"simd"
+
+	"vitess.io/vitess/go/bytes2"
 )
 
 // simdThreshold is the shortest input the vectorized prefix skip is used
@@ -36,24 +37,6 @@ func init() {
 	if simd.Emulated() {
 		simdThreshold = math.MaxInt
 	}
-}
-
-// laneBuf holds a stored byte mask: 64 bytes covers the widest vector. The
-// mask helpers stay local to avoid spending more of the experiment's tight
-// inlining budget.
-type laneBuf [8]uint64
-
-// firstLane returns the index of the first true lane of m, given n lanes, or
-// -1 if none is set. The simd package has no movemask, so the mask is stored
-// as 0xFF-per-true-lane bytes and scanned a word at a time.
-func firstLane(m simd.Mask8s, n int, tmp *laneBuf) int {
-	m.ToInt8s().ToBits().ReshapeToUint64s().Store(tmp[:])
-	for j := 0; j < n/8; j++ {
-		if w := tmp[j]; w != 0 {
-			return j*8 + bits.TrailingZeros64(w)/8
-		}
-	}
-	return -1
 }
 
 // equalASCIIPrefix returns the length, a multiple of 4, of the leading run
@@ -88,14 +71,14 @@ func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 		return 0
 	}
 	hi := simd.BroadcastUint8s(0x80)
-	var tmp laneBuf
+	var tmp bytes2.LaneBuf
 
 	i := 0
 	for ; i+w <= n; i += w {
 		v1 := simd.LoadUint8s(p1[i : i+w])
 		v2 := simd.LoadUint8s(p2[i : i+w])
 		flag := v1.Or(v2).And(hi).NotEqual(zero).Or(v1.NotEqual(v2))
-		if k := firstLane(flag, w, &tmp); k >= 0 {
+		if k := bytes2.FirstLane(flag, w, &tmp); k >= 0 {
 			return (i + k) &^ 3
 		}
 	}
@@ -107,7 +90,7 @@ func equalASCIIPrefixSIMD(p1, p2 []byte) int {
 		v1 := simd.LoadUint8s(p1[start:n])
 		v2 := simd.LoadUint8s(p2[start:n])
 		flag := v1.Or(v2).And(hi).NotEqual(zero).Or(v1.NotEqual(v2))
-		if k := firstLane(flag, w, &tmp); k >= 0 {
+		if k := bytes2.FirstLane(flag, w, &tmp); k >= 0 {
 			return (start + k) &^ 3
 		}
 		return n &^ 3
