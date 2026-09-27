@@ -476,6 +476,34 @@ func TestGenerateQuerySizeHint(t *testing.T) {
 	assert.LessOrEqual(t, allocs, 5.0, "an escape-dense value should grow at most once beyond the hint")
 }
 
+// TestAppendReusesBuilder appends into a builder that already holds text,
+// more than once, which is how VReplication builds a bulk INSERT: one
+// Append per row into the same values buffer. The large bind makes each
+// Append size the builder, and that sizing must be for the text it writes,
+// not for the builder's whole contents.
+func TestAppendReusesBuilder(t *testing.T) {
+	stmt, err := NewTestParser().Parse("insert into t(a, b) values (:a, :b)")
+	require.NoError(t, err)
+	pq := NewParsedQuery(stmt)
+	payload := strings.Repeat("It's a big one; \x00", 100)
+	require.GreaterOrEqual(t, len(payload), bindLargeValue)
+	bindVars := map[string]*querypb.BindVariable{
+		"a": sqltypes.StringBindVariable(payload),
+		"b": sqltypes.BytesBindVariable([]byte(payload)),
+	}
+	want, err := pq.GenerateQuery(bindVars, nil)
+	require.NoError(t, err)
+
+	for _, prefix := range []string{"", "x", strings.Repeat("p", 100), strings.Repeat("p", 10000)} {
+		var buf strings.Builder
+		buf.WriteString(prefix)
+		require.NoError(t, pq.Append(&buf, bindVars, nil))
+		assert.Equal(t, prefix+want, buf.String(), "prefix of %d bytes", len(prefix))
+		require.NoError(t, pq.Append(&buf, bindVars, nil))
+		assert.Equal(t, prefix+want+want, buf.String(), "prefix of %d bytes, second Append", len(prefix))
+	}
+}
+
 // BenchmarkGenerateQueryIntBinds is the shape where pre-sizing the builder
 // buys the least and its size pass costs the most: many small integer binds
 // whose text is barely longer than the placeholders it replaces. The
