@@ -213,6 +213,10 @@ go test -run '^$' -bench "$BENCH_PATTERN" -count=10 -benchmem $PKGS | tee plain.
 GOEXPERIMENT=simd go test -tags simd -run '^$' -bench "$BENCH_PATTERN" -count=10 -benchmem $PKGS | tee simd.txt
 go tool -modfile=tools/benchstat/go.mod benchstat plain.txt simd.txt
 
+# Kernel equivalence under the experiment: one package and one target per
+# run, which is what the workflow's fuzz step loops over.
+GOEXPERIMENT=simd go test -tags simd -run '^$' -fuzz '^FuzzByteSetIndex$' -fuzztime 30s ./go/bytes2/
+
 # Whole-tree compile through each build path.
 make build
 make build-experimental-simd

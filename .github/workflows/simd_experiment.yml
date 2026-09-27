@@ -48,6 +48,9 @@ on:
       benchtime:
         description: "Time per benchmark run (-benchtime)"
         default: "500ms"
+      fuzztime:
+        description: "Time per kernel fuzz target (-fuzztime)"
+        default: "30s"
 
 concurrency:
   group: format('{0}-{1}', ${{ github.ref }}, 'SIMD Experiment')
@@ -191,3 +194,28 @@ jobs:
         run: |
           set -exo pipefail
           go test -tags simd -timeout 10m ${SIMD_PACKAGES}
+
+      # Every kernel is fuzzed against its scalar reference under the
+      # experiment, per the adoption policy in
+      # doc/design-docs/SIMDOptimizations.md. The test steps above replay only
+      # the seed corpus: reaching generated inputs needs -fuzz, which takes one
+      # package and one target per run.
+      - name: Fuzz the kernels against their scalar references
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '30s' }}
+        run: |
+          set -exo pipefail
+          # -list confirms the target is still there before fuzzing it: a
+          # -fuzz regexp that matches nothing exits 0, so a renamed target
+          # would leave this step green having fuzzed nothing. grep must not
+          # be -q, which exits at the first match and races go test into a
+          # SIGPIPE that pipefail then adopts as the pipeline's status.
+          fuzz() {
+            go test -tags simd -list "^$1\$" "$2" | grep -x "$1" >/dev/null
+            go test -tags simd -run '^$' -fuzz "^$1\$" -fuzztime "${FUZZTIME}" "$2"
+          }
+          fuzz FuzzByteSetIndex ./go/bytes2/
+          fuzz FuzzIndexAny2 ./go/bytes2/
+          fuzz FuzzEncodeBytesSQL ./go/sqltypes/
+          fuzz FuzzEqualASCIIPrefix ./go/mysql/collations/internal/uca/
+          fuzz FuzzScanString ./go/vt/sqlparser/
