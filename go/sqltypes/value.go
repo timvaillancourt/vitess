@@ -980,6 +980,10 @@ func encodeBytesSQLBits(val []byte, b BinWriter) {
 // In Vitess, the way we are choosing to handle this behaviour is to always
 // preserve the escaping of % and _ as is in all the places and handle it like MySQL
 // in our evaluation engine for Like.
+//
+// It is built from encodeRef in init and not written afterwards: sqlEscapeSet,
+// which is what the run-based encoders scan for, comes from the same map, so
+// a new escape byte has to go through encodeRef to reach both.
 var SQLEncodeMap [256]byte
 
 // SQLDecodeMap is the reverse of SQLEncodeMap
