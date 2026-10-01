@@ -224,6 +224,7 @@ func (stc *ScatterConn) executeMultiShard(
 ) *concurrency.AllErrorRecorder {
 	// mu serializes the results observer and the collect callback across shards.
 	var mu sync.Mutex
+	multipleShards := len(rss) > 1
 
 	if session.InLockSession() && triggerLockHeartBeat(session) {
 		go stc.runLockQuery(ctx, session)
@@ -343,8 +344,11 @@ func (stc *ScatterConn) executeMultiShard(
 			if err != nil {
 				return newInfo, err
 			}
-			mu.Lock()
-			defer mu.Unlock()
+			// multiGoTransaction runs a single shard synchronously.
+			if multipleShards {
+				mu.Lock()
+				defer mu.Unlock()
+			}
 
 			if innerqr != nil {
 				resultsObserver.Observe(innerqr)

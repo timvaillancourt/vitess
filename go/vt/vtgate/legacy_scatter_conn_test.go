@@ -358,9 +358,9 @@ type recordingResultsObserver struct {
 }
 
 func (o *recordingResultsObserver) Observe(result *sqltypes.Result) {
-	mu.Lock()
+	o.mu.Lock()
 	o.recorded = append(o.recorded, result)
-	mu.Unlock()
+	o.mu.Unlock()
 }
 
 func TestMultiExecs(t *testing.T) {
