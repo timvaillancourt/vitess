@@ -863,6 +863,15 @@ func (sm *stateManager) Target() *querypb.Target {
 	return sm.target.CloneVT()
 }
 
+// TabletType returns the type the tablet is currently serving as, which is not
+// the type the client asked for: the two differ while a transition grace period
+// still admits the previous type.
+func (sm *stateManager) TabletType() topodatapb.TabletType {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.target.GetTabletType()
+}
+
 // IsServingString returns the name of the current TabletServer state.
 func (sm *stateManager) IsServingString() string {
 	if sm.IsServing() {

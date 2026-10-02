@@ -1516,8 +1516,9 @@ func (qre *QueryExecutor) generateFinalSQL(parsedQuery *sqlparser.ParsedQuery, b
 			username = callerid.GetUsername(callerid.ImmediateCallerIDFromContext(qre.ctx))
 		}
 		var buf strings.Builder
-		tabletTypeStr := qre.tsv.sm.target.TabletType.String()
-		buf.Grow(8 + len(username) + len(tabletTypeStr))
+		// Read through the accessor: a transition can land mid-request.
+		tabletTypeStr := qre.tsv.sm.TabletType().String()
+		buf.Grow(8 + len(username) + len(tabletTypeStr) + len(qre.marginComments.Leading))
 		buf.WriteString("/* ")
 		buf.WriteString(username)
 		buf.WriteString("@")

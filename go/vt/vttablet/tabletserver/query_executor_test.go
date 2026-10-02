@@ -498,6 +498,52 @@ func TestQueryExecutorQueryAnnotation(t *testing.T) {
 	}
 }
 
+// TestGenerateFinalSQLConcurrentTabletTypeChange guards the tablet-type read
+// behind the query annotation. Only `-race` reports a regression here: the read
+// is of an aligned enum, so even unsynchronized it returns one of the two valid
+// values and the assertions below still pass.
+func TestGenerateFinalSQLConcurrentTabletTypeChange(t *testing.T) {
+	sm := &stateManager{target: &querypb.Target{TabletType: topodatapb.TabletType_PRIMARY}}
+	qre := &QueryExecutor{
+		ctx: t.Context(),
+		tsv: &TabletServer{
+			config: &tabletenv.TabletConfig{AnnotateQueries: true},
+			sm:     sm,
+		},
+	}
+	parsed := &sqlparser.ParsedQuery{Query: "select 1"}
+	types := []topodatapb.TabletType{topodatapb.TabletType_PRIMARY, topodatapb.TabletType_REPLICA}
+	want := []string{"/* @PRIMARY */ select 1", "/* @REPLICA */ select 1"}
+	done := make(chan struct{})
+	t.Cleanup(func() { <-done })
+	go func() {
+		defer close(done)
+		for i := range 1000 {
+			// Match the lock used by tablet-type transitions.
+			sm.mu.Lock()
+			sm.target.TabletType = types[i%len(types)]
+			sm.mu.Unlock()
+		}
+	}()
+
+	for range 1000 {
+		qre.marginComments = sqlparser.MarginComments{}
+		query, withoutComments, err := qre.generateFinalSQL(parsed, nil)
+		require.NoError(t, err)
+		// require, not assert: one bad annotation would otherwise repeat for
+		// every remaining iteration.
+		require.Equal(t, parsed.Query, withoutComments)
+		require.Contains(t, want, query)
+	}
+	<-done
+
+	// The writer finished on REPLICA, so that is what the annotation reports.
+	qre.marginComments = sqlparser.MarginComments{}
+	query, _, err := qre.generateFinalSQL(parsed, nil)
+	require.NoError(t, err)
+	assert.Equal(t, want[1], query)
+}
+
 // TestQueryExecutorSelectImpossible is separate because it's a special case
 // because the "in transaction" case is a no-op.
 func TestQueryExecutorSelectImpossible(t *testing.T) {
