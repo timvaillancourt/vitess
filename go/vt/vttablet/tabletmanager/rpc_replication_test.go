@@ -402,7 +402,7 @@ func TestFullStatusCollectsEveryField(t *testing.T) {
 		"binlog.000001|154|||8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-8",
 	))
 	db.AddQuery("SELECT @@global.gtid_purged", sqltypes.MakeTestResult(sqltypes.MakeTestFields("gtid_purged", "varchar"), "8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-5"))
-	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
+	db.AddQuery("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("HEARTBEAT_INTERVAL", "float64"),
 		"4.5",
 	))

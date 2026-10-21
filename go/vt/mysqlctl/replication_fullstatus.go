@@ -59,7 +59,22 @@ var (
 		"Rpl_semi_sync_slave_status",
 		"Rpl_semi_sync_master_clients",
 	}
+
+	fullStatusSemiSyncVariablesQuery = mustBuildFullStatusQuery(fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)
+	fullStatusSemiSyncStatusesQuery  = mustBuildFullStatusQuery(fullStatusGlobalStatusQuery, fullStatusSemiSyncStatuses)
 )
+
+func mustBuildFullStatusQuery(queryTemplate string, names []string) string {
+	bv, err := sqltypes.BuildBindVariable(names)
+	if err != nil {
+		panic(err)
+	}
+	query, err := sqlparser.ParseAndBind(queryTemplate, bv)
+	if err != nil {
+		panic(err)
+	}
+	return query
+}
 
 // CollectFullStatusData collects FullStatus data on one connection. MariaDB is
 // not supported, because the mandatory variables include server_uuid, gtid_mode,
@@ -121,7 +136,8 @@ func (mysqld *Mysqld) CollectFullStatusData(ctx context.Context) (*replicationda
 	if err != nil && err != mysql.ErrNotReplica {
 		return nil, err
 	}
-	if err == nil {
+	isReplica := err == nil
+	if isReplica {
 		status.ReplicationStatus = replication.ReplicationStatusToProto(replicationStatus)
 	}
 
@@ -149,13 +165,15 @@ func (mysqld *Mysqld) CollectFullStatusData(ctx context.Context) (*replicationda
 		return nil, err
 	}
 
-	err = runFullStatusQuery(ctx, conn, "replication configuration", func() error {
-		var queryErr error
-		status.ReplicationConfiguration, queryErr = conn.Conn.ReplicationConfiguration(variables.ReplicaNetTimeout)
-		return queryErr
-	})
-	if err != nil {
-		return nil, err
+	if isReplica {
+		err = runFullStatusQuery(ctx, conn, "replication configuration", func() error {
+			var queryErr error
+			status.ReplicationConfiguration, queryErr = conn.Conn.ReplicationConfiguration(variables.ReplicaNetTimeout)
+			return queryErr
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return status, nil
@@ -238,7 +256,7 @@ func (mysqld *Mysqld) collectFullStatusSemiSync(ctx context.Context, conn *dbcon
 	var variables map[string]string
 	err := runFullStatusQuery(ctx, conn, "semi-sync variables", func() error {
 		var queryErr error
-		variables, queryErr = mysqld.fetchFullStatusValues(conn, fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)
+		variables, queryErr = mysqld.fetchFullStatusValues(conn, fullStatusSemiSyncVariablesQuery, len(fullStatusSemiSyncVariables))
 		return queryErr
 	})
 	if err != nil {
@@ -250,11 +268,14 @@ func (mysqld *Mysqld) collectFullStatusSemiSync(ctx context.Context, conn *dbcon
 	if err := parseSemiSyncVariables(status, variables); err != nil {
 		return err
 	}
+	if len(variables) == 0 {
+		return nil
+	}
 
 	var statuses map[string]string
 	err = runFullStatusQuery(ctx, conn, "semi-sync status", func() error {
 		var queryErr error
-		statuses, queryErr = mysqld.fetchFullStatusValues(conn, fullStatusGlobalStatusQuery, fullStatusSemiSyncStatuses)
+		statuses, queryErr = mysqld.fetchFullStatusValues(conn, fullStatusSemiSyncStatusesQuery, len(fullStatusSemiSyncStatuses))
 		return queryErr
 	})
 	if err != nil {
@@ -268,16 +289,8 @@ func (mysqld *Mysqld) collectFullStatusSemiSync(ctx context.Context, conn *dbcon
 
 // fetchFullStatusValues reads the requested variables or status values from
 // performance_schema.
-func (mysqld *Mysqld) fetchFullStatusValues(conn *dbconnpool.PooledDBConnection, queryTemplate string, names []string) (map[string]string, error) {
-	bv, err := sqltypes.BuildBindVariable(names)
-	if err != nil {
-		return nil, err
-	}
-	query, err := sqlparser.ParseAndBind(queryTemplate, bv)
-	if err != nil {
-		return nil, err
-	}
-	qr, err := conn.Conn.ExecuteFetch(query, len(names), false)
+func (mysqld *Mysqld) fetchFullStatusValues(conn *dbconnpool.PooledDBConnection, query string, maxRows int) (map[string]string, error) {
+	qr, err := conn.Conn.ExecuteFetch(query, maxRows, false)
 	if err != nil {
 		return nil, err
 	}

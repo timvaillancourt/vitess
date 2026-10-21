@@ -294,5 +294,5 @@ func IsNum(typ uint8) bool {
 }
 
 const (
-	readReplicationConnectionConfiguration = "SELECT * FROM performance_schema.replication_connection_configuration"
+	readReplicationConnectionConfiguration = "SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration"
 )

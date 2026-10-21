@@ -35,7 +35,6 @@ import (
 	"vitess.io/vitess/go/vt/dbconfigs"
 	"vitess.io/vitess/go/vt/dbconnpool"
 	replicationdatapb "vitess.io/vitess/go/vt/proto/replicationdata"
-	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/vtenv"
 )
 
@@ -80,7 +79,7 @@ func TestCollectFullStatusData(t *testing.T) {
 			"Rpl_semi_sync_source_clients|3",
 		),
 	)
-	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
+	db.AddQuery("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("HEARTBEAT_INTERVAL", "float64"),
 		"4.5",
 	))
@@ -129,7 +128,7 @@ func TestCollectFullStatusData(t *testing.T) {
 	assert.Equal(t, selectOneCalls, db.GetQueryCalledNum("SELECT 1"))
 
 	db.AddQuery("SHOW REPLICA STATUS", &sqltypes.Result{})
-	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
+	db.AddQuery("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("HEARTBEAT_INTERVAL", "float64"),
 	))
 	db.ResetQueryLog()
@@ -139,8 +138,8 @@ func TestCollectFullStatusData(t *testing.T) {
 	require.NotNil(t, status)
 	assert.Nil(t, status.ReplicationStatus)
 	assert.Nil(t, status.ReplicationConfiguration)
-	// A primary reads the same batch, so the query count does not move.
-	assert.Len(t, strings.Split(db.QueryLog(), ";"), 6)
+	assert.Zero(t, db.GetQueryCalledNum("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration"))
+	assert.Len(t, strings.Split(db.QueryLog(), ";"), 5)
 }
 
 func newCollectFullStatusDataTestMysqld(t *testing.T) (*fakesqldb.DB, *Mysqld) {
@@ -164,7 +163,7 @@ func newCollectFullStatusDataTestMysqld(t *testing.T) (*fakesqldb.DB, *Mysqld) {
 	db.AddQuery("SHOW REPLICA STATUS", &sqltypes.Result{})
 	db.AddQuery("SHOW BINARY LOG STATUS", &sqltypes.Result{})
 	db.AddQuery("SELECT @@global.gtid_purged", sqltypes.MakeTestResult(sqltypes.MakeTestFields("gtid_purged", "varchar"), "8bc65c84-3fe4-11ed-a912-257f0fcdd6c9:1-5"))
-	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", &sqltypes.Result{})
+	db.AddQuery("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration", &sqltypes.Result{})
 	db.AddQueryPattern("SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN .*", &sqltypes.Result{})
 	db.AddQueryPattern("SELECT variable_name, variable_value FROM performance_schema.global_status WHERE variable_name IN .*", &sqltypes.Result{})
 
@@ -183,7 +182,7 @@ func TestCollectFullStatusDataStopsAfterCancellation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, result)
 	assert.Zero(t, db.GetQueryCalledNum("SHOW BINARY LOG STATUS"))
-	assert.Zero(t, db.GetQueryCalledNum("SELECT * FROM performance_schema.replication_connection_configuration"))
+	assert.Zero(t, db.GetQueryCalledNum("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration"))
 }
 
 func TestCollectFullStatusDataCancelsBlockedQuery(t *testing.T) {
@@ -195,14 +194,19 @@ func TestCollectFullStatusDataCancelsBlockedQuery(t *testing.T) {
 		{name: "variables"},
 		{name: "replication status", query: "SHOW REPLICA STATUS"},
 		{name: "primary status", query: "SHOW BINARY LOG STATUS"},
-		{name: "semi-sync variables", query: fullStatusSemiSyncQuery(t, fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)},
-		{name: "semi-sync status", query: fullStatusSemiSyncQuery(t, fullStatusGlobalStatusQuery, fullStatusSemiSyncStatuses)},
-		{name: "replication configuration", query: "SELECT * FROM performance_schema.replication_connection_configuration"},
+		{name: "semi-sync variables", query: fullStatusSemiSyncVariablesQuery},
+		{name: "semi-sync status", query: fullStatusSemiSyncStatusesQuery},
+		{name: "replication configuration", query: "SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration"},
 		{name: "replication status after reconnect", query: "SHOW REPLICA STATUS", retry: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mysqld := newCollectFullStatusDataTestMysqld(t)
+			db.AddQuery("SHOW REPLICA STATUS", sqltypes.MakeTestResult(sqltypes.MakeTestFields("Last_SQL_Error|Last_IO_Error", "varchar|varchar"), "|"))
+			db.AddQuery(fullStatusSemiSyncVariablesQuery, sqltypes.MakeTestResult(
+				sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
+				"rpl_semi_sync_source_enabled|ON",
+			))
 			require.NoError(t, mysqld.dbaPool.SetCapacity(t.Context(), 1))
 			conn, err := mysqld.GetDbaConnection(t.Context())
 			require.NoError(t, err)
@@ -450,25 +454,13 @@ func TestCollectFullStatusDataRetriesVariablesAfterLostConnection(t *testing.T) 
 	assert.Equal(t, "test-uuid", status.ServerUuid)
 }
 
-// fullStatusSemiSyncQuery builds the bound semi-sync query for the given names
-// so tests can register it as an exact query.
-func fullStatusSemiSyncQuery(t *testing.T, queryTemplate string, names []string) string {
-	t.Helper()
-
-	bv, err := sqltypes.BuildBindVariable(names)
-	require.NoError(t, err)
-	query, err := sqlparser.ParseAndBind(queryTemplate, bv)
-	require.NoError(t, err)
-	return query
-}
-
 // TestCollectFullStatusDataRetriesSemiSyncAfterLostConnection covers a
 // connection lost while reading semi-sync data. Without a retry the collector
 // reports semi-sync as disabled and off while returning success, which VTOrc
 // consumes as the truth and can act on.
 func TestCollectFullStatusDataRetriesSemiSyncAfterLostConnection(t *testing.T) {
-	variablesQuery := fullStatusSemiSyncQuery(t, fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)
-	statusQuery := fullStatusSemiSyncQuery(t, fullStatusGlobalStatusQuery, fullStatusSemiSyncStatuses)
+	variablesQuery := fullStatusSemiSyncVariablesQuery
+	statusQuery := fullStatusSemiSyncStatusesQuery
 
 	testcases := []struct {
 		name  string
@@ -521,7 +513,7 @@ func TestCollectFullStatusDataRetriesSemiSyncAfterLostConnection(t *testing.T) {
 
 func TestCollectFullStatusDataFailsWhenMySQLStaysDownDuringSemiSync(t *testing.T) {
 	db, mysqld := newCollectFullStatusDataTestMysqld(t)
-	variablesQuery := fullStatusSemiSyncQuery(t, fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)
+	variablesQuery := fullStatusSemiSyncVariablesQuery
 	db.AddQuery(variablesQuery, &sqltypes.Result{})
 	db.SetBeforeFunc(variablesQuery, func() {
 		db.EnableConnFail()
@@ -616,7 +608,7 @@ func TestCollectFullStatusDataOmitsGTIDPurgedForFilePos(t *testing.T) {
 	db.AddQuery("SHOW SLAVE STATUS", &sqltypes.Result{})
 	db.AddQuery("SHOW BINARY LOG STATUS", &sqltypes.Result{})
 	db.AddQuery("SHOW MASTER STATUS", &sqltypes.Result{})
-	db.AddQuery("SELECT * FROM performance_schema.replication_connection_configuration", &sqltypes.Result{})
+	db.AddQuery("SELECT HEARTBEAT_INTERVAL FROM performance_schema.replication_connection_configuration", &sqltypes.Result{})
 	db.AddQueryPattern("SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN .*", &sqltypes.Result{})
 	db.AddQueryPattern("SELECT variable_name, variable_value FROM performance_schema.global_status WHERE variable_name IN .*", &sqltypes.Result{})
 
@@ -712,8 +704,8 @@ func TestCollectFullStatusSemiSync(t *testing.T) {
 		assert.Equal(t, uint32(3), status.SemiSyncPrimaryClients)
 	})
 
-	// A server without the semi-sync plugin answers both reads with an empty
-	// result and no error, which is how "off" is meant to be reported.
+	// An empty variable result means the semi-sync plugin is absent, so there is
+	// no status to read.
 	t.Run("plugin absent reports off", func(t *testing.T) {
 		db, mysqld, conn := newTestMysqld(t)
 		db.AddQueryPattern("SELECT variable_name, variable_value FROM performance_schema.global_variables WHERE variable_name IN .*", &sqltypes.Result{})
@@ -723,6 +715,7 @@ func TestCollectFullStatusSemiSync(t *testing.T) {
 		err := mysqld.collectFullStatusSemiSync(t.Context(), conn, status)
 		require.NoError(t, err)
 
+		assert.Zero(t, db.GetQueryCalledNum(fullStatusSemiSyncStatusesQuery))
 		assert.False(t, status.SemiSyncPrimaryEnabled)
 		assert.False(t, status.SemiSyncReplicaEnabled)
 		assert.False(t, status.SemiSyncPrimaryStatus)
