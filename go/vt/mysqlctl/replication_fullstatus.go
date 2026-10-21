@@ -60,10 +60,15 @@ var (
 		"Rpl_semi_sync_master_clients",
 	}
 
+	// The names are fixed, so bind both queries once at package initialization
+	// rather than on every collection. Only the SQL is reused, not the results.
 	fullStatusSemiSyncVariablesQuery = mustBuildFullStatusQuery(fullStatusGlobalVariablesQuery, fullStatusSemiSyncVariables)
 	fullStatusSemiSyncStatusesQuery  = mustBuildFullStatusQuery(fullStatusGlobalStatusQuery, fullStatusSemiSyncStatuses)
 )
 
+// mustBuildFullStatusQuery binds a static query during package initialization.
+// It panics on construction errors because the inputs are hard-coded, not
+// supplied by MySQL or an RPC caller.
 func mustBuildFullStatusQuery(queryTemplate string, names []string) string {
 	bv, err := sqltypes.BuildBindVariable(names)
 	if err != nil {
